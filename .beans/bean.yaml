@@ -107,6 +107,22 @@ bean:
     type: datetime
     auto: true
 
+  attempts:
+    type: integer
+    default: 0
+    description: >
+      Number of times `bn close` has been attempted on this bean.
+      Incremented on each close attempt (successful or failed).
+      Used to track retries and trigger max_attempts circuit breaker.
+
+  max_attempts:
+    type: integer
+    description: >
+      Maximum number of close attempts allowed. If attempts reaches
+      this value, `bn close` fails with "max attempts exceeded."
+      Prevents infinite retry loops. Typical value: 3-5. If not set,
+      no limit (but swarm orchestration should set a sane default).
+
   # --- Optional fields ---
   description:
     type: string
@@ -306,17 +322,29 @@ commands:
 
   close:
     usage: "bn close <id> [ids...]"
-    description: Close one or more beans (runs verify gate first)
+    description: Close one or more beans (agent-mode, verifies and undoes on failure)
     flags:
       --reason: "Close reason"
     behavior: >
-      If the bean has a verify field, runs the command first.
-      If verify exits non-zero, the bean stays open and the output
-      is printed. There is no --force flag — if verify fails, the
-      work isn't done. If verify passes (or no verify field exists),
-      sets status=closed, closed_at=now. Updates YAML and index.
+      Beans is designed for agents. bn close always verifies.
+
+      For each bean: increment attempts counter. If bean has a verify
+      field, run the command. If verify exits 0: set status=closed,
+      closed_at=now. Notes and design survive. Done.
+
+      If verify exits non-zero (or attempts >= max_attempts):
+      Call undo via /ai-tools to roll back all changes since the bean
+      was assigned. Notes and design survive but all code changes are
+      reverted. Bean stays open, stays in ready queue for next agent.
+      Attempts counter persists — next agent sees how many tries failed.
+
+      If no verify field exists, just closes (no undo).
+
+      If attempts >= max_attempts: fail with "max attempts exceeded,
+      needs human review." Bean does not close or undo.
+
       Supports closing multiple beans in one command (each is
-      verified independently).
+      processed independently).
 
   verify:
     usage: "bn verify <id>"

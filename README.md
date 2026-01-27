@@ -64,6 +64,8 @@ labels:
   - cli
   - core
 created_at: 2026-01-26T15:00:00-08:00
+attempts: 1
+max_attempts: 3
 description: |
   Implement the `bn list` and `bn show` commands.
 
@@ -89,7 +91,7 @@ acceptance: |
 verify: cargo test --lib commands::list commands::show
 ```
 
-The description is the agent prompt. Rich enough that an agent can pick it up cold and execute. The `verify` field is the machine-checkable gate — `bn close` runs it and only closes the bean if it exits 0.
+The description is the agent prompt. Rich enough that an agent can pick it up cold and execute. The `verify` field is the machine-checkable gate — `bn close` runs it, closes the bean if it exits 0, or undoes all changes and retries with a fresh agent if it fails. Each attempt is tracked; after `max_attempts`, the bean needs human review.
 
 ## Commands
 
@@ -102,7 +104,7 @@ The description is the agent prompt. Rich enough that an agent can pick it up co
 | `bn show <id>` | Display a bean (raw YAML, `--json`, or `--short`) |
 | `bn list` | List beans with filtering (`--status`, `--priority`, `--tree`) |
 | `bn update <id>` | Modify bean fields |
-| `bn close <id>` | Run verify command; close only if it passes |
+| `bn close <id>` | Run verify, close if passes; undo and retry if fails |
 | `bn verify <id>` | Run verify command without closing |
 | `bn reopen <id>` | Reopen a closed bean |
 | `bn delete <id>` | Remove a bean and clean up references |
@@ -170,6 +172,21 @@ A leaf bean is ready for autonomous execution when:
 - **Testable** — concrete acceptance criteria, not "works correctly"
 - **Unambiguous** — the "how" is clear, not just the "what"
 - **Fits in context** — estimated <64k tokens
+
+## Agent Workflow
+
+Beans is designed for agents first. Each bean becomes a ralph loop:
+
+1. **Swarm dispatches** — reads `bn ready`, sends a bean to an agent
+2. **Agent works** — modifies files, writes code, iterates
+3. **Agent closes** — runs `bn close <id>`
+4. **Verify runs** — bean's verify command must exit 0
+5. **Success** — bean closes, dependents become ready
+6. **Failure** — verify fails, all changes undo via `/ai-tools`, bean stays open, `attempts` increments
+7. **Retry** — fresh agent gets the same bean with clean state, can see `notes` and `design` from the previous attempt
+8. **Limits** — after `max_attempts`, bean stops retrying and needs human review
+
+The key insight: agents never debug their own code. Verify fails → undo → fresh agent with the same bean. No stuck loops, no token waste on debugging. Each attempt is a clean shot.
 
 ## Beans vs Beads
 
