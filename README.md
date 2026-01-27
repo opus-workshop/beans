@@ -4,7 +4,7 @@ A hierarchical task engine where every task is a YAML file.
 
 No databases. No daemons. No background processes. Just files you can read, edit, grep, and git-diff.
 
-> **Status:** Design complete. Not yet implemented. See [`.beans/bean.yaml`](.beans/bean.yaml) for the full spec.
+> **Status:** Fully implemented. Core CLI and commands working. See [`.beans/`](.beans/) for active development tracking.
 
 ## Origin
 
