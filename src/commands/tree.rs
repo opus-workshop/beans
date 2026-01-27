@@ -4,7 +4,6 @@ use anyhow::Result;
 
 use crate::bean::Status;
 use crate::index::Index;
-use crate::util::natural_cmp;
 
 /// Show hierarchical tree of beans with status indicators
 /// If id provided: show subtree rooted at that bean
