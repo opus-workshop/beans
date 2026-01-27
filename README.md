@@ -4,9 +4,15 @@ A hierarchical task engine where every task is a YAML file.
 
 No databases. No daemons. No background processes. Just files you can read, edit, grep, and git-diff.
 
-## Why
+## Origin
 
-Task trackers optimize for machines. Beans optimizes for humans.
+Beans is inspired by Steve Yegge's [beads](https://github.com/steveyegge/beads) — a distributed, git-backed issue tracker built for AI coding agents. Beads proved that structured task management with dependency graphs and readiness checks is the right foundation for agent-driven development. If you haven't looked at it, you should.
+
+Beans takes that foundation and rebuilds it around a different set of tradeoffs: individual YAML files instead of JSONL, sequential IDs instead of hashes, a stateless CLI instead of daemons and SQLite caches. Where beads optimizes for distributed multi-agent infrastructure, beans optimizes for a human staring at a file tree.
+
+The core insight is the same. The interface is different.
+
+## Why
 
 A bean is a unit of work with enough context to execute autonomously. Parent beans provide strategic context. Leaf beans are self-contained agent prompts — swarmable. The hierarchy lives in the filesystem: `3.2.yaml` is a child of `3.yaml`. You see the structure before opening a single file.
 
