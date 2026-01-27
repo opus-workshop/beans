@@ -1,0 +1,53 @@
+id: 1
+title: Project scaffolding + CLI skeleton
+status: open
+priority: 0
+created_at: 2026-01-26T15:00:00-08:00
+updated_at: 2026-01-26T15:00:00-08:00
+description: |
+  Set up the Rust project structure for the `bn` CLI tool.
+
+  ## What to implement
+
+  ### main() — src/main.rs
+  Entry point. Parse CLI args with clap, dispatch to command handlers.
+  For now, all command handlers are stubs that print "not implemented".
+
+  ### build_cli() — src/cli.rs
+  Define the clap App with all subcommands and flags from the spec.
+  Subcommands: init, create, show, list, update, close, reopen, delete,
+  dep (add/remove/list/tree/cycles), ready, blocked, tree, graph, sync,
+  stats, doctor.
+
+  ## Files to create
+  - Cargo.toml — binary crate `bn`
+  - src/main.rs — main() dispatching to stub handlers
+  - src/cli.rs — clap derive structs for all commands
+  - src/lib.rs — module declarations (empty modules for now)
+
+  ## Cargo.toml dependencies
+  ```toml
+  [package]
+  name = "bn"
+  version = "0.1.0"
+  edition = "2021"
+
+  [dependencies]
+  clap = { version = "4", features = ["derive"] }
+  serde = { version = "1", features = ["derive"] }
+  serde_yaml = "0.9"
+  chrono = { version = "0.4", features = ["serde"] }
+  anyhow = "1"
+  ```
+
+  ## Patterns
+  - Use clap derive macros (#[derive(Parser)], #[derive(Subcommand)])
+  - Each subcommand is a variant in a Subcommand enum
+  - main() matches on the subcommand and calls the handler
+  - For now, handlers just return Ok(()) or print "not implemented"
+
+acceptance: |
+  - `cargo build` succeeds
+  - `bn --help` shows all subcommands
+  - `bn init --help`, `bn create --help`, etc. show correct flags
+  - Running any command prints "not implemented" or similar stub

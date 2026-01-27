@@ -1,0 +1,74 @@
+beans:
+- id: '1'
+  title: Project scaffolding + CLI skeleton
+  status: open
+  priority: 0
+  updated_at: 2026-01-26T23:00:00Z
+- id: '2'
+  title: Bean data model + YAML I/O
+  status: open
+  priority: 0
+  dependencies:
+  - '1'
+  updated_at: 2026-01-26T23:00:00Z
+- id: '3'
+  title: Config + directory discovery
+  status: open
+  priority: 0
+  dependencies:
+  - '1'
+  updated_at: 2026-01-26T23:00:00Z
+- id: '4'
+  title: Index engine
+  status: open
+  priority: 0
+  dependencies:
+  - '2'
+  updated_at: 2026-01-26T23:00:00Z
+- id: '5'
+  title: bn init + bn create
+  status: open
+  priority: 1
+  dependencies:
+  - '2'
+  - '3'
+  - '4'
+  updated_at: 2026-01-26T23:00:00Z
+- id: '6'
+  title: bn show + bn list
+  status: open
+  priority: 1
+  dependencies:
+  - '2'
+  - '4'
+  updated_at: 2026-01-26T23:00:00Z
+- id: '7'
+  title: bn update + close + reopen + delete
+  status: open
+  priority: 1
+  dependencies:
+  - '2'
+  - '4'
+  updated_at: 2026-01-26T23:00:00Z
+- id: '8'
+  title: bn dep add/remove/list/tree/cycles
+  status: open
+  priority: 1
+  dependencies:
+  - '2'
+  - '4'
+  updated_at: 2026-01-26T23:00:00Z
+- id: '9'
+  title: bn ready + bn blocked
+  status: open
+  priority: 1
+  dependencies:
+  - '4'
+  updated_at: 2026-01-26T23:00:00Z
+- id: '10'
+  title: bn tree + graph + stats + doctor + sync
+  status: open
+  priority: 1
+  dependencies:
+  - '4'
+  updated_at: 2026-01-26T23:00:00Z

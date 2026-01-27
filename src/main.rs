@@ -1,40 +1,139 @@
+use std::env;
+
 use anyhow::Result;
 use clap::Parser;
 
 mod cli;
 
 use cli::{Cli, Command, DepCommand};
+use bn::commands::{cmd_init, cmd_create, cmd_list, cmd_show, cmd_update, cmd_close, cmd_reopen, cmd_delete};
+use bn::discovery::find_beans_dir;
+use bn::commands::create::CreateArgs;
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Command::Init { .. } => {
-            eprintln!("bn init: not yet implemented");
+        Command::Init { name } => {
+            cmd_init(name)?;
         }
-        Command::Create { .. } => {
-            eprintln!("bn create: not yet implemented");
+        Command::Create {
+            title,
+            set_title,
+            description,
+            acceptance,
+            notes,
+            design,
+            verify: _,
+            parent,
+            priority,
+            labels,
+            assignee,
+            deps,
+        } => {
+            // Determine the title from either positional or --set-title flag
+            let title = title.or(set_title);
+            if title.is_none() {
+                anyhow::bail!("bn create: title is required");
+            }
+            let title = title.unwrap();
+
+            // Find the .beans directory
+            let cwd = env::current_dir()?;
+            let beans_dir = find_beans_dir(&cwd)?;
+
+            let args = CreateArgs {
+                title,
+                description,
+                acceptance,
+                notes,
+                design,
+                priority,
+                labels,
+                assignee,
+                deps,
+                parent,
+            };
+
+            cmd_create(&beans_dir, args)?;
         }
-        Command::Show { .. } => {
-            eprintln!("bn show: not yet implemented");
+        Command::Show { id, json, short } => {
+            let cwd = env::current_dir()?;
+            let beans_dir = find_beans_dir(&cwd)?;
+            cmd_show(&id, json, short, &beans_dir)?;
         }
-        Command::List { .. } => {
-            eprintln!("bn list: not yet implemented");
+        Command::List {
+            status,
+            priority,
+            parent,
+            label,
+            assignee,
+            all,
+            tree: _tree,
+            json,
+            limit: _limit,
+        } => {
+            let cwd = env::current_dir()?;
+            let beans_dir = find_beans_dir(&cwd)?;
+            cmd_list(
+                status.as_deref(),
+                priority,
+                parent.as_deref(),
+                label.as_deref(),
+                assignee.as_deref(),
+                all,
+                json,
+                &beans_dir,
+            )?;
         }
-        Command::Update { .. } => {
-            eprintln!("bn update: not yet implemented");
+        Command::Update {
+            id,
+            title,
+            description,
+            acceptance,
+            notes,
+            design,
+            status,
+            priority,
+            assignee,
+            verify: _,
+            add_label,
+            remove_label,
+        } => {
+            let cwd = env::current_dir()?;
+            let beans_dir = find_beans_dir(&cwd)?;
+            cmd_update(
+                &beans_dir,
+                &id,
+                title,
+                description,
+                acceptance,
+                notes,
+                design,
+                status,
+                priority,
+                assignee,
+                add_label,
+                remove_label,
+            )?;
         }
-        Command::Close { .. } => {
-            eprintln!("bn close: not yet implemented");
+        Command::Close { ids, reason } => {
+            let cwd = env::current_dir()?;
+            let beans_dir = find_beans_dir(&cwd)?;
+            cmd_close(&beans_dir, ids, reason)?;
         }
         Command::Verify { .. } => {
             eprintln!("bn verify: not yet implemented");
         }
-        Command::Reopen { .. } => {
-            eprintln!("bn reopen: not yet implemented");
+        Command::Reopen { id } => {
+            let cwd = env::current_dir()?;
+            let beans_dir = find_beans_dir(&cwd)?;
+            cmd_reopen(&beans_dir, &id)?;
         }
-        Command::Delete { .. } => {
-            eprintln!("bn delete: not yet implemented");
+        Command::Delete { id } => {
+            let cwd = env::current_dir()?;
+            let beans_dir = find_beans_dir(&cwd)?;
+            cmd_delete(&beans_dir, &id)?;
         }
         Command::Dep { command } => match command {
             DepCommand::Add { .. } => {

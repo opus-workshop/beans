@@ -1,0 +1,72 @@
+id: 6
+title: bn show + bn list
+status: open
+priority: 1
+dependencies:
+  - 2
+  - 4
+created_at: 2026-01-26T15:00:00-08:00
+updated_at: 2026-01-26T15:00:00-08:00
+description: |
+  Implement the bn show and bn list commands.
+
+  ## What to implement
+
+  ### cmd_show(id, flags) -> Result<()>
+  - Read .beans/{id}.yaml
+  - Default: print the raw YAML (cat the file)
+  - --json: deserialize and re-serialize as JSON
+  - --short: print one-line summary "{id}. {title} [{status}]"
+
+  ### cmd_list(flags) -> Result<()>
+  - Load index (auto-rebuild if stale)
+  - Apply filters: --status, --priority, --parent, --label, --assignee
+  - Default output: tree-format with status indicators:
+    ```
+    [ ] 1. Project scaffolding
+    [-] 2. Data model
+      [x] 2.1 Bean struct
+      [-] 2.2 YAML I/O
+    ```
+  - --all: include closed beans (default: exclude closed)
+  - --json: output as JSON array
+  - Derive blocked status from dependencies for display:
+    [!] shown for beans with unresolved deps
+  - Print bean.yaml hint if bean.yaml mtime > newest numbered bean mtime
+
+  ### render_tree(entries, filters) -> String
+  Build hierarchical tree from flat index entries using parent field.
+  Indent children under parents. Status indicators:
+  [ ] open, [-] in_progress, [x] closed, [!] blocked.
+
+  ### is_blocked(entry, index) -> bool
+  Check if any of entry's dependencies have status != closed.
+  Used by render_tree to show [!] indicator.
+
+  ## Files
+  - src/commands/show.rs (create)
+  - src/commands/list.rs (create)
+  - src/main.rs (modify — wire up show and list)
+
+  ## Context needed
+  - src/bean.rs: Bean::from_file()
+  - src/index.rs: Index::load_or_rebuild(), IndexEntry
+  - src/discovery.rs: find_beans_dir()
+  - src/cli.rs: Clap arg structs for show and list
+
+  ## Output format
+  Legend line at bottom: "Legend: [ ] open  [-] in_progress  [x] closed  [!] blocked"
+  Tree indentation: 2 spaces per level.
+
+acceptance: |
+  - `bn show 1` prints raw YAML of bean 1
+  - `bn show 1 --json` prints valid JSON
+  - `bn show 999` prints "Bean 999 not found."
+  - `bn list` shows tree-format with status indicators
+  - `bn list --status open` shows only open beans
+  - `bn list --parent 3` shows children of bean 3
+  - `bn list --all` includes closed beans
+  - Blocked beans show [!] indicator
+  - bean.yaml hint prints when bean.yaml is newer
+  - cargo build succeeds
+  - cargo test passes

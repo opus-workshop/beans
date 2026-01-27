@@ -1,0 +1,73 @@
+id: 2
+title: Bean data model + YAML I/O
+status: open
+priority: 0
+dependencies:
+  - 1
+created_at: 2026-01-26T15:00:00-08:00
+updated_at: 2026-01-26T15:00:00-08:00
+description: |
+  Define the Bean struct and implement YAML serialization/deserialization.
+
+  ## What to implement
+
+  ### Bean struct — src/bean.rs
+  The core data type. All fields from the spec:
+  ```rust
+  pub struct Bean {
+      pub id: String,              // "1", "3.2", "3.2.1"
+      pub title: String,
+      pub status: Status,          // open, in_progress, closed
+      pub priority: u8,            // 0-4, default 2
+      pub created_at: DateTime<Utc>,
+      pub updated_at: DateTime<Utc>,
+      // Optional fields
+      pub description: Option<String>,
+      pub acceptance: Option<String>,
+      pub notes: Option<String>,
+      pub design: Option<String>,
+      pub labels: Vec<String>,
+      pub assignee: Option<String>,
+      pub closed_at: Option<DateTime<Utc>>,
+      pub close_reason: Option<String>,
+      // Structural
+      pub parent: Option<String>,
+      pub dependencies: Vec<String>,
+  }
+  ```
+
+  ### Status enum
+  ```rust
+  pub enum Status {
+      Open,
+      InProgress,
+      Closed,
+  }
+  ```
+  Serialize as lowercase: "open", "in_progress", "closed".
+
+  ### Bean::from_file(path) -> Result<Bean>
+  Read a YAML file and deserialize into Bean.
+
+  ### Bean::to_file(&self, path) -> Result<()>
+  Serialize Bean to YAML and write to file.
+
+  ### Bean::new(id, title) -> Bean
+  Constructor with sensible defaults (status=open, priority=2, timestamps=now).
+
+  ## Files
+  - src/bean.rs (create)
+
+  ## Patterns
+  - Use serde derive with rename_all = "snake_case"
+  - Use #[serde(skip_serializing_if = "Option::is_none")] for optional fields
+  - Use #[serde(skip_serializing_if = "Vec::is_empty")] for labels and dependencies
+  - Use chrono::DateTime<Utc> for timestamps, serialize as ISO 8601
+
+acceptance: |
+  - Bean struct round-trips through YAML (serialize then deserialize = identical)
+  - Optional fields omitted from YAML when None/empty
+  - Status serializes as "open", "in_progress", "closed"
+  - Timestamps serialize as ISO 8601
+  - cargo build succeeds
+  - cargo test passes (write at least 2 round-trip tests)

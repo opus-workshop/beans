@@ -1,0 +1,73 @@
+id: 8
+title: bn dep add/remove/list/tree/cycles
+status: open
+priority: 1
+dependencies:
+  - 2
+  - 4
+created_at: 2026-01-26T15:00:00-08:00
+updated_at: 2026-01-26T15:00:00-08:00
+description: |
+  Implement dependency management commands.
+
+  ## What to implement
+
+  ### cmd_dep_add(id, depends_on_id) -> Result<()>
+  - Read .beans/{id}.yaml
+  - Check that depends_on_id exists
+  - Check that adding this edge won't create a cycle (call detect_cycle)
+  - Add depends_on_id to bean's dependencies array
+  - Write back, rebuild index
+  - Print: "Bean {id} now depends on {depends_on_id}"
+
+  ### cmd_dep_remove(id, depends_on_id) -> Result<()>
+  - Read bean, remove depends_on_id from dependencies
+  - Write back, rebuild index
+  - Print: "Removed dependency: {id} no longer depends on {depends_on_id}"
+
+  ### cmd_dep_list(id) -> Result<()>
+  - Read bean and index
+  - Print "Dependencies:" followed by list of deps with titles
+  - Print "Dependents:" followed by reverse lookup (beans that depend on this one)
+
+  ### cmd_dep_tree(id: Option<String>) -> Result<()>
+  - If id given: show dependency tree rooted at that bean
+  - If no id: show project-wide dependency graph as text tree
+  - Use indentation to show depth
+
+  ### detect_cycle(beans_dir, from_id, to_id) -> Result<bool>
+  Before adding edge from→to, check if to already has a path to from.
+  DFS from to_id following dependency edges. If from_id is reachable,
+  adding this edge would create a cycle.
+  On cycle: "Dependency cycle detected: {path}. Edge not added."
+
+  ## Files
+  - src/commands/dep.rs (create)
+  - src/graph.rs (create — detect_cycle and graph traversal utilities)
+  - src/main.rs (modify — wire up dep subcommands)
+
+  ## Context needed
+  - src/bean.rs: Bean::from_file(), Bean::to_file()
+  - src/index.rs: Index::load_or_rebuild(), IndexEntry
+  - src/discovery.rs: find_beans_dir()
+  - src/cli.rs: Clap arg structs for dep subcommands
+
+  ## Dep tree output format
+  ```
+  3 Implement CLI
+  ├── 2 YAML data model
+  └── 4 Index engine
+      └── 2 YAML data model
+  ```
+  Use box-drawing characters. Deduplicate shared deps with "(see above)".
+
+acceptance: |
+  - `bn dep add 3 2` adds dep, reflected in 3.yaml
+  - `bn dep add 3 3` or cyclic chain is rejected with error message
+  - `bn dep remove 3 2` removes the dep
+  - `bn dep list 3` shows deps and dependents with titles
+  - `bn dep tree 3` shows tree with box-drawing characters
+  - `bn dep tree` (no id) shows full project DAG
+  - `bn dep cycles` reports any cycles or "No cycles detected"
+  - cargo build succeeds
+  - cargo test passes

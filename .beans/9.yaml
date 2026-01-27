@@ -1,0 +1,63 @@
+id: 9
+title: bn ready + bn blocked
+status: open
+priority: 1
+dependencies:
+  - 4
+created_at: 2026-01-26T15:00:00-08:00
+updated_at: 2026-01-26T15:00:00-08:00
+description: |
+  Implement the ready and blocked view commands.
+
+  ## What to implement
+
+  ### cmd_ready() -> Result<()>
+  - Load index (auto-rebuild if stale)
+  - Filter: status=open AND no unresolved dependencies
+  - A dependency is unresolved if the depended-on bean's status != closed
+  - Sort by priority (P0 first), then by id
+  - Output flat list:
+    ```
+    P0  1    Project scaffolding
+    P0  2    YAML data model
+    P2  3.3  bn dep command
+    ```
+  - If nothing ready, print "No beans ready to work on."
+
+  ### cmd_blocked() -> Result<()>
+  - Load index
+  - Filter: status=open AND has at least one unresolved dependency
+  - Show what's blocking each bean:
+    ```
+    3.2  bn list/show commands  ← blocked by: 2
+    5    bn init + bn create    ← blocked by: 2, 3, 4
+    ```
+  - If nothing blocked, print "No blocked beans."
+
+  ### resolve_blocked(entry, index) -> Vec<String>
+  Given an IndexEntry, return the list of dependency IDs that are
+  not closed. This is the core logic shared by both commands.
+
+  ## Files
+  - src/commands/ready.rs (create)
+  - src/main.rs (modify — wire up ready and blocked)
+
+  ## Context needed
+  - src/index.rs: Index::load_or_rebuild(), IndexEntry
+  - src/discovery.rs: find_beans_dir()
+  - src/cli.rs: Clap arg structs
+
+  ## Note on blocked derivation
+  Only check immediate dependencies. If A depends on B and B depends
+  on C, A only checks B's status. Transitivity emerges naturally
+  because B won't be closed while C blocks it.
+
+acceptance: |
+  - `bn ready` shows open beans with all deps closed
+  - `bn ready` excludes in_progress and closed beans
+  - `bn ready` sorts by priority then id
+  - `bn blocked` shows open beans with unresolved deps
+  - `bn blocked` shows which beans are blocking
+  - Beans with no dependencies always appear in ready (if open)
+  - cargo build succeeds
+  - cargo test passes

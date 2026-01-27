@@ -1,0 +1,73 @@
+id: 7
+title: bn update + close + reopen + delete
+status: open
+priority: 1
+dependencies:
+  - 2
+  - 4
+created_at: 2026-01-26T15:00:00-08:00
+updated_at: 2026-01-26T15:00:00-08:00
+description: |
+  Implement bean mutation commands.
+
+  ## What to implement
+
+  ### cmd_update(id, flags) -> Result<()>
+  - Read .beans/{id}.yaml as Bean
+  - Apply flag changes: --title, --description, --acceptance, --notes,
+    --design, --status, --priority, --assignee, --add-label, --remove-label
+  - For --notes: APPEND with timestamp, don't replace.
+    Format: "\n\n---\n{timestamp}\n{new_note}"
+  - Set updated_at = now
+  - Write back to .beans/{id}.yaml
+  - Rebuild index
+  - Print: "Updated bean {id}"
+
+  ### cmd_close(ids, reason) -> Result<()>
+  - Accept one or more IDs
+  - For each: read bean, set status=closed, closed_at=now,
+    close_reason=reason (if given), updated_at=now
+  - Write back, rebuild index
+  - Print: "Closed bean {id}: {title}" for each
+
+  ### cmd_reopen(id) -> Result<()>
+  - Read bean, set status=open, clear closed_at and close_reason,
+    updated_at=now
+  - Write back, rebuild index
+  - Print: "Reopened bean {id}: {title}"
+
+  ### cmd_delete(id) -> Result<()>
+  - Read bean to confirm it exists
+  - Delete .beans/{id}.yaml
+  - Scan all other beans: remove this ID from their dependencies lists
+  - Rebuild index
+  - Print: "Deleted bean {id}: {title}"
+
+  ### cleanup_dep_references(beans_dir, deleted_id) -> Result<()>
+  Helper for delete. Reads all bean files, removes deleted_id from
+  any dependencies arrays, writes back modified beans.
+
+  ## Files
+  - src/commands/update.rs (create)
+  - src/commands/close.rs (create)
+  - src/commands/delete.rs (create)
+  - src/main.rs (modify — wire up commands)
+
+  ## Context needed
+  - src/bean.rs: Bean::from_file(), Bean::to_file()
+  - src/index.rs: Index::load_or_rebuild(), Index::build()
+  - src/discovery.rs: find_beans_dir()
+  - src/cli.rs: Clap arg structs
+
+acceptance: |
+  - `bn update 1 --title "New title"` changes title
+  - `bn update 1 --notes "Added context"` appends (not replaces)
+  - `bn update 1 --add-label rust` adds label
+  - `bn close 1` sets status=closed with timestamp
+  - `bn close 1 2 3` closes multiple beans
+  - `bn close 1 --reason "Done"` records reason
+  - `bn reopen 1` sets status=open, clears closed fields
+  - `bn delete 1` removes file and cleans up dep references
+  - All commands update index
+  - cargo build succeeds
+  - cargo test passes

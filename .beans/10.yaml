@@ -1,0 +1,81 @@
+id: 10
+title: bn tree + graph + stats + doctor + sync
+status: open
+priority: 1
+dependencies:
+  - 4
+created_at: 2026-01-26T15:00:00-08:00
+updated_at: 2026-01-26T15:00:00-08:00
+description: |
+  Implement view and housekeeping commands.
+
+  ## What to implement
+
+  ### cmd_tree(id: Option<String>) -> Result<()>
+  - Load index
+  - If id given: show subtree rooted at that bean
+  - If no id: show full project tree
+  - Hierarchical display using parent field:
+    ```
+    [x] 1. Build beans
+    [ ] 2. Design YAML schema
+    [-] 3. Implement CLI
+      [x] 3.1 bn create command
+      [-] 3.2 bn list/show commands
+      [ ] 3.3 bn dep command
+    ```
+  - Status indicators: [ ] open, [-] in_progress, [x] closed, [!] blocked
+
+  ### cmd_graph(format: OutputFormat) -> Result<()>
+  - Load index
+  - Emit dependency graph in Mermaid or Graphviz DOT syntax
+  - Mermaid (default):
+    ```
+    graph TD
+      1[Project scaffolding]
+      2[YAML data model]
+      3[Implement CLI] --> 2
+    ```
+  - DOT: standard digraph format
+
+  ### cmd_stats() -> Result<()>
+  - Load index
+  - Print: total beans, open, in_progress, closed, blocked counts
+  - Print: beans by priority breakdown
+  - Print: completion percentage
+
+  ### cmd_doctor() -> Result<()>
+  - Check for: orphaned dependencies (dep refs non-existent bean),
+    missing parent refs, dependency cycles, index freshness,
+    beans with status=closed but unclosed deps
+  - Print issues found, or "All clear."
+
+  ### cmd_sync() -> Result<()>
+  - Force rebuild index unconditionally (ignore mtime)
+  - Print: "Index rebuilt: {n} beans indexed."
+
+  ## Files
+  - src/commands/tree.rs (create)
+  - src/commands/graph.rs (create)
+  - src/commands/stats.rs (create)
+  - src/commands/doctor.rs (create)
+  - src/commands/sync.rs (create)
+  - src/main.rs (modify — wire up all commands)
+
+  ## Context needed
+  - src/index.rs: Index::load_or_rebuild(), Index::build(), IndexEntry
+  - src/graph.rs: detect_cycle (reuse from bean 8)
+  - src/discovery.rs: find_beans_dir()
+  - src/cli.rs: Clap arg structs
+
+acceptance: |
+  - `bn tree` shows full project hierarchy with status indicators
+  - `bn tree 3` shows subtree of bean 3
+  - `bn graph` outputs valid Mermaid syntax
+  - `bn graph --format dot` outputs valid DOT syntax
+  - `bn stats` shows correct counts
+  - `bn doctor` detects orphaned deps and cycles
+  - `bn doctor` reports "All clear" when no issues
+  - `bn sync` rebuilds index unconditionally
+  - cargo build succeeds
+  - cargo test passes
