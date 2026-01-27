@@ -189,7 +189,7 @@ mod tests {
         let beans_dir = dir.path().join(".beans");
         fs::create_dir(&beans_dir).unwrap();
 
-        let mut b1 = Bean::new("1", "Open task");
+        let b1 = Bean::new("1", "Open task");
         let mut b2 = Bean::new("2", "In progress");
         b2.status = crate::bean::Status::InProgress;
         let mut b3 = Bean::new("3", "Closed");

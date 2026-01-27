@@ -8,7 +8,10 @@ use crate::index::Index;
 use crate::util::parse_status;
 
 #[cfg(test)]
-use std::fs;
+use crate::bean::Status;
+
+#[cfg(test)]
+use tempfile::TempDir;
 
 /// Update a bean's fields based on provided flags.
 ///
@@ -114,7 +117,9 @@ pub fn cmd_update(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bean::Status;
     use tempfile::TempDir;
+    use std::fs;
 
     fn setup_test_beans_dir() -> (TempDir, std::path::PathBuf) {
         let dir = TempDir::new().unwrap();

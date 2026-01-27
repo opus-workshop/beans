@@ -115,7 +115,8 @@ mod tests {
 
     #[test]
     fn parse_id_segments_non_numeric_skipped() {
-        assert_eq!(parse_id_segments("abc"), vec![]);
+        let empty: Vec<u64> = vec![];
+        assert_eq!(parse_id_segments("abc"), empty);
         assert_eq!(parse_id_segments("1.abc.2"), vec![1, 2]);
     }
 

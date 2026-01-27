@@ -8,6 +8,8 @@ use crate::index::Index;
 
 #[cfg(test)]
 use std::fs;
+#[cfg(test)]
+use crate::bean::Status;
 
 /// Close one or more beans.
 ///
@@ -56,7 +58,6 @@ pub fn cmd_close(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bean::Status;
     use tempfile::TempDir;
 
     fn setup_test_beans_dir() -> (TempDir, std::path::PathBuf) {
