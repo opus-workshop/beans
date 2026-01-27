@@ -4,6 +4,7 @@ use anyhow::Result;
 
 use crate::bean::Status;
 use crate::index::Index;
+use crate::util::natural_cmp;
 
 /// Show hierarchical tree of beans with status indicators
 /// If id provided: show subtree rooted at that bean
@@ -116,18 +117,6 @@ fn print_tree_node(
         print!("{}{}", prefix, connector);
         print_tree_node(index, &child.id, &new_prefix, visited);
     }
-}
-
-fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
-    let sa = parse_id_segments(a);
-    let sb = parse_id_segments(b);
-    sa.cmp(&sb)
-}
-
-fn parse_id_segments(id: &str) -> Vec<u64> {
-    id.split('.')
-        .filter_map(|seg| seg.parse::<u64>().ok())
-        .collect()
 }
 
 #[cfg(test)]

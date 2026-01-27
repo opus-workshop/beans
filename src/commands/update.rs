@@ -3,8 +3,9 @@ use std::path::Path;
 use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 
-use crate::bean::{Bean, Status};
+use crate::bean::Bean;
 use crate::index::Index;
+use crate::util::parse_status;
 
 #[cfg(test)]
 use std::fs;
@@ -72,7 +73,7 @@ pub fn cmd_update(
 
     if let Some(new_status) = status {
         bean.status = parse_status(&new_status)
-            .with_context(|| format!("Invalid status: {}", new_status))?;
+            .ok_or_else(|| anyhow!("Invalid status: {}", new_status))?;
     }
 
     if let Some(new_priority) = priority {
@@ -108,15 +109,6 @@ pub fn cmd_update(
 
     println!("Updated bean {}: {}", id, bean.title);
     Ok(())
-}
-
-fn parse_status(s: &str) -> Result<Status> {
-    match s {
-        "open" => Ok(Status::Open),
-        "in_progress" => Ok(Status::InProgress),
-        "closed" => Ok(Status::Closed),
-        _ => Err(anyhow!("Invalid status: {}", s)),
-    }
 }
 
 #[cfg(test)]

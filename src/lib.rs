@@ -5,3 +5,4 @@ pub mod config;
 pub mod discovery;
 pub mod index;
 pub mod graph;
+pub mod util;

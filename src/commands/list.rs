@@ -5,6 +5,7 @@ use anyhow::Result;
 
 use crate::bean::Status;
 use crate::index::{Index, IndexEntry};
+use crate::util::{natural_cmp, parse_status};
 
 /// List beans with optional filtering.
 /// - Default: tree-format with status indicators
@@ -167,30 +168,6 @@ fn is_blocked(entry: &IndexEntry, index: &Index) -> bool {
         }
     }
     false
-}
-
-/// Parse status string to Status enum
-fn parse_status(s: &str) -> Option<Status> {
-    match s {
-        "open" => Some(Status::Open),
-        "in_progress" => Some(Status::InProgress),
-        "closed" => Some(Status::Closed),
-        _ => None,
-    }
-}
-
-/// Compare two bean IDs using natural ordering (same as in index.rs)
-fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
-    let sa = parse_id_segments(a);
-    let sb = parse_id_segments(b);
-    sa.cmp(&sb)
-}
-
-/// Parse a dot-separated ID into numeric segments
-fn parse_id_segments(id: &str) -> Vec<u64> {
-    id.split('.')
-        .filter_map(|seg| seg.parse::<u64>().ok())
-        .collect()
 }
 
 #[cfg(test)]
