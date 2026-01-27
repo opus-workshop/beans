@@ -6,7 +6,7 @@ use clap::Parser;
 mod cli;
 
 use cli::{Cli, Command, DepCommand};
-use bn::commands::{cmd_init, cmd_create, cmd_list, cmd_show, cmd_update, cmd_close, cmd_reopen, cmd_delete, cmd_ready, cmd_blocked, cmd_dep_add, cmd_dep_remove, cmd_dep_list, cmd_dep_tree, cmd_dep_cycles};
+use bn::commands::{cmd_init, cmd_create, cmd_list, cmd_show, cmd_update, cmd_close, cmd_reopen, cmd_delete, cmd_ready, cmd_blocked, cmd_dep_add, cmd_dep_remove, cmd_dep_list, cmd_dep_tree, cmd_dep_cycles, cmd_tree, cmd_graph, cmd_stats, cmd_doctor, cmd_sync};
 use bn::discovery::find_beans_dir;
 use bn::commands::create::CreateArgs;
 
@@ -166,20 +166,30 @@ fn main() -> Result<()> {
             let beans_dir = find_beans_dir(&cwd)?;
             cmd_blocked(&beans_dir)?;
         }
-        Command::Tree { .. } => {
-            eprintln!("bn tree: not yet implemented");
+        Command::Tree { id } => {
+            let cwd = env::current_dir()?;
+            let beans_dir = find_beans_dir(&cwd)?;
+            cmd_tree(&beans_dir, id.as_deref())?;
         }
-        Command::Graph { .. } => {
-            eprintln!("bn graph: not yet implemented");
+        Command::Graph { format } => {
+            let cwd = env::current_dir()?;
+            let beans_dir = find_beans_dir(&cwd)?;
+            cmd_graph(&beans_dir, &format)?;
         }
         Command::Sync => {
-            eprintln!("bn sync: not yet implemented");
+            let cwd = env::current_dir()?;
+            let beans_dir = find_beans_dir(&cwd)?;
+            cmd_sync(&beans_dir)?;
         }
         Command::Stats => {
-            eprintln!("bn stats: not yet implemented");
+            let cwd = env::current_dir()?;
+            let beans_dir = find_beans_dir(&cwd)?;
+            cmd_stats(&beans_dir)?;
         }
         Command::Doctor => {
-            eprintln!("bn doctor: not yet implemented");
+            let cwd = env::current_dir()?;
+            let beans_dir = find_beans_dir(&cwd)?;
+            cmd_doctor(&beans_dir)?;
         }
     }
 
