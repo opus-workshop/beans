@@ -4,3 +4,4 @@ pub mod commands;
 pub mod config;
 pub mod discovery;
 pub mod index;
+pub mod graph;
