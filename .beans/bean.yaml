@@ -355,6 +355,23 @@ commands:
       Useful for agents to check progress mid-work without
       attempting to close. If no verify field exists, exits 0.
 
+  claim:
+    usage: "bn claim <id>"
+    description: Atomically claim a bean for work (agent mode)
+    behavior: >
+      Transition a bean from status=open to status=in_progress,
+      setting assignee to the calling agent.
+
+      This is an atomic file operation (rename) to prevent race
+      conditions when multiple agents run bn claim simultaneously.
+      Only one agent succeeds; others get exit code 1.
+
+      Exit 0: You claimed the bean. It's yours now. Start work.
+      Exit 1: Someone else claimed it first. Try bn ready again.
+
+      Used in agent workflows: agent calls bn claim <id>, starts
+      working if successful, otherwise tries the next ready bean.
+
   reopen:
     usage: "bn reopen <id>"
     description: Reopen a closed bean

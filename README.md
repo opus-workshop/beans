@@ -104,6 +104,7 @@ The description is the agent prompt. Rich enough that an agent can pick it up co
 | `bn show <id>` | Display a bean (raw YAML, `--json`, or `--short`) |
 | `bn list` | List beans with filtering (`--status`, `--priority`, `--tree`) |
 | `bn update <id>` | Modify bean fields |
+| `bn claim <id>` | Atomically claim a bean (status: open → in_progress) |
 | `bn close <id>` | Run verify, close if passes; undo and retry if fails |
 | `bn verify <id>` | Run verify command without closing |
 | `bn reopen <id>` | Reopen a closed bean |
@@ -177,16 +178,16 @@ A leaf bean is ready for autonomous execution when:
 
 Beans is designed for agents first. Each bean becomes a ralph loop:
 
-1. **Swarm dispatches** — reads `bn ready`, sends a bean to an agent
-2. **Agent works** — modifies files, writes code, iterates
-3. **Agent closes** — runs `bn close <id>`
+1. **Agent claims work** — runs `bn claim <id>` on a ready bean. Atomic operation, only one agent wins. Status: open → in_progress
+2. **Agent works** — modifies files, writes code, iterates. Runs `bn verify <id>` as a sanity check mid-work
+3. **Agent closes** — runs `bn close <id>` when done
 4. **Verify runs** — bean's verify command must exit 0
 5. **Success** — bean closes, dependents become ready
-6. **Failure** — verify fails, all changes undo via `/ai-tools`, bean stays open, `attempts` increments
-7. **Retry** — fresh agent gets the same bean with clean state, can see `notes` and `design` from the previous attempt
-8. **Limits** — after `max_attempts`, bean stops retrying and needs human review
+6. **Failure** — verify fails, all changes undo via `/ai-tools`, bean stays open, `attempts` increments, status: in_progress → open
+7. **Retry** — fresh agent runs `bn ready`, claims the same bean, can see `notes` and `design` from the previous attempt
+8. **Limits** — after `max_attempts`, bean needs human review
 
-The key insight: agents never debug their own code. Verify fails → undo → fresh agent with the same bean. No stuck loops, no token waste on debugging. Each attempt is a clean shot.
+The key insight: agents never debug their own code. Verify fails → undo → fresh agent with the same bean. No stuck loops, no token waste on debugging. Each attempt is a clean shot. `bn claim` prevents race conditions: only one agent claims each bean.
 
 ## Beans vs Beads
 
