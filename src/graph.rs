@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
 
-use anyhow::{anyhow, Result};
+use anyhow::anyhow;
+use anyhow::Result;
 
 use crate::index::Index;
 
@@ -9,14 +9,11 @@ use crate::index::Index;
 ///
 /// Uses DFS from `to_id` to check if `from_id` is reachable.
 /// If so, adding the edge from_id -> to_id would create a cycle.
-pub fn detect_cycle(beans_dir: &Path, from_id: &str, to_id: &str) -> Result<bool> {
+pub fn detect_cycle(index: &Index, from_id: &str, to_id: &str) -> Result<bool> {
     // Quick check: self-dependency
     if from_id == to_id {
         return Ok(true);
     }
-
-    // Load index
-    let index = Index::load_or_rebuild(beans_dir)?;
 
     // Build adjacency list from index
     let mut graph: HashMap<String, Vec<String>> = HashMap::new();
@@ -52,9 +49,7 @@ pub fn detect_cycle(beans_dir: &Path, from_id: &str, to_id: &str) -> Result<bool
 
 /// Build a dependency tree rooted at `id`.
 /// Returns a string representation with box-drawing characters.
-pub fn build_dependency_tree(beans_dir: &Path, id: &str) -> Result<String> {
-    let index = Index::load_or_rebuild(beans_dir)?;
-
+pub fn build_dependency_tree(index: &Index, id: &str) -> Result<String> {
     // Find the root bean
     let root_entry = index
         .beans
@@ -96,7 +91,6 @@ pub fn build_dependency_tree(beans_dir: &Path, id: &str) -> Result<String> {
         &id_map,
         &mut visited,
         "",
-        false,
     );
 
     Ok(output)
@@ -109,7 +103,6 @@ fn build_tree_recursive(
     id_map: &HashMap<String, &crate::index::IndexEntry>,
     visited: &mut HashSet<String>,
     prefix: &str,
-    _is_last: bool,
 ) {
     if visited.contains(current_id) {
         return;
@@ -143,7 +136,6 @@ fn build_tree_recursive(
                 id_map,
                 visited,
                 &new_prefix,
-                is_last_dependent,
             );
         }
     }
@@ -151,9 +143,7 @@ fn build_tree_recursive(
 
 /// Build a project-wide dependency graph as a text tree.
 /// Shows all dependencies rooted at beans with no parents.
-pub fn build_full_graph(beans_dir: &Path) -> Result<String> {
-    let index = Index::load_or_rebuild(beans_dir)?;
-
+pub fn build_full_graph(index: &Index) -> Result<String> {
     // Find root beans (those with no parent)
     let root_beans: Vec<_> = index
         .beans
@@ -192,7 +182,6 @@ pub fn build_full_graph(beans_dir: &Path) -> Result<String> {
             &id_map,
             &mut visited,
             "",
-            false,
         );
     }
 
@@ -201,9 +190,7 @@ pub fn build_full_graph(beans_dir: &Path) -> Result<String> {
 
 /// Find all cycles in the dependency graph.
 /// Returns a list of cycle paths.
-pub fn find_all_cycles(beans_dir: &Path) -> Result<Vec<Vec<String>>> {
-    let index = Index::load_or_rebuild(beans_dir)?;
-
+pub fn find_all_cycles(index: &Index) -> Result<Vec<Vec<String>>> {
     let mut cycles = Vec::new();
 
     // Build adjacency list
@@ -282,30 +269,34 @@ mod tests {
     #[test]
     fn detect_self_cycle() {
         let (_dir, beans_dir) = setup_test_beans(vec![("1", vec![])]);
-        assert!(detect_cycle(&beans_dir, "1", "1").unwrap());
+        let index = Index::build(&beans_dir).unwrap();
+        assert!(detect_cycle(&index, "1", "1").unwrap());
     }
 
     #[test]
     fn detect_two_node_cycle() {
         let (_dir, beans_dir) = setup_test_beans(vec![("1", vec!["2"]), ("2", vec![])]);
-        assert!(detect_cycle(&beans_dir, "2", "1").unwrap());
-        assert!(!detect_cycle(&beans_dir, "1", "2").unwrap());
+        let index = Index::build(&beans_dir).unwrap();
+        assert!(detect_cycle(&index, "2", "1").unwrap());
+        assert!(!detect_cycle(&index, "1", "2").unwrap());
     }
 
     #[test]
     fn detect_three_node_cycle() {
         let (_dir, beans_dir) =
             setup_test_beans(vec![("1", vec!["2"]), ("2", vec!["3"]), ("3", vec![])]);
+        let index = Index::build(&beans_dir).unwrap();
         // If we add 3 -> 1, it creates a cycle
-        assert!(detect_cycle(&beans_dir, "3", "1").unwrap());
-        assert!(!detect_cycle(&beans_dir, "1", "3").unwrap());
+        assert!(detect_cycle(&index, "3", "1").unwrap());
+        assert!(!detect_cycle(&index, "1", "3").unwrap());
     }
 
     #[test]
     fn no_cycle_linear_chain() {
         let (_dir, beans_dir) =
             setup_test_beans(vec![("1", vec!["2"]), ("2", vec!["3"]), ("3", vec![])]);
-        assert!(!detect_cycle(&beans_dir, "1", "2").unwrap());
-        assert!(!detect_cycle(&beans_dir, "2", "3").unwrap());
+        let index = Index::build(&beans_dir).unwrap();
+        assert!(!detect_cycle(&index, "1", "2").unwrap());
+        assert!(!detect_cycle(&index, "2", "3").unwrap());
     }
 }

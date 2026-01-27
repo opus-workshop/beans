@@ -31,8 +31,11 @@ pub fn cmd_dep_add(beans_dir: &Path, id: &str, depends_on_id: &str) -> Result<()
         ));
     }
 
+    // Load index once for cycle detection
+    let index = Index::load_or_rebuild(beans_dir)?;
+
     // Check for cycles
-    if detect_cycle(beans_dir, id, depends_on_id)? {
+    if detect_cycle(&index, id, depends_on_id)? {
         return Err(anyhow!(
             "Dependency cycle detected: adding {} -> {} would create a cycle. Edge not added.",
             id,
@@ -153,10 +156,12 @@ pub fn cmd_dep_list(beans_dir: &Path, id: &str) -> Result<()> {
 /// If id provided, show tree rooted at that bean.
 /// If no id, show project-wide DAG.
 pub fn cmd_dep_tree(beans_dir: &Path, id: Option<&str>) -> Result<()> {
+    let index = Index::load_or_rebuild(beans_dir)?;
+
     let tree = if let Some(id) = id {
-        build_dependency_tree(beans_dir, id)?
+        build_dependency_tree(&index, id)?
     } else {
-        build_full_graph(beans_dir)?
+        build_full_graph(&index)?
     };
 
     println!("{}", tree);
@@ -166,7 +171,8 @@ pub fn cmd_dep_tree(beans_dir: &Path, id: Option<&str>) -> Result<()> {
 
 /// Detect cycles: `bn dep cycles`
 pub fn cmd_dep_cycles(beans_dir: &Path) -> Result<()> {
-    let cycles = find_all_cycles(beans_dir)?;
+    let index = Index::load_or_rebuild(beans_dir)?;
+    let cycles = find_all_cycles(&index)?;
 
     if cycles.is_empty() {
         println!("No cycles detected.");
@@ -237,6 +243,9 @@ mod tests {
         bean1.dependencies = vec!["2".to_string()];
         bean1.to_file(beans_dir.join("1.yaml")).unwrap();
         bean2.to_file(beans_dir.join("2.yaml")).unwrap();
+
+        // Rebuild index so it's fresh
+        Index::build(&beans_dir).unwrap().save(&beans_dir).unwrap();
 
         // Try to add 2 -> 1, which creates a cycle
         let result = cmd_dep_add(&beans_dir, "2", "1");

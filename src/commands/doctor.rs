@@ -44,7 +44,7 @@ pub fn cmd_doctor(beans_dir: &Path) -> Result<()> {
     }
 
     // Check 4: Cycles
-    let cycles = graph::find_all_cycles(beans_dir)?;
+    let cycles = graph::find_all_cycles(&index)?;
     for cycle in cycles {
         let cycle_str = cycle.join(" -> ");
         println!("[!] Dependency cycle detected: {}", cycle_str);
