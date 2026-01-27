@@ -24,7 +24,7 @@ fn main() -> Result<()> {
             acceptance,
             notes,
             design,
-            verify: _,
+            verify,
             parent,
             priority,
             labels,
@@ -48,6 +48,7 @@ fn main() -> Result<()> {
                 acceptance,
                 notes,
                 design,
+                verify,
                 priority,
                 labels,
                 assignee,
@@ -69,9 +70,7 @@ fn main() -> Result<()> {
             label,
             assignee,
             all,
-            tree: _tree,
             json,
-            limit: _limit,
         } => {
             let cwd = env::current_dir()?;
             let beans_dir = find_beans_dir(&cwd)?;
@@ -96,7 +95,6 @@ fn main() -> Result<()> {
             status,
             priority,
             assignee,
-            verify: _,
             add_label,
             remove_label,
         } => {

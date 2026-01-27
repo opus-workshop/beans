@@ -4,6 +4,7 @@ use anyhow::Result;
 
 use crate::bean::Status;
 use crate::index::Index;
+use crate::util::natural_cmp;
 
 /// Show hierarchical tree of beans with status indicators
 /// If id provided: show subtree rooted at that bean
@@ -37,7 +38,7 @@ fn print_full_tree(index: &Index) {
 
     let mut visited = std::collections::HashSet::new();
     for root in root_beans {
-        print_tree_node(index, &root.id, "", false, &mut visited);
+        print_tree_node(index, &root.id, "", &mut visited);
     }
 }
 
@@ -49,7 +50,7 @@ fn print_subtree(index: &Index, bean_id: &str) -> Result<()> {
         .ok_or_else(|| anyhow::anyhow!("Bean {} not found", bean_id))?;
 
     let mut visited = std::collections::HashSet::new();
-    print_tree_node(index, bean_id, "", false, &mut visited);
+    print_tree_node(index, bean_id, "", &mut visited);
 
     Ok(())
 }
@@ -58,7 +59,6 @@ fn print_tree_node(
     index: &Index,
     bean_id: &str,
     prefix: &str,
-    _is_last: bool,
     visited: &mut std::collections::HashSet<String>,
 ) {
     if visited.contains(bean_id) {
@@ -115,18 +115,16 @@ fn print_tree_node(
         };
 
         print!("{}{}", prefix, connector);
-        print_tree_node(index, &child.id, &new_prefix, is_last_child, visited);
+        print_tree_node(index, &child.id, &new_prefix, visited);
     }
 }
 
-/// Compare two bean IDs using natural ordering
 fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     let sa = parse_id_segments(a);
     let sb = parse_id_segments(b);
     sa.cmp(&sb)
 }
 
-/// Parse a dot-separated ID into numeric segments
 fn parse_id_segments(id: &str) -> Vec<u64> {
     id.split('.')
         .filter_map(|seg| seg.parse::<u64>().ok())

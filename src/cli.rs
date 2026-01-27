@@ -113,17 +113,9 @@ pub enum Command {
         #[arg(long)]
         all: bool,
 
-        /// Hierarchical tree display
-        #[arg(long)]
-        tree: bool,
-
         /// JSON output
         #[arg(long)]
         json: bool,
-
-        /// Max results (default: 50)
-        #[arg(long)]
-        limit: Option<usize>,
     },
 
     /// Update bean fields
@@ -162,10 +154,6 @@ pub enum Command {
         /// New assignee
         #[arg(long)]
         assignee: Option<String>,
-
-        /// New verify command
-        #[arg(long)]
-        verify: Option<String>,
 
         /// Add a label
         #[arg(long)]
