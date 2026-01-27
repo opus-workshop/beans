@@ -44,12 +44,12 @@ beans:
   updated_at: 2026-01-26T23:00:00Z
 - id: '7'
   title: bn update + close + reopen + delete
-  status: open
+  status: closed
   priority: 1
   dependencies:
   - '2'
   - '4'
-  updated_at: 2026-01-26T23:00:00Z
+  updated_at: 2026-01-27T08:22:41.118091Z
 - id: '8'
   title: bn dep add/remove/list/tree/cycles
   status: open
