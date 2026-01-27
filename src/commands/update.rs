@@ -29,6 +29,11 @@ pub fn cmd_update(
     add_label: Option<String>,
     remove_label: Option<String>,
 ) -> Result<()> {
+    // Validate priority if provided
+    if let Some(p) = priority {
+        crate::bean::validate_priority(p)?;
+    }
+
     // Load the bean
     let bean_path = beans_dir.join(format!("{}.yaml", id));
     if !bean_path.exists() {
@@ -258,5 +263,32 @@ mod tests {
         let index = Index::load(&beans_dir).unwrap();
         assert_eq!(index.beans.len(), 1);
         assert_eq!(index.beans[0].title, "New title");
+    }
+
+    #[test]
+    fn test_update_rejects_priority_too_high() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+        let bean = Bean::new("1", "Test");
+        bean.to_file(beans_dir.join("1.yaml")).unwrap();
+
+        let result = cmd_update(&beans_dir, "1", None, None, None, None, None, None, Some(5), None, None, None);
+        assert!(result.is_err(), "Should reject priority > 4");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("priority"), "Error should mention priority");
+    }
+
+    #[test]
+    fn test_update_accepts_valid_priorities() {
+        for priority in 0..=4 {
+            let (_dir, beans_dir) = setup_test_beans_dir();
+            let bean = Bean::new("1", "Test");
+            bean.to_file(beans_dir.join("1.yaml")).unwrap();
+
+            let result = cmd_update(&beans_dir, "1", None, None, None, None, None, None, Some(priority), None, None, None);
+            assert!(result.is_ok(), "Priority {} should be valid", priority);
+
+            let updated = Bean::from_file(beans_dir.join("1.yaml")).unwrap();
+            assert_eq!(updated.priority, priority);
+        }
     }
 }

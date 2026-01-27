@@ -3,7 +3,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
-use crate::bean::Bean;
+use crate::bean::{Bean, validate_priority};
 use crate::config::Config;
 use crate::index::Index;
 
@@ -60,6 +60,11 @@ fn assign_child_id(beans_dir: &Path, parent_id: &str) -> Result<String> {
 /// If `args.parent` is given, assign a child ID ({parent_id}.{next_child}).
 /// Otherwise, use the next sequential ID from config and increment it.
 pub fn cmd_create(beans_dir: &Path, args: CreateArgs) -> Result<()> {
+    // Validate priority if provided
+    if let Some(priority) = args.priority {
+        validate_priority(priority)?;
+    }
+
     // Load config
     let mut config = Config::load(beans_dir)?;
 
@@ -386,5 +391,51 @@ mod tests {
 
         let id = assign_child_id(&beans_dir, "parent").unwrap();
         assert_eq!(id, "parent.6");
+    }
+
+    #[test]
+    fn create_rejects_priority_too_high() {
+        let (_dir, beans_dir) = setup_beans_dir_with_config();
+
+        let args = CreateArgs {
+            title: "Invalid priority bean".to_string(),
+            description: None,
+            acceptance: None,
+            notes: None,
+            design: None,
+            priority: Some(5),
+            labels: None,
+            assignee: None,
+            deps: None,
+            parent: None,
+        };
+
+        let result = cmd_create(&beans_dir, args);
+        assert!(result.is_err(), "Should reject priority > 4");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("priority"), "Error should mention priority");
+    }
+
+    #[test]
+    fn create_accepts_valid_priorities() {
+        for priority in 0..=4 {
+            let (_dir, beans_dir) = setup_beans_dir_with_config();
+
+            let args = CreateArgs {
+                title: format!("Bean with priority {}", priority),
+                description: None,
+                acceptance: None,
+                notes: None,
+                design: None,
+                priority: Some(priority),
+                labels: None,
+                assignee: None,
+                deps: None,
+                parent: None,
+            };
+
+            let result = cmd_create(&beans_dir, args);
+            assert!(result.is_ok(), "Priority {} should be valid", priority);
+        }
     }
 }

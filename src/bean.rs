@@ -27,6 +27,21 @@ impl std::fmt::Display for Status {
 }
 
 // ---------------------------------------------------------------------------
+// Priority Validation
+// ---------------------------------------------------------------------------
+
+/// Validate that priority is in the valid range (0-4, P0-P4).
+pub fn validate_priority(priority: u8) -> Result<()> {
+    if priority > 4 {
+        return Err(anyhow::anyhow!(
+            "Invalid priority: {}. Priority must be in range 0-4 (P0-P4)",
+            priority
+        ));
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Bean
 // ---------------------------------------------------------------------------
 
@@ -249,5 +264,19 @@ updated_at: "2025-01-01T00:00:00Z"
         assert_eq!(bean.priority, 3);
         assert!(bean.description.is_none());
         assert!(bean.labels.is_empty());
+    }
+
+    #[test]
+    fn validate_priority_accepts_valid_range() {
+        for priority in 0..=4 {
+            assert!(validate_priority(priority).is_ok(), "Priority {} should be valid", priority);
+        }
+    }
+
+    #[test]
+    fn validate_priority_rejects_out_of_range() {
+        assert!(validate_priority(5).is_err());
+        assert!(validate_priority(10).is_err());
+        assert!(validate_priority(255).is_err());
     }
 }
