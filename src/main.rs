@@ -6,7 +6,7 @@ use clap::Parser;
 mod cli;
 
 use cli::{Cli, Command, DepCommand};
-use bn::commands::{cmd_init, cmd_create, cmd_list, cmd_show, cmd_update, cmd_close, cmd_reopen, cmd_delete};
+use bn::commands::{cmd_init, cmd_create, cmd_list, cmd_show, cmd_update, cmd_close, cmd_reopen, cmd_delete, cmd_ready, cmd_blocked, cmd_dep_add, cmd_dep_remove, cmd_dep_list, cmd_dep_tree, cmd_dep_cycles};
 use bn::discovery::find_beans_dir;
 use bn::commands::create::CreateArgs;
 
@@ -135,28 +135,36 @@ fn main() -> Result<()> {
             let beans_dir = find_beans_dir(&cwd)?;
             cmd_delete(&beans_dir, &id)?;
         }
-        Command::Dep { command } => match command {
-            DepCommand::Add { .. } => {
-                eprintln!("bn dep add: not yet implemented");
-            }
-            DepCommand::Remove { .. } => {
-                eprintln!("bn dep remove: not yet implemented");
-            }
-            DepCommand::List { .. } => {
-                eprintln!("bn dep list: not yet implemented");
-            }
-            DepCommand::Tree { .. } => {
-                eprintln!("bn dep tree: not yet implemented");
-            }
-            DepCommand::Cycles => {
-                eprintln!("bn dep cycles: not yet implemented");
+        Command::Dep { command } => {
+            let cwd = env::current_dir()?;
+            let beans_dir = find_beans_dir(&cwd)?;
+            match command {
+                DepCommand::Add { id, depends_on } => {
+                    cmd_dep_add(&beans_dir, &id, &depends_on)?;
+                }
+                DepCommand::Remove { id, depends_on } => {
+                    cmd_dep_remove(&beans_dir, &id, &depends_on)?;
+                }
+                DepCommand::List { id } => {
+                    cmd_dep_list(&beans_dir, &id)?;
+                }
+                DepCommand::Tree { id } => {
+                    cmd_dep_tree(&beans_dir, id.as_deref())?;
+                }
+                DepCommand::Cycles => {
+                    cmd_dep_cycles(&beans_dir)?;
+                }
             }
         },
         Command::Ready => {
-            eprintln!("bn ready: not yet implemented");
+            let cwd = env::current_dir()?;
+            let beans_dir = find_beans_dir(&cwd)?;
+            cmd_ready(&beans_dir)?;
         }
         Command::Blocked => {
-            eprintln!("bn blocked: not yet implemented");
+            let cwd = env::current_dir()?;
+            let beans_dir = find_beans_dir(&cwd)?;
+            cmd_blocked(&beans_dir)?;
         }
         Command::Tree { .. } => {
             eprintln!("bn tree: not yet implemented");

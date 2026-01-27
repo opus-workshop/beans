@@ -6,6 +6,8 @@ pub mod update;
 pub mod close;
 pub mod reopen;
 pub mod delete;
+pub mod ready;
+pub mod dep;
 
 pub use init::cmd_init;
 pub use create::cmd_create;
@@ -15,3 +17,5 @@ pub use update::cmd_update;
 pub use close::cmd_close;
 pub use reopen::cmd_reopen;
 pub use delete::cmd_delete;
+pub use ready::{cmd_ready, cmd_blocked};
+pub use dep::{cmd_dep_add, cmd_dep_remove, cmd_dep_list, cmd_dep_tree, cmd_dep_cycles};
