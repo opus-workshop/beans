@@ -12,7 +12,7 @@ Beans is inspired by Steve Yegge's [beads](https://github.com/steveyegge/beads) 
 
 We wanted a task engine for coding subagents and beads was the obvious starting point. But as we worked with it, we found ourselves wanting different tradeoffs — not because beads got something wrong, but because we wanted to build around a different center of gravity.
 
-Beans takes beads' foundation and rebuilds it as individual YAML files with sequential IDs and a stateless CLI.
+Beans takes beads' core idea and applies Unix philosophy: **everything is a file**. No database, no daemon, no CLI as the only interface. YAML files you can open in your editor, grep across, git-diff, and compose with standard tools. Parseable IDs, plain text, stateless operations. Beads is a closed system that does everything. Beans is a file format the Unix ecosystem can talk to.
 
 ## Why
 
