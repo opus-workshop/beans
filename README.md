@@ -8,9 +8,39 @@ No databases. No daemons. No background processes. Just files you can read, edit
 
 Beans is inspired by Steve Yegge's [beads](https://github.com/steveyegge/beads) — a distributed, git-backed issue tracker built for AI coding agents. Beads proved that structured task management with dependency graphs and readiness checks is the right foundation for agent-driven development. If you haven't looked at it, you should.
 
-Beans takes that foundation and rebuilds it around a different set of tradeoffs: individual YAML files instead of JSONL, sequential IDs instead of hashes, a stateless CLI instead of daemons and SQLite caches. Where beads optimizes for distributed multi-agent infrastructure, beans optimizes for a human staring at a file tree.
+We wanted a task engine for coding subagents and beads was the obvious starting point. But as we worked with it, we found ourselves wanting different tradeoffs — not because beads got something wrong, but because we wanted to build around a different center of gravity.
 
-The core insight is the same. The interface is different.
+Beans takes beads' foundation and rebuilds it as individual YAML files with sequential IDs and a stateless CLI.
+
+## Beans vs Beads
+
+The two tools share the same core idea — dependency-aware task graphs for autonomous agents — but make different tradeoffs at every layer.
+
+### Where beans wins
+
+**Direct file access.** An agent can `cat .beans/3.2.yaml` and have everything it needs. No CLI dependency, no database query, no daemon running. The data is the interface. With beads, you need `bd show bd-a1b2` — the CLI is a required intermediary between the agent and the task.
+
+**Parseable IDs.** An agent sees `3.2` and knows it's a child of `3` without a lookup. `ls .beans/` reveals the full hierarchy. Hash IDs like `bd-a1b2` require querying to understand relationships.
+
+**No hidden state.** One file = one source of truth. No JSONL + SQLite cache + daemon sync where things can diverge. An agent reads the file and it's guaranteed current.
+
+**Native to LLMs.** YAML with named fields is closer to natural language than JSONL records. A bean's description field IS the agent prompt — same format, same file, no extraction needed.
+
+**Universal tooling.** `grep -r "authentication" .beans/` searches every bean. `git diff .beans/` shows what changed. Any tool that works with files works with beans. No special CLI required.
+
+### Where beads wins
+
+**Merge-safe IDs.** Hash-based IDs like `bd-a1b2` never collide. Two agents creating beans on separate branches will produce duplicate sequential IDs. Beads handles distributed creation natively; beans currently requires coordination.
+
+**Query performance at scale.** SQLite handles thousands of issues with indexed queries. Beans rebuilds a flat YAML index by scanning files — fine for hundreds, potentially slow for thousands.
+
+**Automatic sync.** Beads' background daemon keeps the local cache fresh without explicit commands. Beans is stateless — faster to reason about, but you manage freshness yourself.
+
+### The honest summary
+
+Beads optimizes for distributed infrastructure at scale. Beans optimizes for directness — and directness matters to agents and humans equally. An agent that can read a file without booting a daemon, parse an ID without a lookup, and grep across tasks without a query language is an agent with fewer failure modes.
+
+The tradeoff is real: beans currently lacks a story for multi-branch parallel creation without ID conflicts. That's a solvable problem (see [Future Work](#future-work)), not a fundamental limitation.
 
 ## Why
 
@@ -185,6 +215,12 @@ A leaf bean is ready for autonomous execution when:
 - **Serialization:** Serde + serde_yaml
 - **Error handling:** Anyhow
 - **Timestamps:** Chrono
+
+## Future Work
+
+**Branch-safe ID allocation.** Sequential IDs can collide when agents create beans on parallel branches. Possible approaches: ID reservation ranges per branch, a lightweight lock file, or a rebase-time renumbering pass. The goal is to solve this without giving up readable IDs or requiring a daemon.
+
+**Scaling the index.** The current design scans all YAML files to rebuild the index. For projects with thousands of beans, this could benefit from incremental indexing — updating only changed files rather than full rebuilds.
 
 ## Status
 
