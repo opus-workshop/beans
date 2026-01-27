@@ -16,6 +16,8 @@ Beans takes beads' foundation and rebuilds it as individual YAML files with sequ
 
 ## Why
 
+Beans is a tool for goal-driven development. You start with a goal, decompose it into smaller goals, and keep splitting until every leaf is an agent-executable unit of work with a verification command that proves it's done. The tool enforces this: `bn close` runs the bean's `verify` command and only closes if it passes. No force flag. If the test fails, the work isn't done.
+
 A bean is a unit of work with enough context to execute autonomously. Parent beans provide strategic context. Leaf beans are self-contained agent prompts — swarmable. The hierarchy lives in the filesystem: `3.2.yaml` is a child of `3.yaml`. You see the structure before opening a single file.
 
 Git is the sync layer. `git add .beans/ && git commit` is all there is.
@@ -83,9 +85,11 @@ acceptance: |
   - `bn show 1 --json` outputs valid JSON
   - `bn list` shows tree-format with status indicators
   - `bn list --parent 3` shows only children of bean 3
+
+verify: cargo test --lib commands::list commands::show
 ```
 
-The description is the agent prompt. Rich enough that an agent can pick it up cold and execute. File paths, code snippets, design decisions — all inline.
+The description is the agent prompt. Rich enough that an agent can pick it up cold and execute. The `verify` field is the machine-checkable gate — `bn close` runs it and only closes the bean if it exits 0.
 
 ## Commands
 
@@ -98,7 +102,8 @@ The description is the agent prompt. Rich enough that an agent can pick it up co
 | `bn show <id>` | Display a bean (raw YAML, `--json`, or `--short`) |
 | `bn list` | List beans with filtering (`--status`, `--priority`, `--tree`) |
 | `bn update <id>` | Modify bean fields |
-| `bn close <id>` | Mark a bean complete |
+| `bn close <id>` | Run verify command; close only if it passes |
+| `bn verify <id>` | Run verify command without closing |
 | `bn reopen <id>` | Reopen a closed bean |
 | `bn delete <id>` | Remove a bean and clean up references |
 
