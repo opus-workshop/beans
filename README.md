@@ -213,8 +213,6 @@ The tradeoff is real: beans currently lacks a story for multi-branch parallel cr
 
 **Built from scratch, not forked.** Beads is built around JSONL + SQLite + a background daemon. Beans wants individual YAML files, sequential IDs, and a stateless CLI. That's not a refactor — it's a different architecture. Forking would mean gutting everything except the dependency graph logic. Starting fresh is cleaner when the overlap is conceptual rather than structural.
 
-**Rust, because why not.** When an agent writes the code, the implementation cost is the same regardless of language. You pick the language you want to maintain.
-
 ## Tech Stack
 
 - **Language:** Rust
