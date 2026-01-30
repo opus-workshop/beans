@@ -1,10 +1,11 @@
 ---
 id: 11
 title: Migrate beans from YAML to Markdown + YAML Frontmatter
-status: open
+status: closed
 priority: 1
 created_at: 2026-01-30T00:00:00Z
-updated_at: 2026-01-30T00:00:00Z
+updated_at: 2026-01-30T15:45:00Z
+closed_at: 2026-01-30T15:45:00Z
 type: epic
 ---
 
