@@ -1,1 +1,17 @@
 /target
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editor directories
+.idea/
+.vscode/
+.vim/
+
+# Backup files
+*.swp
+*.bak
+*~
+*.orig
