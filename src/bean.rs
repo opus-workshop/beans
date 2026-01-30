@@ -152,11 +152,87 @@ impl Bean {
         }
     }
 
-    /// Read a bean from a YAML file.
+    /// Parse YAML frontmatter and markdown body.
+    /// Expects format:
+    /// ```text
+    /// ---
+    /// id: 1
+    /// title: Example
+    /// status: open
+    /// ...
+    /// ---
+    /// # Markdown body here
+    /// ```
+    fn parse_frontmatter(content: &str) -> Result<(String, Option<String>)> {
+        // Check if content starts with ---
+        if !content.starts_with("---\n") && !content.starts_with("---\r\n") {
+            // Not frontmatter format, try pure YAML
+            return Err(anyhow::anyhow!("Not markdown frontmatter format"));
+        }
+
+        // Find the second --- delimiter
+        let after_first_delimiter = if content.starts_with("---\r\n") {
+            &content[5..]
+        } else {
+            &content[4..]
+        };
+
+        let second_delimiter_pos = after_first_delimiter.find("---");
+        if second_delimiter_pos.is_none() {
+            return Err(anyhow::anyhow!(
+                "Markdown frontmatter is missing closing delimiter (---)"
+            ));
+        }
+
+        let second_delimiter_pos = second_delimiter_pos.unwrap();
+        let frontmatter = &after_first_delimiter[..second_delimiter_pos];
+
+        // Skip the closing --- and any whitespace to get the body
+        let body_start = second_delimiter_pos + 3;
+        let body_raw = &after_first_delimiter[body_start..];
+
+        // Trim leading newlines/whitespace but preserve the rest
+        let body = body_raw
+            .trim_start_matches(|c| c == '\n' || c == '\r')
+            .to_string();
+        let body = if body.is_empty() {
+            None
+        } else {
+            Some(body)
+        };
+
+        Ok((frontmatter.to_string(), body))
+    }
+
+    /// Parse a bean from a string (either YAML or Markdown with YAML frontmatter).
+    pub fn from_string(content: &str) -> Result<Self> {
+        // Try frontmatter format first
+        match Self::parse_frontmatter(content) {
+            Ok((frontmatter, body)) => {
+                // Parse frontmatter as YAML
+                let mut bean: Bean = serde_yaml::from_str(&frontmatter)?;
+
+                // If there's a body and no description yet, set it
+                if let Some(markdown_body) = body {
+                    if bean.description.is_none() {
+                        bean.description = Some(markdown_body);
+                    }
+                }
+
+                Ok(bean)
+            }
+            Err(_) => {
+                // Fallback: treat entire content as YAML
+                let bean: Bean = serde_yaml::from_str(content)?;
+                Ok(bean)
+            }
+        }
+    }
+
+    /// Read a bean from a file (supports both YAML and Markdown with YAML frontmatter).
     pub fn from_file(path: impl AsRef<Path>) -> Result<Self> {
         let contents = std::fs::read_to_string(path.as_ref())?;
-        let bean: Bean = serde_yaml::from_str(&contents)?;
-        Ok(bean)
+        Self::from_string(&contents)
     }
 
     /// Write this bean to a YAML file.
@@ -332,5 +408,265 @@ updated_at: "2025-01-01T00:00:00Z"
         assert!(validate_priority(5).is_err());
         assert!(validate_priority(10).is_err());
         assert!(validate_priority(255).is_err());
+    }
+
+    // =====================================================================
+    // Tests for Markdown Frontmatter Parsing
+    // =====================================================================
+
+    #[test]
+    fn test_parse_md_frontmatter() {
+        let content = r#"---
+id: 11.1
+title: Test Bean
+status: open
+priority: 2
+created_at: "2026-01-26T15:00:00Z"
+updated_at: "2026-01-26T15:00:00Z"
+---
+
+# Description
+
+Test markdown body.
+"#;
+        let bean = Bean::from_string(content).unwrap();
+        assert_eq!(bean.id, "11.1");
+        assert_eq!(bean.title, "Test Bean");
+        assert_eq!(bean.status, Status::Open);
+        assert!(bean.description.is_some());
+        assert!(bean.description.as_ref().unwrap().contains("# Description"));
+        assert!(bean.description.as_ref().unwrap().contains("Test markdown body"));
+    }
+
+    #[test]
+    fn test_parse_md_frontmatter_preserves_metadata_fields() {
+        let content = r#"---
+id: "2.5"
+title: Complex Bean
+status: in_progress
+priority: 1
+created_at: "2026-01-01T10:00:00Z"
+updated_at: "2026-01-26T15:00:00Z"
+parent: "2"
+labels:
+  - backend
+  - urgent
+dependencies:
+  - "2.1"
+  - "2.2"
+---
+
+## Implementation Notes
+
+This is a complex bean with multiple metadata fields.
+"#;
+        let bean = Bean::from_string(content).unwrap();
+        assert_eq!(bean.id, "2.5");
+        assert_eq!(bean.title, "Complex Bean");
+        assert_eq!(bean.status, Status::InProgress);
+        assert_eq!(bean.priority, 1);
+        assert_eq!(bean.parent, Some("2".to_string()));
+        assert_eq!(bean.labels, vec!["backend".to_string(), "urgent".to_string()]);
+        assert_eq!(
+            bean.dependencies,
+            vec!["2.1".to_string(), "2.2".to_string()]
+        );
+        assert!(bean.description.is_some());
+    }
+
+    #[test]
+    fn test_parse_md_frontmatter_empty_body() {
+        let content = r#"---
+id: "3"
+title: No Body Bean
+status: open
+priority: 2
+created_at: "2026-01-01T00:00:00Z"
+updated_at: "2026-01-01T00:00:00Z"
+---
+"#;
+        let bean = Bean::from_string(content).unwrap();
+        assert_eq!(bean.id, "3");
+        assert_eq!(bean.title, "No Body Bean");
+        assert!(bean.description.is_none());
+    }
+
+    #[test]
+    fn test_parse_md_frontmatter_with_body_containing_dashes() {
+        let content = r#"---
+id: "4"
+title: Dashes in Body
+status: open
+priority: 2
+created_at: "2026-01-01T00:00:00Z"
+updated_at: "2026-01-01T00:00:00Z"
+---
+
+# Section 1
+
+This has --- inside the body, which should not break parsing.
+
+---
+
+More content after a horizontal rule.
+"#;
+        let bean = Bean::from_string(content).unwrap();
+        assert_eq!(bean.id, "4");
+        assert!(bean.description.is_some());
+        let body = bean.description.as_ref().unwrap();
+        assert!(body.contains("---"));
+        assert!(body.contains("horizontal rule"));
+    }
+
+    #[test]
+    fn test_parse_md_frontmatter_with_whitespace_in_body() {
+        let content = r#"---
+id: "5"
+title: Whitespace Test
+status: open
+priority: 2
+created_at: "2026-01-01T00:00:00Z"
+updated_at: "2026-01-01T00:00:00Z"
+---
+
+
+   Leading whitespace preserved after trimming newlines.
+
+"#;
+        let bean = Bean::from_string(content).unwrap();
+        assert_eq!(bean.id, "5");
+        assert!(bean.description.is_some());
+        let body = bean.description.as_ref().unwrap();
+        // Leading newlines trimmed, but content preserved
+        assert!(body.contains("Leading whitespace"));
+    }
+
+    #[test]
+    fn test_fallback_to_yaml_parsing() {
+        let yaml_content = r#"
+id: "6"
+title: Pure YAML Bean
+status: open
+priority: 3
+created_at: "2026-01-01T00:00:00Z"
+updated_at: "2026-01-01T00:00:00Z"
+description: "This is YAML, not markdown"
+"#;
+        let bean = Bean::from_string(yaml_content).unwrap();
+        assert_eq!(bean.id, "6");
+        assert_eq!(bean.title, "Pure YAML Bean");
+        assert_eq!(
+            bean.description,
+            Some("This is YAML, not markdown".to_string())
+        );
+    }
+
+    #[test]
+    fn test_file_round_trip_with_markdown() {
+        let content = r#"---
+id: "7"
+title: File Markdown Test
+status: open
+priority: 2
+created_at: "2026-01-01T00:00:00Z"
+updated_at: "2026-01-01T00:00:00Z"
+---
+
+# Markdown Body
+
+This is a test of reading markdown from a file.
+"#;
+
+        let tmp = NamedTempFile::new().unwrap();
+        let path = tmp.path().to_path_buf();
+
+        // Write markdown content
+        std::fs::write(&path, content).unwrap();
+
+        // Read back as bean
+        let bean = Bean::from_file(&path).unwrap();
+        assert_eq!(bean.id, "7");
+        assert_eq!(bean.title, "File Markdown Test");
+        assert!(bean.description.is_some());
+        assert!(bean
+            .description
+            .as_ref()
+            .unwrap()
+            .contains("# Markdown Body"));
+
+        drop(tmp);
+    }
+
+    #[test]
+    fn test_parse_md_frontmatter_missing_closing_delimiter() {
+        let bad_content = r#"---
+id: "8"
+title: Missing Delimiter
+status: open
+"#;
+        let result = Bean::from_string(bad_content);
+        // Should fail because no closing ---
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_md_frontmatter_multiline_fields() {
+        let content = r#"---
+id: "9"
+title: Multiline Test
+status: open
+priority: 2
+created_at: "2026-01-01T00:00:00Z"
+updated_at: "2026-01-01T00:00:00Z"
+acceptance: |
+  - Criterion 1
+  - Criterion 2
+  - Criterion 3
+---
+
+# Implementation
+
+Start implementing...
+"#;
+        let bean = Bean::from_string(content).unwrap();
+        assert_eq!(bean.id, "9");
+        assert!(bean.acceptance.is_some());
+        let acceptance = bean.acceptance.as_ref().unwrap();
+        assert!(acceptance.contains("Criterion 1"));
+        assert!(acceptance.contains("Criterion 2"));
+        assert!(bean.description.is_some());
+    }
+
+    #[test]
+    fn test_parse_md_with_crlf_line_endings() {
+        let content = "---\r\nid: \"10\"\r\ntitle: CRLF Test\r\nstatus: open\r\npriority: 2\r\ncreated_at: \"2026-01-01T00:00:00Z\"\r\nupdated_at: \"2026-01-01T00:00:00Z\"\r\n---\r\n\r\n# Body\r\n\r\nCRLF line endings.";
+        let bean = Bean::from_string(content).unwrap();
+        assert_eq!(bean.id, "10");
+        assert_eq!(bean.title, "CRLF Test");
+        assert!(bean.description.is_some());
+    }
+
+    #[test]
+    fn test_parse_md_description_does_not_override_yaml_description() {
+        let content = r#"---
+id: "11"
+title: Override Test
+status: open
+priority: 2
+created_at: "2026-01-01T00:00:00Z"
+updated_at: "2026-01-01T00:00:00Z"
+description: "From YAML metadata"
+---
+
+# From Markdown Body
+
+This should not override.
+"#;
+        let bean = Bean::from_string(content).unwrap();
+        // Description from YAML should take precedence
+        assert_eq!(
+            bean.description,
+            Some("From YAML metadata".to_string())
+        );
     }
 }
