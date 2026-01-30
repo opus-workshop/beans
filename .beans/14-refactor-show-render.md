@@ -1,0 +1,75 @@
+---
+id: 14
+title: Update `bn show` to render Markdown beautifully
+status: open
+priority: 2
+created_at: 2026-01-30T00:00:00Z
+updated_at: 2026-01-30T00:00:00Z
+parent: 11
+type: task
+---
+
+# Update `bn show` to render Markdown beautifully
+
+## What
+
+Currently `bn show <bean>` just prints raw content. With Markdown bodies, we should render them nicely in the terminal.
+
+**Before:**
+```
+id: 1
+title: Foo
+description: |
+  Some text
+  ## Code
+  ```rust
+  pub struct Foo {}
+  ```
+```
+
+**After:**
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ID: 1  |  Status: open  |  Priority: 0
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Foo
+
+Some text
+
+  Code
+  pub struct Foo {}
+  ...
+```
+
+## Implementation
+
+Use one of:
+- `termimad` crate — lightweight markdown renderer for terminal
+- `skin` crate — styled markdown
+- Custom simple renderer (h1→bold, code→indented, etc.)
+
+Update `src/commands/show.rs`:
+1. Load bean
+2. Parse frontmatter (metadata)
+3. Print metadata as clean table
+4. Render body (markdown) using `termimad::print_text()` or similar
+
+## Code location
+
+- `src/commands/show.rs` — Update render logic
+
+## Acceptance
+
+- [ ] `bn show 1` renders metadata clearly
+- [ ] Markdown body renders with code highlighting
+- [ ] Headers, lists, emphasis (`**bold**`, `_italic_`) display properly
+- [ ] Terminal width respected (wrapping)
+- [ ] Works with `--json` flag (still outputs JSON, no rendering)
+- [ ] No new dependencies beyond `termimad` or `skin`
+
+## Testing
+
+```bash
+bn show 11  # Should render this bean nicely
+```
