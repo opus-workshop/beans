@@ -1,9 +1,9 @@
 id: '7'
 title: Escape shell commands in verify gate
-status: open
+status: closed
 priority: 0
 created_at: 2026-01-30T18:41:53.157385Z
-updated_at: 2026-01-30T18:41:53.157385Z
+updated_at: 2026-01-30T18:51:07.517469Z
 description: |-
   Fix shell command injection vulnerability in src/commands/close.rs.
 
@@ -28,4 +28,5 @@ description: |-
 labels:
 - security
 - core
+closed_at: 2026-01-30T18:51:07.517469Z
 verify: cargo test --lib commands::close

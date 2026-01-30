@@ -7,6 +7,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::bean::{Bean, Status};
+use crate::util::natural_cmp;
 
 // ---------------------------------------------------------------------------
 // IndexEntry
@@ -173,27 +174,6 @@ impl Index {
             .with_context(|| format!("Failed to write {}", index_path.display()))?;
         Ok(())
     }
-}
-
-// ---------------------------------------------------------------------------
-// Natural sort
-// ---------------------------------------------------------------------------
-
-/// Parse a dot-separated ID into numeric segments for natural comparison.
-/// e.g. "3.12.1" -> [3, 12, 1]
-fn parse_id_segments(id: &str) -> Vec<u64> {
-    id.split('.')
-        .filter_map(|seg| seg.parse::<u64>().ok())
-        .collect()
-}
-
-/// Compare two bean IDs using natural ordering.
-/// Splits on dots, compares segments numerically.
-/// "1" < "2" < "3" < "3.1" < "3.2" < "10"
-fn natural_cmp(a: &str, b: &str) -> Ordering {
-    let sa = parse_id_segments(a);
-    let sb = parse_id_segments(b);
-    sa.cmp(&sb)
 }
 
 // ---------------------------------------------------------------------------

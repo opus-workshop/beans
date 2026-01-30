@@ -1,20 +1,20 @@
 beans:
 - id: '6'
   title: Add path traversal protection for bean IDs
-  status: open
+  status: closed
   priority: 0
   labels:
   - security
   - core
-  updated_at: 2026-01-30T18:41:52.048039Z
+  updated_at: 2026-01-30T18:51:07.517469Z
 - id: '7'
   title: Escape shell commands in verify gate
-  status: open
+  status: closed
   priority: 0
   labels:
   - security
   - core
-  updated_at: 2026-01-30T18:41:53.157385Z
+  updated_at: 2026-01-30T18:51:07.517469Z
 - id: '8'
   title: Remove duplicate utility functions
   status: open
@@ -41,9 +41,9 @@ beans:
   updated_at: 2026-01-30T18:46:30.023197Z
 - id: '10'
   title: Expand .gitignore with platform artifacts
-  status: open
+  status: closed
   priority: 2
   labels:
   - hygiene
   - meta
-  updated_at: 2026-01-30T18:41:57.884273Z
+  updated_at: 2026-01-30T18:51:07.517469Z
