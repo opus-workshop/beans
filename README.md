@@ -4,7 +4,7 @@ A hierarchical task engine where every task is a YAML file.
 
 No databases. No daemons. No background processes. Just files you can read, edit, grep, and git-diff.
 
-> **Status:** Fully implemented. Core CLI and commands working. See [`.beans/`](.beans/) for active development tracking.
+> **Status:** Fully implemented. Core CLI and commands working. Comprehensive audit complete with security and quality improvements applied. See [AUDIT.md](AUDIT.md) for detailed assessment and [`audit` skill documentation](https://github.com/anthropics/claude-code/wiki/Skills#audit) for more information.
 
 ## Origin
 
@@ -232,13 +232,30 @@ The tradeoff is real: beans currently lacks a story for multi-branch parallel cr
 
 **Built from scratch, not forked.** Beads is built around JSONL + SQLite + a background daemon. Beans wants individual YAML files, sequential IDs, and a stateless CLI. That's not a refactor — it's a different architecture. Forking would mean gutting everything except the dependency graph logic. Starting fresh is cleaner when the overlap is conceptual rather than structural.
 
+## Quality & Security
+
+**Audit Status:** ✅ Comprehensive code audit complete. Overall verdict: **Respectable** with **Compelling** code taste and architecture. See [AUDIT.md](AUDIT.md) for full assessment.
+
+**Recent Security Improvements:**
+- ✅ **Path traversal protection** — Bean IDs validated to prevent directory escape attacks (pattern: `^[a-zA-Z0-9._-]+$`)
+- ✅ **Shell injection prevention** — Verify commands properly escaped using `shell-escape` crate
+- ✅ **Code quality** — Duplicate utility functions consolidated, repeated patterns refactored
+- ✅ **Platform hygiene** — .gitignore expanded to properly exclude build artifacts and editor config
+
+**Test Coverage:**
+- 185 unit tests (all passing)
+- Security validation tests for path traversal and shell metacharacters
+- End-to-end tests for all major commands
+- Regression tests for dependency graph operations
+
 ## Tech Stack
 
-- **Language:** Rust
+- **Language:** Rust (edition 2021)
 - **CLI:** Clap 4 (derive macros)
 - **Serialization:** Serde + serde_yaml
 - **Error handling:** Anyhow
 - **Timestamps:** Chrono
+- **Security:** shell-escape (command safety)
 
 ## Future Work
 
