@@ -1,63 +1,35 @@
-id: 9
-title: bn ready + bn blocked
+id: '9'
+title: Extract beans_dir discovery pattern
 status: open
 priority: 1
+created_at: 2026-01-30T18:41:56.064554Z
+updated_at: 2026-01-30T18:46:30.023197Z
+description: |-
+  Refactor repetitive find_beans_dir() calls in src/main.rs.
+
+  Currently lines 41-59+ repeat the same pattern across all command match arms:
+    let cwd = env::current_dir()?;
+    let beans_dir = find_beans_dir(&cwd)?;
+
+  This pattern appears 18+ times.
+
+  ## Solution
+  1. Extract lookup to single point early in main(), before the match
+  2. Pass beans_dir to command handler functions
+  3. Only Init command doesn't need it — it creates the directory
+
+  Result: Cleaner dispatch, ~36 fewer lines of repetition.
+
+  ## Acceptance Criteria
+  - Single find_beans_dir() call early in main (with Init exception)
+  - All commands receive beans_dir from main
+  - All tests pass without modification to test logic
+  - Match arms visually cleaner (~36 fewer lines)
+  - No functional change to command behavior
+labels:
+- refactor
+- code-quality
 dependencies:
-  - 4
-created_at: 2026-01-26T15:00:00-08:00
-updated_at: 2026-01-26T15:00:00-08:00
-description: |
-  Implement the ready and blocked view commands.
-
-  ## What to implement
-
-  ### cmd_ready() -> Result<()>
-  - Load index (auto-rebuild if stale)
-  - Filter: status=open AND no unresolved dependencies
-  - A dependency is unresolved if the depended-on bean's status != closed
-  - Sort by priority (P0 first), then by id
-  - Output flat list:
-    ```
-    P0  1    Project scaffolding
-    P0  2    YAML data model
-    P2  3.3  bn dep command
-    ```
-  - If nothing ready, print "No beans ready to work on."
-
-  ### cmd_blocked() -> Result<()>
-  - Load index
-  - Filter: status=open AND has at least one unresolved dependency
-  - Show what's blocking each bean:
-    ```
-    3.2  bn list/show commands  ← blocked by: 2
-    5    bn init + bn create    ← blocked by: 2, 3, 4
-    ```
-  - If nothing blocked, print "No blocked beans."
-
-  ### resolve_blocked(entry, index) -> Vec<String>
-  Given an IndexEntry, return the list of dependency IDs that are
-  not closed. This is the core logic shared by both commands.
-
-  ## Files
-  - src/commands/ready.rs (create)
-  - src/main.rs (modify — wire up ready and blocked)
-
-  ## Context needed
-  - src/index.rs: Index::load_or_rebuild(), IndexEntry
-  - src/discovery.rs: find_beans_dir()
-  - src/cli.rs: Clap arg structs
-
-  ## Note on blocked derivation
-  Only check immediate dependencies. If A depends on B and B depends
-  on C, A only checks B's status. Transitivity emerges naturally
-  because B won't be closed while C blocks it.
-
-acceptance: |
-  - `bn ready` shows open beans with all deps closed
-  - `bn ready` excludes in_progress and closed beans
-  - `bn ready` sorts by priority then id
-  - `bn blocked` shows open beans with unresolved deps
-  - `bn blocked` shows which beans are blocking
-  - Beans with no dependencies always appear in ready (if open)
-  - cargo build succeeds
-  - cargo test passes
+- '3'
+- '8'
+verify: cargo test --lib

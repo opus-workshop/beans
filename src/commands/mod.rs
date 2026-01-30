@@ -12,7 +12,9 @@ pub mod tree;
 pub mod graph;
 pub mod stats;
 pub mod doctor;
+pub mod claim;
 pub mod sync;
+pub mod verify;
 
 pub use init::cmd_init;
 pub use create::cmd_create;
@@ -29,3 +31,5 @@ pub use graph::cmd_graph;
 pub use stats::cmd_stats;
 pub use doctor::cmd_doctor;
 pub use sync::cmd_sync;
+pub use verify::cmd_verify;
+pub use claim::{cmd_claim, cmd_release};

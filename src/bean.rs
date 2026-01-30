@@ -4,6 +4,8 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::util::validate_bean_id;
+
 // ---------------------------------------------------------------------------
 // Status
 // ---------------------------------------------------------------------------
@@ -78,18 +80,55 @@ pub struct Bean {
     pub parent: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub dependencies: Vec<String>,
+
+    // -- verification & claim fields --
+
+    /// Shell command that must exit 0 to close the bean.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verify: Option<String>,
+    /// How many times the verify command has been run.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub attempts: u32,
+    /// Maximum verify attempts before escalation (default 3).
+    #[serde(default = "default_max_attempts", skip_serializing_if = "is_default_max_attempts")]
+    pub max_attempts: u32,
+    /// Agent or user currently holding a claim on this bean.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claimed_by: Option<String>,
+    /// When the claim was acquired.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claimed_at: Option<DateTime<Utc>>,
 }
 
 fn default_priority() -> u8 {
     2
 }
 
+fn default_max_attempts() -> u32 {
+    3
+}
+
+fn is_zero(v: &u32) -> bool {
+    *v == 0
+}
+
+fn is_default_max_attempts(v: &u32) -> bool {
+    *v == 3
+}
+
 impl Bean {
     /// Create a new bean with sensible defaults.
+    /// Validates the ID to prevent path traversal attacks.
     pub fn new(id: impl Into<String>, title: impl Into<String>) -> Self {
+        let id_str = id.into();
+        // Validate the ID format. We panic if invalid since this is a constructor precondition.
+        if let Err(e) = validate_bean_id(&id_str) {
+            panic!("Invalid bean ID: {}", e);
+        }
+
         let now = Utc::now();
         Self {
-            id: id.into(),
+            id: id_str,
             title: title.into(),
             status: Status::Open,
             priority: 2,
@@ -105,6 +144,11 @@ impl Bean {
             close_reason: None,
             parent: None,
             dependencies: Vec::new(),
+            verify: None,
+            attempts: 0,
+            max_attempts: 3,
+            claimed_by: None,
+            claimed_at: None,
         }
     }
 
@@ -165,6 +209,11 @@ mod tests {
             close_reason: Some("Done".to_string()),
             parent: Some("3.2".to_string()),
             dependencies: vec!["3.1".to_string()],
+            verify: Some("cargo test".to_string()),
+            attempts: 1,
+            max_attempts: 5,
+            claimed_by: Some("agent-7".to_string()),
+            claimed_at: Some(now),
         };
 
         let yaml = serde_yaml::to_string(&bean).unwrap();
@@ -199,6 +248,11 @@ mod tests {
         assert!(!yaml.contains("parent:"));
         assert!(!yaml.contains("labels:"));
         assert!(!yaml.contains("dependencies:"));
+        assert!(!yaml.contains("verify:"));
+        assert!(!yaml.contains("attempts:"));
+        assert!(!yaml.contains("max_attempts:"));
+        assert!(!yaml.contains("claimed_by:"));
+        assert!(!yaml.contains("claimed_at:"));
     }
 
     #[test]

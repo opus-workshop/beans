@@ -1,74 +1,49 @@
 beans:
-- id: '1'
-  title: Project scaffolding + CLI skeleton
-  status: open
-  priority: 0
-  updated_at: 2026-01-26T23:00:00Z
-- id: '2'
-  title: Bean data model + YAML I/O
-  status: open
-  priority: 0
-  dependencies:
-  - '1'
-  updated_at: 2026-01-26T23:00:00Z
-- id: '3'
-  title: Config + directory discovery
-  status: open
-  priority: 0
-  dependencies:
-  - '1'
-  updated_at: 2026-01-26T23:00:00Z
-- id: '4'
-  title: Index engine
-  status: open
-  priority: 0
-  dependencies:
-  - '2'
-  updated_at: 2026-01-26T23:00:00Z
-- id: '5'
-  title: bn init + bn create
-  status: open
-  priority: 1
-  dependencies:
-  - '2'
-  - '3'
-  - '4'
-  updated_at: 2026-01-26T23:00:00Z
 - id: '6'
-  title: bn show + bn list
+  title: Add path traversal protection for bean IDs
   status: open
-  priority: 1
-  dependencies:
-  - '2'
-  - '4'
-  updated_at: 2026-01-26T23:00:00Z
+  priority: 0
+  labels:
+  - security
+  - core
+  updated_at: 2026-01-30T18:41:52.048039Z
 - id: '7'
-  title: bn update + close + reopen + delete
-  status: closed
-  priority: 1
-  dependencies:
-  - '2'
-  - '4'
-  updated_at: 2026-01-27T08:22:41.118091Z
+  title: Escape shell commands in verify gate
+  status: open
+  priority: 0
+  labels:
+  - security
+  - core
+  updated_at: 2026-01-30T18:41:53.157385Z
 - id: '8'
-  title: bn dep add/remove/list/tree/cycles
+  title: Remove duplicate utility functions
   status: open
   priority: 1
   dependencies:
+  - '1'
   - '2'
-  - '4'
-  updated_at: 2026-01-26T23:00:00Z
+  - '6'
+  - '7'
+  labels:
+  - code-quality
+  - core
+  updated_at: 2026-01-30T18:46:30.019888Z
 - id: '9'
-  title: bn ready + bn blocked
+  title: Extract beans_dir discovery pattern
   status: open
   priority: 1
   dependencies:
-  - '4'
-  updated_at: 2026-01-26T23:00:00Z
+  - '3'
+  - '8'
+  labels:
+  - refactor
+  - code-quality
+  updated_at: 2026-01-30T18:46:30.023197Z
 - id: '10'
-  title: bn tree + graph + stats + doctor + sync
+  title: Expand .gitignore with platform artifacts
   status: open
-  priority: 1
-  dependencies:
-  - '4'
-  updated_at: 2026-01-26T23:00:00Z
+  priority: 2
+  labels:
+  - hygiene
+  - meta
+  updated_at: 2026-01-30T18:41:57.884273Z

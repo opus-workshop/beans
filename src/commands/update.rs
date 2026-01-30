@@ -7,12 +7,6 @@ use crate::bean::Bean;
 use crate::index::Index;
 use crate::util::parse_status;
 
-#[cfg(test)]
-use crate::bean::Status;
-
-#[cfg(test)]
-use tempfile::TempDir;
-
 /// Update a bean's fields based on provided flags.
 ///
 /// - title, description, acceptance, design, priority, assignee, status: replace

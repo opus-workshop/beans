@@ -213,8 +213,8 @@ pub enum Command {
 
     /// Display dependency graph
     Graph {
-        /// Output format: mermaid (default), dot
-        #[arg(long, default_value = "mermaid")]
+        /// Output format: ascii (default), mermaid, dot
+        #[arg(long, default_value = "ascii")]
         format: String,
     },
 
@@ -223,6 +223,20 @@ pub enum Command {
 
     /// Project statistics
     Stats,
+
+    /// Claim a bean for work (sets status to in_progress)
+    Claim {
+        /// Bean ID
+        id: String,
+
+        /// Release the claim instead of acquiring it
+        #[arg(long)]
+        release: bool,
+
+        /// Who is claiming (agent name or user)
+        #[arg(long)]
+        by: Option<String>,
+    },
 
     /// Health check -- orphans, cycles, index freshness
     Doctor,

@@ -6,9 +6,23 @@ use clap::Parser;
 mod cli;
 
 use cli::{Cli, Command, DepCommand};
-use bn::commands::{cmd_init, cmd_create, cmd_list, cmd_show, cmd_update, cmd_close, cmd_reopen, cmd_delete, cmd_ready, cmd_blocked, cmd_dep_add, cmd_dep_remove, cmd_dep_list, cmd_dep_tree, cmd_dep_cycles, cmd_tree, cmd_graph, cmd_stats, cmd_doctor, cmd_sync};
+use bn::commands::{cmd_init, cmd_create, cmd_list, cmd_show, cmd_update, cmd_close, cmd_reopen, cmd_delete, cmd_ready, cmd_blocked, cmd_dep_add, cmd_dep_remove, cmd_dep_list, cmd_dep_tree, cmd_dep_cycles, cmd_tree, cmd_graph, cmd_stats, cmd_doctor, cmd_sync, cmd_verify, cmd_claim, cmd_release};
 use bn::discovery::find_beans_dir;
 use bn::commands::create::CreateArgs;
+use bn::util::validate_bean_id;
+
+/// Validate a single bean ID or fail with a user-friendly error
+fn validate_id(id: &str) -> Result<()> {
+    validate_bean_id(id)
+}
+
+/// Validate a vector of bean IDs or fail with a user-friendly error
+fn validate_ids(ids: &[String]) -> Result<()> {
+    for id in ids {
+        validate_bean_id(id)?;
+    }
+    Ok(())
+}
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -24,7 +38,7 @@ fn main() -> Result<()> {
             acceptance,
             notes,
             design,
-            verify: _,
+            verify,
             parent,
             priority,
             labels,
@@ -48,6 +62,7 @@ fn main() -> Result<()> {
                 acceptance,
                 notes,
                 design,
+                verify,
                 priority,
                 labels,
                 assignee,
@@ -58,6 +73,7 @@ fn main() -> Result<()> {
             cmd_create(&beans_dir, args)?;
         }
         Command::Show { id, json, short } => {
+            validate_id(&id)?;
             let cwd = env::current_dir()?;
             let beans_dir = find_beans_dir(&cwd)?;
             cmd_show(&id, json, short, &beans_dir)?;
@@ -97,6 +113,7 @@ fn main() -> Result<()> {
             add_label,
             remove_label,
         } => {
+            validate_id(&id)?;
             let cwd = env::current_dir()?;
             let beans_dir = find_beans_dir(&cwd)?;
             cmd_update(
@@ -115,24 +132,66 @@ fn main() -> Result<()> {
             )?;
         }
         Command::Close { ids, reason } => {
+            validate_ids(&ids)?;
             let cwd = env::current_dir()?;
             let beans_dir = find_beans_dir(&cwd)?;
             cmd_close(&beans_dir, ids, reason)?;
         }
-        Command::Verify { .. } => {
-            eprintln!("bn verify: not yet implemented");
+        Command::Verify { id } => {
+            validate_id(&id)?;
+            let cwd = env::current_dir()?;
+            let beans_dir = find_beans_dir(&cwd)?;
+            let passed = cmd_verify(&beans_dir, &id)?;
+            if !passed {
+                std::process::exit(1);
+            }
+        }
+        Command::Claim { id, release, by } => {
+            validate_id(&id)?;
+            let cwd = env::current_dir()?;
+            let beans_dir = find_beans_dir(&cwd)?;
+            if release {
+                cmd_release(&beans_dir, &id)?;
+            } else {
+                cmd_claim(&beans_dir, &id, by)?;
+            }
         }
         Command::Reopen { id } => {
+            validate_id(&id)?;
             let cwd = env::current_dir()?;
             let beans_dir = find_beans_dir(&cwd)?;
             cmd_reopen(&beans_dir, &id)?;
         }
         Command::Delete { id } => {
+            validate_id(&id)?;
             let cwd = env::current_dir()?;
             let beans_dir = find_beans_dir(&cwd)?;
             cmd_delete(&beans_dir, &id)?;
         }
         Command::Dep { command } => {
+            // Validate IDs early depending on the subcommand
+            match &command {
+                DepCommand::Add { id, depends_on } => {
+                    validate_id(id)?;
+                    validate_id(depends_on)?;
+                }
+                DepCommand::Remove { id, depends_on } => {
+                    validate_id(id)?;
+                    validate_id(depends_on)?;
+                }
+                DepCommand::List { id } => {
+                    validate_id(id)?;
+                }
+                DepCommand::Tree { id } => {
+                    if let Some(id_val) = id {
+                        validate_id(id_val)?;
+                    }
+                }
+                DepCommand::Cycles => {
+                    // No IDs to validate
+                }
+            }
+
             let cwd = env::current_dir()?;
             let beans_dir = find_beans_dir(&cwd)?;
             match command {
@@ -164,6 +223,9 @@ fn main() -> Result<()> {
             cmd_blocked(&beans_dir)?;
         }
         Command::Tree { id } => {
+            if let Some(id_val) = &id {
+                validate_id(id_val)?;
+            }
             let cwd = env::current_dir()?;
             let beans_dir = find_beans_dir(&cwd)?;
             cmd_tree(&beans_dir, id.as_deref())?;

@@ -1,16 +1,20 @@
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use anyhow::Result;
 
-use crate::index::Index;
+use crate::bean::Status;
+use crate::index::{Index, IndexEntry};
 
-/// Display dependency graph in Mermaid or DOT format
-/// Default format is Mermaid (graph TD syntax)
+/// Display dependency graph in ASCII, Mermaid, or DOT format
+/// Default format is ASCII (terminal-friendly visualization)
+/// Use --format mermaid for Mermaid graph TD syntax
 /// Use --format dot for Graphviz DOT format
 pub fn cmd_graph(beans_dir: &Path, format: &str) -> Result<()> {
     let index = Index::load_or_rebuild(beans_dir)?;
 
     match format {
+        "ascii" => output_ascii_graph(&index)?,
         "dot" => output_dot_graph(&index)?,
         "mermaid" | _ => output_mermaid_graph(&index)?,
     }
@@ -27,12 +31,14 @@ fn output_mermaid_graph(index: &Index) -> Result<()> {
     // Output edges (dependencies)
     for entry in &index.beans {
         for dep_id in &entry.dependencies {
-            println!("    {}[{}] --> {}[{}]",
+            println!(
+                "    {}[{}] --> {}[{}]",
                 format_node_id(&entry.id),
                 escape_for_mermaid(&entry.title),
                 format_node_id(dep_id),
                 escape_for_mermaid(
-                    index.beans
+                    index
+                        .beans
                         .iter()
                         .find(|e| &e.id == dep_id)
                         .map(|e| e.title.as_str())
@@ -47,10 +53,14 @@ fn output_mermaid_graph(index: &Index) -> Result<()> {
     // Add isolated nodes (beans with no dependencies and no dependents)
     for entry in &index.beans {
         if entry.dependencies.is_empty()
-            && !index.beans.iter().any(|e| e.dependencies.contains(&entry.id))
+            && !index
+                .beans
+                .iter()
+                .any(|e| e.dependencies.contains(&entry.id))
         {
             if !nodes.contains(&entry.id) {
-                println!("    {}[{}]",
+                println!(
+                    "    {}[{}]",
                     format_node_id(&entry.id),
                     escape_for_mermaid(&entry.title)
                 );
@@ -59,6 +69,265 @@ fn output_mermaid_graph(index: &Index) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn output_ascii_graph(index: &Index) -> Result<()> {
+    if index.beans.is_empty() {
+        println!("Empty graph");
+        println!("\n→ 0 beans, 0 dependencies");
+        return Ok(());
+    }
+
+    // Check for cycles and warn
+    let cycles = crate::graph::find_all_cycles(index)?;
+    if !cycles.is_empty() {
+        eprintln!(
+            "⚠ Warning: {} dependency cycle(s). Run 'bn dep cycles' for details.",
+            cycles.len()
+        );
+    }
+
+    // Build lookup maps
+    let id_map: HashMap<&str, &IndexEntry> = index
+        .beans
+        .iter()
+        .map(|e| (e.id.as_str(), e))
+        .collect();
+
+    // Build parent → children map
+    let mut children_map: HashMap<&str, Vec<&IndexEntry>> = HashMap::new();
+    for entry in &index.beans {
+        if let Some(ref parent_id) = entry.parent {
+            children_map
+                .entry(parent_id.as_str())
+                .or_default()
+                .push(entry);
+        }
+    }
+
+    // Sort children by ID
+    for children in children_map.values_mut() {
+        children.sort_by(|a, b| natural_cmp(&a.id, &b.id));
+    }
+
+    // Build reverse dependency map: who depends on this bean (blockers)
+    let mut blocked_by: HashMap<&str, Vec<&str>> = HashMap::new();
+    for entry in &index.beans {
+        for dep_id in &entry.dependencies {
+            blocked_by
+                .entry(entry.id.as_str())
+                .or_default()
+                .push(dep_id.as_str());
+        }
+    }
+
+    // Build forward dependency map: what does this bean block
+    let mut blocks: HashMap<&str, Vec<&str>> = HashMap::new();
+    for entry in &index.beans {
+        for dep_id in &entry.dependencies {
+            blocks
+                .entry(dep_id.as_str())
+                .or_default()
+                .push(entry.id.as_str());
+        }
+    }
+
+    // Find root beans (no parent)
+    let mut roots: Vec<&IndexEntry> = index
+        .beans
+        .iter()
+        .filter(|e| e.parent.is_none())
+        .collect();
+    roots.sort_by(|a, b| natural_cmp(&a.id, &b.id));
+
+    // Track what we've printed to avoid duplicates
+    let mut printed: HashSet<&str> = HashSet::new();
+
+    // Render each root tree
+    for (i, root) in roots.iter().enumerate() {
+        if i > 0 {
+            println!();
+        }
+        render_tree(
+            root,
+            &children_map,
+            &blocked_by,
+            &blocks,
+            &id_map,
+            &mut printed,
+            "",
+            true,
+            true,  // is_root
+        );
+    }
+
+    // Print orphan beans (have parent that doesn't exist)
+    let orphans: Vec<&IndexEntry> = index
+        .beans
+        .iter()
+        .filter(|e| {
+            e.parent.is_some() 
+                && !id_map.contains_key(e.parent.as_ref().unwrap().as_str())
+                && !printed.contains(e.id.as_str())
+        })
+        .collect();
+
+    if !orphans.is_empty() {
+        println!("\n┌─ Orphans (missing parent)");
+        for orphan in orphans {
+            println!("│  {}", format_node(orphan));
+            printed.insert(&orphan.id);
+        }
+        println!("└─");
+    }
+
+    // Summary
+    let dep_count: usize = index.beans.iter().map(|e| e.dependencies.len()).sum();
+    println!(
+        "\n→ {} beans, {} dependencies",
+        index.beans.len(),
+        dep_count
+    );
+
+    Ok(())
+}
+
+fn render_tree<'a>(
+    entry: &'a IndexEntry,
+    children_map: &HashMap<&str, Vec<&'a IndexEntry>>,
+    blocked_by: &HashMap<&str, Vec<&str>>,
+    blocks: &HashMap<&str, Vec<&str>>,
+    id_map: &HashMap<&str, &IndexEntry>,
+    printed: &mut HashSet<&'a str>,
+    prefix: &str,
+    is_last: bool,
+    is_root: bool,
+) {
+    printed.insert(&entry.id);
+
+    // Build the node line
+    let connector = if is_root {
+        ""
+    } else if is_last {
+        "└── "
+    } else {
+        "├── "
+    };
+
+    let node_str = format_node(entry);
+
+    // Add dependency annotations
+    let deps_annotation = if let Some(deps) = blocked_by.get(entry.id.as_str()) {
+        if deps.is_empty() {
+            String::new()
+        } else {
+            let dep_list: Vec<&str> = deps.iter()
+                .filter(|d| {
+                    // Only show non-parent deps (cross-cutting)
+                    entry.parent.as_deref() != Some(**d)
+                })
+                .copied()
+                .collect();
+            if dep_list.is_empty() {
+                String::new()
+            } else {
+                format!("  ◄── {}", dep_list.join(", "))
+            }
+        }
+    } else {
+        String::new()
+    };
+
+    println!("{}{}{}{}", prefix, connector, node_str, deps_annotation);
+
+    // Get children
+    let children = children_map.get(entry.id.as_str());
+
+    // Show what this bean blocks (non-child dependencies)
+    if let Some(blocked_list) = blocks.get(entry.id.as_str()) {
+        let non_child_blocks: Vec<&str> = blocked_list
+            .iter()
+            .filter(|b| {
+                // Only show if not a child of this bean
+                if let Some(blocked_entry) = id_map.get(*b) {
+                    blocked_entry.parent.as_deref() != Some(&entry.id)
+                } else {
+                    true
+                }
+            })
+            .copied()
+            .collect();
+
+        if !non_child_blocks.is_empty() {
+            let child_prefix = if is_root {
+                if children.is_some() && !children.unwrap().is_empty() {
+                    "│   "
+                } else {
+                    "    "
+                }
+            } else if is_last {
+                &format!("{}    ", prefix)
+            } else {
+                &format!("{}│   ", prefix)
+            };
+            
+            let blocks_str = non_child_blocks.join(", ");
+            println!("{}──► blocks {}", child_prefix, blocks_str);
+        }
+    }
+
+    // Render children
+    if let Some(children) = children {
+        let new_prefix = if is_root {
+            String::new()  // Children of root get empty prefix
+        } else if is_last {
+            format!("{}    ", prefix)
+        } else {
+            format!("{}│   ", prefix)
+        };
+
+        for (i, child) in children.iter().enumerate() {
+            let child_is_last = i == children.len() - 1;
+            render_tree(
+                child,
+                children_map,
+                blocked_by,
+                blocks,
+                id_map,
+                printed,
+                &new_prefix,
+                child_is_last,
+                false,  // children are not roots
+            );
+        }
+    }
+}
+
+fn format_node(entry: &IndexEntry) -> String {
+    let status_icon = match entry.status {
+        Status::Closed => "[✓]",
+        Status::InProgress => "[●]",
+        Status::Open => "[ ]",
+    };
+
+    // Truncate title if too long
+    let title = if entry.title.len() > 40 {
+        format!("{}…", &entry.title[..39])
+    } else {
+        entry.title.clone()
+    };
+
+    format!("{} {}  {}", status_icon, entry.id, title)
+}
+
+/// Natural comparison for bean IDs (handles dot-separated numbers)
+fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    let parse_segments = |s: &str| -> Vec<u64> {
+        s.split('.')
+            .filter_map(|seg| seg.parse::<u64>().ok())
+            .collect()
+    };
+    parse_segments(a).cmp(&parse_segments(b))
 }
 
 fn output_dot_graph(index: &Index) -> Result<()> {
@@ -137,7 +406,14 @@ mod tests {
     }
 
     #[test]
-    fn default_format_is_mermaid() {
+    fn ascii_output_valid() {
+        let (_dir, beans_dir) = setup_test_beans();
+        let result = cmd_graph(&beans_dir, "ascii");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn default_format_is_ascii() {
         let (_dir, beans_dir) = setup_test_beans();
         let result = cmd_graph(&beans_dir, "");
         assert!(result.is_ok());
@@ -156,5 +432,128 @@ mod tests {
         let escaped = escape_for_mermaid(text);
         assert!(escaped.contains("&lsqb;"));
         assert!(escaped.contains("&rsqb;"));
+    }
+
+    // ASCII graph tests
+
+    #[test]
+    fn ascii_with_empty_graph() {
+        let dir = TempDir::new().unwrap();
+        let beans_dir = dir.path().join(".beans");
+        fs::create_dir(&beans_dir).unwrap();
+
+        let result = cmd_graph(&beans_dir, "ascii");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn ascii_with_single_isolated_bean() {
+        let dir = TempDir::new().unwrap();
+        let beans_dir = dir.path().join(".beans");
+        fs::create_dir(&beans_dir).unwrap();
+
+        let bean = Bean::new("1", "Single task");
+        bean.to_file(beans_dir.join("1.yaml")).unwrap();
+
+        let result = cmd_graph(&beans_dir, "ascii");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn ascii_with_multiple_isolated_beans() {
+        let dir = TempDir::new().unwrap();
+        let beans_dir = dir.path().join(".beans");
+        fs::create_dir(&beans_dir).unwrap();
+
+        let bean1 = Bean::new("1", "Task one");
+        let bean2 = Bean::new("2", "Task two");
+        let bean3 = Bean::new("3", "Task three");
+
+        bean1.to_file(beans_dir.join("1.yaml")).unwrap();
+        bean2.to_file(beans_dir.join("2.yaml")).unwrap();
+        bean3.to_file(beans_dir.join("3.yaml")).unwrap();
+
+        let result = cmd_graph(&beans_dir, "ascii");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn ascii_with_diamond_dependencies() {
+        let dir = TempDir::new().unwrap();
+        let beans_dir = dir.path().join(".beans");
+        fs::create_dir(&beans_dir).unwrap();
+
+        let bean1 = Bean::new("1", "Root");
+        let mut bean2 = Bean::new("2", "Left branch");
+        let mut bean3 = Bean::new("3", "Right branch");
+        let mut bean4 = Bean::new("4", "Merge");
+
+        bean2.dependencies = vec!["1".to_string()];
+        bean3.dependencies = vec!["1".to_string()];
+        bean4.dependencies = vec!["2".to_string(), "3".to_string()];
+
+        bean1.to_file(beans_dir.join("1.yaml")).unwrap();
+        bean2.to_file(beans_dir.join("2.yaml")).unwrap();
+        bean3.to_file(beans_dir.join("3.yaml")).unwrap();
+        bean4.to_file(beans_dir.join("4.yaml")).unwrap();
+
+        let result = cmd_graph(&beans_dir, "ascii");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn ascii_with_cycle_warning() {
+        let dir = TempDir::new().unwrap();
+        let beans_dir = dir.path().join(".beans");
+        fs::create_dir(&beans_dir).unwrap();
+
+        let mut bean1 = Bean::new("1", "Task one");
+        let mut bean2 = Bean::new("2", "Task two");
+        let mut bean3 = Bean::new("3", "Task three");
+
+        bean1.dependencies = vec!["2".to_string()];
+        bean2.dependencies = vec!["3".to_string()];
+        bean3.dependencies = vec!["1".to_string()];
+
+        bean1.to_file(beans_dir.join("1.yaml")).unwrap();
+        bean2.to_file(beans_dir.join("2.yaml")).unwrap();
+        bean3.to_file(beans_dir.join("3.yaml")).unwrap();
+
+        let result = cmd_graph(&beans_dir, "ascii");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn ascii_long_title_truncation() {
+        let dir = TempDir::new().unwrap();
+        let beans_dir = dir.path().join(".beans");
+        fs::create_dir(&beans_dir).unwrap();
+
+        let bean = Bean::new("1", "This is a very long title that should be truncated");
+        bean.to_file(beans_dir.join("1.yaml")).unwrap();
+
+        let result = cmd_graph(&beans_dir, "ascii");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn ascii_status_badges() {
+        let dir = TempDir::new().unwrap();
+        let beans_dir = dir.path().join(".beans");
+        fs::create_dir(&beans_dir).unwrap();
+
+        let bean1 = Bean::new("1", "Open task");
+        let mut bean2 = Bean::new("2", "In progress task");
+        let mut bean3 = Bean::new("3", "Closed task");
+
+        bean2.status = Status::InProgress;
+        bean3.status = Status::Closed;
+
+        bean1.to_file(beans_dir.join("1.yaml")).unwrap();
+        bean2.to_file(beans_dir.join("2.yaml")).unwrap();
+        bean3.to_file(beans_dir.join("3.yaml")).unwrap();
+
+        let result = cmd_graph(&beans_dir, "ascii");
+        assert!(result.is_ok());
     }
 }

@@ -1,7 +1,48 @@
 //! Utility functions for bean ID parsing and status conversion.
 
 use crate::bean::Status;
+use anyhow::Result;
 use std::str::FromStr;
+
+/// Validate a bean ID to prevent path traversal attacks.
+///
+/// Valid IDs match the pattern: ^[a-zA-Z0-9._-]+$
+/// This prevents directory escape attacks like "../../../etc/passwd".
+///
+/// # Examples
+/// - "1" ✓ (valid)
+/// - "3.2.1" ✓ (valid)
+/// - "my-task" ✓ (valid)
+/// - "task_v1.0" ✓ (valid)
+/// - "../etc/passwd" ✗ (invalid)
+/// - "task/../escape" ✗ (invalid)
+pub fn validate_bean_id(id: &str) -> Result<()> {
+    if id.is_empty() {
+        return Err(anyhow::anyhow!("Bean ID cannot be empty"));
+    }
+
+    if id.len() > 255 {
+        return Err(anyhow::anyhow!("Bean ID too long (max 255 characters)"));
+    }
+
+    // Check that ID only contains safe characters: alphanumeric, dots, underscores, hyphens
+    if !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-') {
+        return Err(anyhow::anyhow!(
+            "Invalid bean ID '{}': must contain only alphanumeric characters, dots, underscores, and hyphens",
+            id
+        ));
+    }
+
+    // Ensure no path traversal sequences
+    if id.contains("..") {
+        return Err(anyhow::anyhow!(
+            "Invalid bean ID '{}': cannot contain '..' (path traversal protection)",
+            id
+        ));
+    }
+
+    Ok(())
+}
 
 /// Compare two bean IDs using natural ordering.
 /// Parses IDs as dot-separated numeric segments and compares lexicographically.
@@ -172,5 +213,100 @@ mod tests {
     fn status_from_str_invalid() {
         assert!("invalid".parse::<Status>().is_err());
         assert!("".parse::<Status>().is_err());
+    }
+
+    // ---------- validate_bean_id tests ----------
+
+    #[test]
+    fn validate_bean_id_simple_numeric() {
+        assert!(validate_bean_id("1").is_ok());
+        assert!(validate_bean_id("42").is_ok());
+        assert!(validate_bean_id("999").is_ok());
+    }
+
+    #[test]
+    fn validate_bean_id_dotted() {
+        assert!(validate_bean_id("3.1").is_ok());
+        assert!(validate_bean_id("3.2.1").is_ok());
+        assert!(validate_bean_id("1.2.3.4.5").is_ok());
+    }
+
+    #[test]
+    fn validate_bean_id_with_underscores() {
+        assert!(validate_bean_id("task_1").is_ok());
+        assert!(validate_bean_id("my_task_v1").is_ok());
+    }
+
+    #[test]
+    fn validate_bean_id_with_hyphens() {
+        assert!(validate_bean_id("my-task").is_ok());
+        assert!(validate_bean_id("task-v1-0").is_ok());
+    }
+
+    #[test]
+    fn validate_bean_id_alphanumeric() {
+        assert!(validate_bean_id("abc123def").is_ok());
+        assert!(validate_bean_id("Task1").is_ok());
+    }
+
+    #[test]
+    fn validate_bean_id_empty_fails() {
+        assert!(validate_bean_id("").is_err());
+    }
+
+    #[test]
+    fn validate_bean_id_path_traversal_fails() {
+        assert!(validate_bean_id("../etc/passwd").is_err());
+        assert!(validate_bean_id("..").is_err());
+        assert!(validate_bean_id("foo/../bar").is_err());
+        assert!(validate_bean_id("task..escape").is_err());
+    }
+
+    #[test]
+    fn validate_bean_id_absolute_path_fails() {
+        assert!(validate_bean_id("/etc/passwd").is_err());
+    }
+
+    #[test]
+    fn validate_bean_id_spaces_fail() {
+        assert!(validate_bean_id("my task").is_err());
+        assert!(validate_bean_id(" 1").is_err());
+        assert!(validate_bean_id("1 ").is_err());
+    }
+
+    #[test]
+    fn validate_bean_id_special_chars_fail() {
+        assert!(validate_bean_id("task@home").is_err());
+        assert!(validate_bean_id("task#1").is_err());
+        assert!(validate_bean_id("task$money").is_err());
+        assert!(validate_bean_id("task%complete").is_err());
+        assert!(validate_bean_id("task&friend").is_err());
+        assert!(validate_bean_id("task*star").is_err());
+        assert!(validate_bean_id("task(paren").is_err());
+        assert!(validate_bean_id("task)close").is_err());
+        assert!(validate_bean_id("task+plus").is_err());
+        assert!(validate_bean_id("task=equals").is_err());
+        assert!(validate_bean_id("task[bracket").is_err());
+        assert!(validate_bean_id("task]close").is_err());
+        assert!(validate_bean_id("task{brace").is_err());
+        assert!(validate_bean_id("task}close").is_err());
+        assert!(validate_bean_id("task|pipe").is_err());
+        assert!(validate_bean_id("task;semicolon").is_err());
+        assert!(validate_bean_id("task:colon").is_err());
+        assert!(validate_bean_id("task\"quote").is_err());
+        assert!(validate_bean_id("task'apostrophe").is_err());
+        assert!(validate_bean_id("task<less").is_err());
+        assert!(validate_bean_id("task>greater").is_err());
+        assert!(validate_bean_id("task,comma").is_err());
+        assert!(validate_bean_id("task?question").is_err());
+    }
+
+    #[test]
+    fn validate_bean_id_too_long() {
+        let long_id = "a".repeat(256);
+        assert!(validate_bean_id(&long_id).is_err());
+
+        let max_id = "a".repeat(255);
+        assert!(validate_bean_id(&max_id).is_ok());
     }
 }

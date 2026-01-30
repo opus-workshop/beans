@@ -14,6 +14,7 @@ pub struct CreateArgs {
     pub acceptance: Option<String>,
     pub notes: Option<String>,
     pub design: Option<String>,
+    pub verify: Option<String>,
     pub priority: Option<u8>,
     pub labels: Option<String>,
     pub assignee: Option<String>,
@@ -92,6 +93,9 @@ pub fn cmd_create(beans_dir: &Path, args: CreateArgs) -> Result<()> {
     if let Some(design) = args.design {
         bean.design = Some(design);
     }
+    if let Some(verify) = args.verify {
+        bean.verify = Some(verify);
+    }
     if let Some(priority) = args.priority {
         bean.priority = priority;
     }
@@ -160,6 +164,7 @@ mod tests {
             acceptance: None,
             notes: None,
             design: None,
+            verify: None,
             priority: None,
             labels: None,
             assignee: None,
@@ -190,6 +195,7 @@ mod tests {
             acceptance: None,
             notes: None,
             design: None,
+            verify: None,
             priority: None,
             labels: None,
             assignee: None,
@@ -205,6 +211,7 @@ mod tests {
             acceptance: None,
             notes: None,
             design: None,
+            verify: None,
             priority: None,
             labels: None,
             assignee: None,
@@ -231,6 +238,7 @@ mod tests {
             acceptance: None,
             notes: None,
             design: None,
+            verify: None,
             priority: None,
             labels: None,
             assignee: None,
@@ -246,6 +254,7 @@ mod tests {
             acceptance: None,
             notes: None,
             design: None,
+            verify: None,
             priority: None,
             labels: None,
             assignee: None,
@@ -271,6 +280,7 @@ mod tests {
             acceptance: None,
             notes: None,
             design: None,
+            verify: None,
             priority: None,
             labels: None,
             assignee: None,
@@ -287,6 +297,7 @@ mod tests {
                 acceptance: None,
                 notes: None,
                 design: None,
+                verify: None,
                 priority: None,
                 labels: None,
                 assignee: None,
@@ -317,6 +328,7 @@ mod tests {
             acceptance: Some("All tests pass".to_string()),
             notes: Some("Some notes".to_string()),
             design: Some("Design decision".to_string()),
+            verify: None,
             priority: Some(1),
             labels: Some("bug,critical".to_string()),
             assignee: Some("alice".to_string()),
@@ -348,6 +360,7 @@ mod tests {
             acceptance: None,
             notes: None,
             design: None,
+            verify: None,
             priority: None,
             labels: None,
             assignee: None,
@@ -403,6 +416,7 @@ mod tests {
             acceptance: None,
             notes: None,
             design: None,
+            verify: None,
             priority: Some(5),
             labels: None,
             assignee: None,
@@ -427,6 +441,7 @@ mod tests {
                 acceptance: None,
                 notes: None,
                 design: None,
+                verify: None,
                 priority: Some(priority),
                 labels: None,
                 assignee: None,

@@ -100,12 +100,13 @@ The description is the agent prompt. Rich enough that an agent can pick it up co
 | Command | Description |
 |---|---|
 | `bn init [name]` | Initialize `.beans/` in the current directory |
-| `bn create [title]` | Create a new bean |
-| `bn show <id>` | Display a bean (raw YAML, `--json`, or `--short`) |
-| `bn list` | List beans with filtering (`--status`, `--priority`, `--tree`) |
+| `bn create [title]` | Create a new bean [alias: `new`] |
+| `bn show <id>` | Display a bean (raw YAML, `--json`, or `--short`) [alias: `view`] |
+| `bn list` | List beans with filtering (`--status`, `--priority`, `--parent`, `--assignee`) [alias: `ls`] |
 | `bn update <id>` | Modify bean fields |
 | `bn claim <id>` | Atomically claim a bean (status: open → in_progress) |
-| `bn close <id>` | Run verify, close if passes; undo and retry if fails |
+| `bn claim <id> --release` | Release a claimed bean (status: in_progress → open) |
+| `bn close <id>...` | Run verify, close if passes; undo and retry if fails |
 | `bn verify <id>` | Run verify command without closing |
 | `bn reopen <id>` | Reopen a closed bean |
 | `bn delete <id>` | Remove a bean and clean up references |
@@ -118,7 +119,7 @@ The description is the agent prompt. Rich enough that an agent can pick it up co
 | `bn dep remove <id> <dep>` | Remove a dependency |
 | `bn dep list <id>` | Show dependencies and dependents |
 | `bn dep tree [id]` | Dependency tree with box-drawing characters |
-| `bn dep cycles` | Detect and report cycles |
+| `bn dep cycles` | Detect and report cycles in graph |
 
 ### Views
 
@@ -127,10 +128,10 @@ The description is the agent prompt. Rich enough that an agent can pick it up co
 | `bn ready` | Beans with no blocking dependencies, sorted by priority |
 | `bn blocked` | Beans waiting on unresolved dependencies |
 | `bn tree [id]` | Hierarchical tree with status indicators |
-| `bn graph` | Dependency graph (`--format mermaid` or `dot`) |
+| `bn graph` | Dependency graph (`--format mermaid`, `dot` or `ascii`) |
 | `bn stats` | Counts, priority breakdown, completion progress |
 | `bn doctor` | Health check — orphans, cycles, index freshness |
-| `bn sync` | Force index rebuild |
+| `bn sync` | Force index rebuild from YAML files |
 
 ### Example Output
 
