@@ -13,5 +13,9 @@ chrono = { version = "0.4", features = ["serde"] }
 anyhow = "1"
 shell-escape = "0.1"
 
+[[bin]]
+name = "migrate_beans"
+path = "tools/migrate_beans.rs"
+
 [dev-dependencies]
 tempfile = "3"
