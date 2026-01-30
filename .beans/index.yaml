@@ -17,7 +17,7 @@ beans:
   updated_at: 2026-01-30T18:51:07.517469Z
 - id: '8'
   title: Remove duplicate utility functions
-  status: open
+  status: closed
   priority: 1
   dependencies:
   - '1'
@@ -27,7 +27,7 @@ beans:
   labels:
   - code-quality
   - core
-  updated_at: 2026-01-30T18:46:30.019888Z
+  updated_at: 2026-01-30T18:52:17.686266Z
 - id: '9'
   title: Extract beans_dir discovery pattern
   status: open

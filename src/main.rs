@@ -27,6 +27,12 @@ fn validate_ids(ids: &[String]) -> Result<()> {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    // Extract beans_dir discovery to a single point for all non-Init commands
+    let beans_dir_result = match &cli.command {
+        Command::Init { .. } => None,
+        _ => Some(find_beans_dir(&env::current_dir()?)?),
+    };
+
     match cli.command {
         Command::Init { name } => {
             cmd_init(name)?;
@@ -52,9 +58,7 @@ fn main() -> Result<()> {
             }
             let title = title.unwrap();
 
-            // Find the .beans directory
-            let cwd = env::current_dir()?;
-            let beans_dir = find_beans_dir(&cwd)?;
+            let beans_dir = beans_dir_result.as_ref().unwrap();
 
             let args = CreateArgs {
                 title,
@@ -70,13 +74,12 @@ fn main() -> Result<()> {
                 parent,
             };
 
-            cmd_create(&beans_dir, args)?;
+            cmd_create(beans_dir, args)?;
         }
         Command::Show { id, json, short } => {
             validate_id(&id)?;
-            let cwd = env::current_dir()?;
-            let beans_dir = find_beans_dir(&cwd)?;
-            cmd_show(&id, json, short, &beans_dir)?;
+            let beans_dir = beans_dir_result.as_ref().unwrap();
+            cmd_show(&id, json, short, beans_dir)?;
         }
         Command::List {
             status,
@@ -87,8 +90,7 @@ fn main() -> Result<()> {
             all,
             json,
         } => {
-            let cwd = env::current_dir()?;
-            let beans_dir = find_beans_dir(&cwd)?;
+            let beans_dir = beans_dir_result.as_ref().unwrap();
             cmd_list(
                 status.as_deref(),
                 priority,
@@ -97,7 +99,7 @@ fn main() -> Result<()> {
                 assignee.as_deref(),
                 all,
                 json,
-                &beans_dir,
+                beans_dir,
             )?;
         }
         Command::Update {
@@ -114,10 +116,9 @@ fn main() -> Result<()> {
             remove_label,
         } => {
             validate_id(&id)?;
-            let cwd = env::current_dir()?;
-            let beans_dir = find_beans_dir(&cwd)?;
+            let beans_dir = beans_dir_result.as_ref().unwrap();
             cmd_update(
-                &beans_dir,
+                beans_dir,
                 &id,
                 title,
                 description,
@@ -133,40 +134,35 @@ fn main() -> Result<()> {
         }
         Command::Close { ids, reason } => {
             validate_ids(&ids)?;
-            let cwd = env::current_dir()?;
-            let beans_dir = find_beans_dir(&cwd)?;
-            cmd_close(&beans_dir, ids, reason)?;
+            let beans_dir = beans_dir_result.as_ref().unwrap();
+            cmd_close(beans_dir, ids, reason)?;
         }
         Command::Verify { id } => {
             validate_id(&id)?;
-            let cwd = env::current_dir()?;
-            let beans_dir = find_beans_dir(&cwd)?;
-            let passed = cmd_verify(&beans_dir, &id)?;
+            let beans_dir = beans_dir_result.as_ref().unwrap();
+            let passed = cmd_verify(beans_dir, &id)?;
             if !passed {
                 std::process::exit(1);
             }
         }
         Command::Claim { id, release, by } => {
             validate_id(&id)?;
-            let cwd = env::current_dir()?;
-            let beans_dir = find_beans_dir(&cwd)?;
+            let beans_dir = beans_dir_result.as_ref().unwrap();
             if release {
-                cmd_release(&beans_dir, &id)?;
+                cmd_release(beans_dir, &id)?;
             } else {
-                cmd_claim(&beans_dir, &id, by)?;
+                cmd_claim(beans_dir, &id, by)?;
             }
         }
         Command::Reopen { id } => {
             validate_id(&id)?;
-            let cwd = env::current_dir()?;
-            let beans_dir = find_beans_dir(&cwd)?;
-            cmd_reopen(&beans_dir, &id)?;
+            let beans_dir = beans_dir_result.as_ref().unwrap();
+            cmd_reopen(beans_dir, &id)?;
         }
         Command::Delete { id } => {
             validate_id(&id)?;
-            let cwd = env::current_dir()?;
-            let beans_dir = find_beans_dir(&cwd)?;
-            cmd_delete(&beans_dir, &id)?;
+            let beans_dir = beans_dir_result.as_ref().unwrap();
+            cmd_delete(beans_dir, &id)?;
         }
         Command::Dep { command } => {
             // Validate IDs early depending on the subcommand
@@ -192,63 +188,55 @@ fn main() -> Result<()> {
                 }
             }
 
-            let cwd = env::current_dir()?;
-            let beans_dir = find_beans_dir(&cwd)?;
+            let beans_dir = beans_dir_result.as_ref().unwrap();
             match command {
                 DepCommand::Add { id, depends_on } => {
-                    cmd_dep_add(&beans_dir, &id, &depends_on)?;
+                    cmd_dep_add(beans_dir, &id, &depends_on)?;
                 }
                 DepCommand::Remove { id, depends_on } => {
-                    cmd_dep_remove(&beans_dir, &id, &depends_on)?;
+                    cmd_dep_remove(beans_dir, &id, &depends_on)?;
                 }
                 DepCommand::List { id } => {
-                    cmd_dep_list(&beans_dir, &id)?;
+                    cmd_dep_list(beans_dir, &id)?;
                 }
                 DepCommand::Tree { id } => {
-                    cmd_dep_tree(&beans_dir, id.as_deref())?;
+                    cmd_dep_tree(beans_dir, id.as_deref())?;
                 }
                 DepCommand::Cycles => {
-                    cmd_dep_cycles(&beans_dir)?;
+                    cmd_dep_cycles(beans_dir)?;
                 }
             }
-        },
+        }
         Command::Ready => {
-            let cwd = env::current_dir()?;
-            let beans_dir = find_beans_dir(&cwd)?;
-            cmd_ready(&beans_dir)?;
+            let beans_dir = beans_dir_result.as_ref().unwrap();
+            cmd_ready(beans_dir)?;
         }
         Command::Blocked => {
-            let cwd = env::current_dir()?;
-            let beans_dir = find_beans_dir(&cwd)?;
-            cmd_blocked(&beans_dir)?;
+            let beans_dir = beans_dir_result.as_ref().unwrap();
+            cmd_blocked(beans_dir)?;
         }
         Command::Tree { id } => {
             if let Some(id_val) = &id {
                 validate_id(id_val)?;
             }
-            let cwd = env::current_dir()?;
-            let beans_dir = find_beans_dir(&cwd)?;
-            cmd_tree(&beans_dir, id.as_deref())?;
+            let beans_dir = beans_dir_result.as_ref().unwrap();
+            cmd_tree(beans_dir, id.as_deref())?;
         }
         Command::Graph { format } => {
-            let cwd = env::current_dir()?;
-            let beans_dir = find_beans_dir(&cwd)?;
-            cmd_graph(&beans_dir, &format)?;
+            let beans_dir = beans_dir_result.as_ref().unwrap();
+            cmd_graph(beans_dir, &format)?;
         }
         Command::Sync => {
-            let cwd = env::current_dir()?;
-            let beans_dir = find_beans_dir(&cwd)?;
-            cmd_sync(&beans_dir)?;
+            let beans_dir = beans_dir_result.as_ref().unwrap();
+            cmd_sync(beans_dir)?;
         }
         Command::Stats => {
-            let cwd = env::current_dir()?;
-            let beans_dir = find_beans_dir(&cwd)?;
-            cmd_stats(&beans_dir)?;
+            let beans_dir = beans_dir_result.as_ref().unwrap();
+            cmd_stats(beans_dir)?;
         }
         Command::Doctor => {
-            let cwd = env::current_dir()?;
-            let beans_dir = find_beans_dir(&cwd)?;
-            cmd_doctor(&beans_dir)?;
+            let beans_dir = beans_dir_result.as_ref().unwrap();
+            cmd_doctor(beans_dir)?;
         }
     }
 
