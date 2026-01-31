@@ -241,6 +241,17 @@ pub enum Command {
     /// Health check -- orphans, cycles, index freshness
     Doctor,
 
+    /// Manage hook trust (enable/disable hook execution)
+    Trust {
+        /// Revoke trust (disable hooks)
+        #[arg(long)]
+        revoke: bool,
+
+        /// Check current trust status
+        #[arg(long)]
+        check: bool,
+    },
+
     /// Unarchive a bean (move from archive back to main beans directory)
     Unarchive {
         /// Bean ID to unarchive

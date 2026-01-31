@@ -1,8 +1,8 @@
+use anyhow::{anyhow, Result};
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
-use anyhow::{anyhow, Result};
-use serde::{Deserialize, Serialize};
 
 use crate::bean::Bean;
 
@@ -56,7 +56,8 @@ impl HookPayload {
 
     /// Serialize this payload to JSON.
     pub fn to_json(&self) -> Result<String> {
-        serde_json::to_string(self).map_err(|e| anyhow!("Failed to serialize payload to JSON: {}", e))
+        serde_json::to_string(self)
+            .map_err(|e| anyhow!("Failed to serialize payload to JSON: {}", e))
     }
 }
 
@@ -66,10 +67,7 @@ impl HookPayload {
 
 /// Get the path to a hook script based on the event and beans directory.
 pub fn get_hook_path(beans_dir: &Path, event: HookEvent) -> PathBuf {
-    beans_dir
-        .join(".beans")
-        .join("hooks")
-        .join(event.as_str())
+    beans_dir.join(".beans").join("hooks").join(event.as_str())
 }
 
 /// Check if a hook file exists and is executable.
@@ -98,9 +96,7 @@ pub fn is_hook_executable(path: &Path) -> bool {
     {
         let path_str = path.to_string_lossy();
         let exe_extensions = [".exe", ".bat", ".cmd", ".ps1", ".com"];
-        exe_extensions
-            .iter()
-            .any(|ext| path_str.ends_with(ext))
+        exe_extensions.iter().any(|ext| path_str.ends_with(ext))
     }
 
     // Default to true if we can't determine
@@ -132,6 +128,13 @@ pub fn execute_hook(
     beans_dir: &Path,
     reason: Option<String>,
 ) -> Result<bool> {
+    // Security model: Hooks are disabled by default. Users must explicitly enable them
+    // with `bn trust` before any hooks will execute. This ensures users review the
+    // hook scripts in .beans/hooks/ before giving them execution rights.
+    if !is_trusted(beans_dir) {
+        return Ok(true);
+    }
+
     let hook_path = get_hook_path(beans_dir, event);
 
     // If hook doesn't exist, silently return success
@@ -161,11 +164,14 @@ pub fn execute_hook(
 
     // Write JSON to stdin
     {
-        let stdin = child.stdin.as_mut().ok_or_else(|| anyhow!("Failed to open stdin"))?;
+        let stdin = child
+            .stdin
+            .as_mut()
+            .ok_or_else(|| anyhow!("Failed to open stdin"))?;
         use std::io::Write as StdWrite;
-        stdin.write_all(json_payload.as_bytes()).map_err(|e| {
-            anyhow!("Failed to write payload to hook stdin: {}", e)
-        })?;
+        stdin
+            .write_all(json_payload.as_bytes())
+            .map_err(|e| anyhow!("Failed to write payload to hook stdin: {}", e))?;
         // stdin is dropped here, closing the pipe
     }
 
@@ -184,7 +190,10 @@ pub fn execute_hook(
                 if start.elapsed() > timeout {
                     // Timeout exceeded, kill the process
                     let _ = child.kill();
-                    return Err(anyhow!("Hook execution timed out after {} seconds", timeout.as_secs()));
+                    return Err(anyhow!(
+                        "Hook execution timed out after {} seconds",
+                        timeout.as_secs()
+                    ));
                 }
                 // Sleep briefly before checking again
                 std::thread::sleep(Duration::from_millis(100));
@@ -197,14 +206,63 @@ pub fn execute_hook(
 }
 
 // ---------------------------------------------------------------------------
+// Trust Management
+// ---------------------------------------------------------------------------
+
+/// Check if hooks are trusted (enabled).
+///
+/// Returns true if the .beans/.hooks-trusted file exists, false otherwise.
+/// Does not error if the file doesn't exist.
+pub fn is_trusted(beans_dir: &Path) -> bool {
+    beans_dir.join(".beans").join(".hooks-trusted").exists()
+}
+
+/// Enable hook trust by creating the .beans/.hooks-trusted file.
+///
+/// # Returns
+///
+/// * `Ok(())` - Trust file created successfully
+/// * `Err` - Failed to create trust file
+pub fn create_trust(beans_dir: &Path) -> Result<()> {
+    let trust_path = beans_dir.join(".beans").join(".hooks-trusted");
+
+    // Ensure .beans directory exists
+    std::fs::create_dir_all(
+        trust_path
+            .parent()
+            .ok_or_else(|| anyhow!("Invalid trust path"))?,
+    )?;
+
+    // Create the trust file with metadata
+    let metadata = format!("Hooks enabled at {}\n", chrono::Utc::now());
+    std::fs::write(&trust_path, metadata).map_err(|e| anyhow!("Failed to create trust file: {}", e))
+}
+
+/// Revoke hook trust by deleting the .beans/.hooks-trusted file.
+///
+/// # Returns
+///
+/// * `Ok(())` - Trust file deleted successfully
+/// * `Err` - Trust file doesn't exist or failed to delete
+pub fn revoke_trust(beans_dir: &Path) -> Result<()> {
+    let trust_path = beans_dir.join(".beans").join(".hooks-trusted");
+
+    if !trust_path.exists() {
+        return Err(anyhow!("Trust file does not exist"));
+    }
+
+    std::fs::remove_file(&trust_path).map_err(|e| anyhow!("Failed to revoke trust: {}", e))
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
     use std::fs;
+    use tempfile::TempDir;
 
     fn create_test_bean() -> Bean {
         Bean::new("1", "Test Bean")
@@ -275,6 +333,9 @@ mod tests {
         let hooks_dir = beans_dir.join(".beans").join("hooks");
         fs::create_dir_all(&hooks_dir).unwrap();
 
+        // Enable trust so hook execution is attempted
+        create_trust(beans_dir).unwrap();
+
         let hook_path = hooks_dir.join("pre-create");
         fs::write(&hook_path, "#!/bin/bash\nexit 0").unwrap();
         // File is not executable
@@ -292,6 +353,9 @@ mod tests {
         let beans_dir = temp_dir.path();
         let hooks_dir = beans_dir.join(".beans").join("hooks");
         fs::create_dir_all(&hooks_dir).unwrap();
+
+        // Enable trust so hook execution is attempted
+        create_trust(beans_dir).unwrap();
 
         let hook_path = hooks_dir.join("pre-create");
         // Use a simple script that just exits successfully, ignoring stdin
@@ -317,6 +381,9 @@ mod tests {
         let beans_dir = temp_dir.path();
         let hooks_dir = beans_dir.join(".beans").join("hooks");
         fs::create_dir_all(&hooks_dir).unwrap();
+
+        // Enable trust so hook execution is attempted
+        create_trust(beans_dir).unwrap();
 
         let hook_path = hooks_dir.join("pre-create");
         fs::write(&hook_path, "#!/bin/bash\nexit 1").unwrap();
@@ -358,6 +425,9 @@ mod tests {
         let beans_dir = temp_dir.path();
         let hooks_dir = beans_dir.join(".beans").join("hooks");
         fs::create_dir_all(&hooks_dir).unwrap();
+
+        // Enable trust so hook execution is attempted
+        create_trust(beans_dir).unwrap();
 
         let hook_path = hooks_dir.join("pre-create");
         // Script that sleeps for longer than timeout
@@ -421,5 +491,173 @@ mod tests {
         assert!(json.contains("Test description"));
         assert!(json.contains("labels"));
         assert!(json.contains("test"));
+    }
+
+    // =====================================================================
+    // Trust Management Tests
+    // =====================================================================
+
+    #[test]
+    fn test_is_trusted_returns_false_when_trust_file_does_not_exist() {
+        let temp_dir = create_test_dir();
+        let beans_dir = temp_dir.path();
+
+        // Create .beans directory
+        fs::create_dir_all(beans_dir.join(".beans")).unwrap();
+
+        // Trust should not exist
+        assert!(!is_trusted(beans_dir));
+    }
+
+    #[test]
+    fn test_is_trusted_returns_true_when_trust_file_exists() {
+        let temp_dir = create_test_dir();
+        let beans_dir = temp_dir.path();
+
+        // Create .beans directory and trust file
+        fs::create_dir_all(beans_dir.join(".beans")).unwrap();
+        fs::write(beans_dir.join(".beans").join(".hooks-trusted"), "").unwrap();
+
+        // Trust should exist
+        assert!(is_trusted(beans_dir));
+    }
+
+    #[test]
+    fn test_create_trust_creates_trust_file() {
+        let temp_dir = create_test_dir();
+        let beans_dir = temp_dir.path();
+
+        // Create .beans directory
+        fs::create_dir_all(beans_dir.join(".beans")).unwrap();
+
+        // Trust should not exist yet
+        assert!(!is_trusted(beans_dir));
+
+        // Create trust
+        let result = create_trust(beans_dir);
+        assert!(result.is_ok());
+
+        // Trust should now exist
+        assert!(is_trusted(beans_dir));
+
+        // Verify file contains metadata
+        let content = fs::read_to_string(beans_dir.join(".beans").join(".hooks-trusted")).unwrap();
+        assert!(content.contains("Hooks enabled"));
+    }
+
+    #[test]
+    fn test_revoke_trust_removes_trust_file() {
+        let temp_dir = create_test_dir();
+        let beans_dir = temp_dir.path();
+
+        // Create .beans directory and trust file
+        fs::create_dir_all(beans_dir.join(".beans")).unwrap();
+        fs::write(beans_dir.join(".beans").join(".hooks-trusted"), "").unwrap();
+
+        // Trust should exist
+        assert!(is_trusted(beans_dir));
+
+        // Revoke trust
+        let result = revoke_trust(beans_dir);
+        assert!(result.is_ok());
+
+        // Trust should no longer exist
+        assert!(!is_trusted(beans_dir));
+    }
+
+    #[test]
+    fn test_revoke_trust_errors_if_file_does_not_exist() {
+        let temp_dir = create_test_dir();
+        let beans_dir = temp_dir.path();
+
+        // Create .beans directory
+        fs::create_dir_all(beans_dir.join(".beans")).unwrap();
+
+        // Try to revoke non-existent trust
+        let result = revoke_trust(beans_dir);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Trust file does not exist"));
+    }
+
+    #[test]
+    fn test_execute_hook_skips_when_not_trusted() {
+        let temp_dir = create_test_dir();
+        let beans_dir = temp_dir.path();
+        let hooks_dir = beans_dir.join(".beans").join("hooks");
+        fs::create_dir_all(&hooks_dir).unwrap();
+
+        // Create an executable hook
+        let hook_path = hooks_dir.join("pre-create");
+        fs::write(&hook_path, "#!/bin/bash\nexit 1").unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&hook_path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let bean = create_test_bean();
+
+        // Hook should NOT execute (returns Ok(true) but doesn't run)
+        // If trust is disabled, hook should not even check executability
+        let result = execute_hook(HookEvent::PreCreate, &bean, beans_dir, None);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), true); // Returns true but doesn't execute
+    }
+
+    #[test]
+    fn test_execute_hook_runs_when_trusted() {
+        let temp_dir = create_test_dir();
+        let beans_dir = temp_dir.path();
+        let hooks_dir = beans_dir.join(".beans").join("hooks");
+        fs::create_dir_all(&hooks_dir).unwrap();
+
+        // Enable trust
+        create_trust(beans_dir).unwrap();
+
+        // Create an executable hook that succeeds
+        let hook_path = hooks_dir.join("pre-create");
+        fs::write(&hook_path, "#!/bin/bash\nexit 0").unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&hook_path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let bean = create_test_bean();
+
+        // Hook should execute successfully
+        let result = execute_hook(HookEvent::PreCreate, &bean, beans_dir, None);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), true);
+    }
+
+    #[test]
+    fn test_execute_hook_respects_non_trusted_status() {
+        let temp_dir = create_test_dir();
+        let beans_dir = temp_dir.path();
+        let hooks_dir = beans_dir.join(".beans").join("hooks");
+        fs::create_dir_all(&hooks_dir).unwrap();
+
+        // Create a hook but DO NOT enable trust
+        let hook_path = hooks_dir.join("pre-create");
+        fs::write(&hook_path, "#!/bin/bash\nexit 0").unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&hook_path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let bean = create_test_bean();
+
+        // Hook should NOT execute (returns Ok(true) silently)
+        let result = execute_hook(HookEvent::PreCreate, &bean, beans_dir, None);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), true);
     }
 }
