@@ -36,17 +36,50 @@ cp tools/bpick ~/.local/bin/
 
 ## Feature Comparison
 
-| Aspect | beans | [hmans/beans](https://github.com/hmans/beans) |
+### Agent-Native Task Trackers
+
+| Aspect | beans | [beads](https://github.com/steveyegge/beads) (Steve Yegge) |
 |--------|-------|-------|
-| **Storage backend** | YAML/Markdown files | SQLite + JSONL + daemon |
-| **Verify gates** | ✓ Enforced | ✗ Not enforced |
-| **Atomic claiming** | ✓ Via file operations | ✗ No guarantee |
-| **Direct file access** | ✓ `cat .beans/1-*.md` | ✗ CLI-only |
-| **ID scheme** | Hierarchical (3.2 = child of 3) | Hash-based |
-| **Git compatibility** | ✓ Clean diffs, mergeable | ✗ Not git-friendly |
-| **Daemon required** | ✗ Stateless | ✓ Background service |
+| **Philosophy** | Simplicity, verify gates | Scale, multi-agent swarms |
+| **Storage** | Markdown + YAML frontmatter | JSONL + SQLite cache |
+| **ID scheme** | Hierarchical (`3.1` = child of `3`) | Hash-based (`bd-a1b2`) |
+| **Verify gates** | ✓ Enforced (must exit 0) | ✗ Not enforced |
+| **Daemon required** | ✗ Stateless CLI | ✓ Background sync daemon |
+| **Direct file access** | ✓ `cat .beans/1-*.md` | ✗ Query via CLI |
+| **Git diffs** | ✓ Clean, human-readable | ✗ JSONL harder to review |
+| **Merge conflicts** | Rare (separate files) | Rare (hash IDs) |
+| **Memory compaction** | ✗ Archive only | ✓ Semantic decay |
+| **Lifecycle hooks** | ✓ Pre/post create/update/close | ✗ Not supported |
 | **Task scalability** | Hundreds (optimal) | Thousands+ (indexed) |
-| **Scope** | Agent coordination | Full issue tracking |
+| **Language** | Rust | Go |
+| **Best for** | Small teams, strict verification | Large swarms, long-horizon |
+
+### vs Traditional Issue Trackers
+
+| Aspect | beans | Jira | GitHub Issues | Linear |
+|--------|-------|------|---------------|--------|
+| **Designed for** | AI agents | Humans | Humans | Humans |
+| **Storage** | Local files | Cloud DB | Cloud DB | Cloud DB |
+| **Offline support** | ✓ Full | ✗ Limited | ✗ Limited | ✗ Limited |
+| **Git integration** | ✓ Native (files in repo) | ✗ External | ✓ Same platform | ✗ External |
+| **Verify gates** | ✓ Enforced | ✗ Manual | ✗ Manual | ✗ Manual |
+| **API for agents** | ✓ CLI + JSON | ✓ REST API | ✓ GraphQL | ✓ GraphQL |
+| **Setup required** | `bn init` | Account + project | Repository | Workspace |
+| **Cost** | Free | $$$$ | Free (public) | $$ |
+| **Human UI** | Terminal / editor | Rich web UI | Web UI | Fast web UI |
+| **Dependency graphs** | ✓ Built-in DAG | ✓ Via plugins | ✗ Limited | ✓ Built-in |
+| **Auto-archive** | ✓ On close | ✗ Manual | ✗ Manual | ✗ Manual |
+| **Hierarchy** | ✓ Parent-child IDs | ✓ Epics/stories | ✗ Flat | ✓ Projects/issues |
+
+### When to Use What
+
+| Use Case | Recommended |
+|----------|-------------|
+| Single agent, strict verification | **beans** |
+| Multi-agent swarms at scale | **beads** |
+| Human team with rich workflows | **Jira** or **Linear** |
+| Open source project | **GitHub Issues** |
+| Mixed human + agent workflow | **beans** or **beads** + sync to Jira/Linear |
 
 ## Design Rationale
 
