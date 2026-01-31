@@ -5,6 +5,7 @@ use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 
 use crate::bean::Bean;
+use crate::discovery::find_bean_file;
 use crate::index::Index;
 use crate::graph::{detect_cycle, build_dependency_tree, build_full_graph, find_all_cycles};
 
@@ -12,16 +13,12 @@ use crate::graph::{detect_cycle, build_dependency_tree, build_full_graph, find_a
 /// Sets id.dependencies to include depends-on-id.
 /// Checks for cycles before adding.
 pub fn cmd_dep_add(beans_dir: &Path, id: &str, depends_on_id: &str) -> Result<()> {
-    // Verify both beans exist
-    let bean_path = beans_dir.join(format!("{}.yaml", id));
-    if !bean_path.exists() {
-        return Err(anyhow!("Bean {} not found", id));
-    }
+    // Verify both beans exist (supports both .md and legacy .yaml formats)
+    let bean_path = find_bean_file(beans_dir, id)
+        .map_err(|_| anyhow!("Bean {} not found", id))?;
 
-    let depends_on_path = beans_dir.join(format!("{}.yaml", depends_on_id));
-    if !depends_on_path.exists() {
-        return Err(anyhow!("Bean {} not found", depends_on_id));
-    }
+    find_bean_file(beans_dir, depends_on_id)
+        .map_err(|_| anyhow!("Bean {} not found", depends_on_id))?;
 
     // Check for self-dependency
     if id == depends_on_id {
@@ -73,10 +70,8 @@ pub fn cmd_dep_add(beans_dir: &Path, id: &str, depends_on_id: &str) -> Result<()
 
 /// Remove a dependency: `bn dep remove <id> <depends-on-id>`
 pub fn cmd_dep_remove(beans_dir: &Path, id: &str, depends_on_id: &str) -> Result<()> {
-    let bean_path = beans_dir.join(format!("{}.yaml", id));
-    if !bean_path.exists() {
-        return Err(anyhow!("Bean {} not found", id));
-    }
+    let bean_path = find_bean_file(beans_dir, id)
+        .map_err(|_| anyhow!("Bean {} not found", id))?;
 
     let mut bean = Bean::from_file(&bean_path)
         .with_context(|| format!("Failed to load bean: {}", id))?;
@@ -190,6 +185,7 @@ pub fn cmd_dep_cycles(beans_dir: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::util::title_to_slug;
     use std::fs;
     use tempfile::TempDir;
 
@@ -200,17 +196,24 @@ mod tests {
         (dir, beans_dir)
     }
 
+    /// Helper to create a bean file with the new {id}-{slug}.md format
+    fn create_bean(beans_dir: &Path, bean: &Bean) {
+        let slug = title_to_slug(&bean.title);
+        let filename = format!("{}-{}.md", bean.id, slug);
+        bean.to_file(beans_dir.join(filename)).unwrap();
+    }
+
     #[test]
     fn test_dep_add_simple() {
         let (_dir, beans_dir) = setup_test_beans_dir();
         let bean1 = Bean::new("1", "Task 1");
         let bean2 = Bean::new("2", "Task 2");
-        bean1.to_file(beans_dir.join("1.yaml")).unwrap();
-        bean2.to_file(beans_dir.join("2.yaml")).unwrap();
+        create_bean(&beans_dir, &bean1);
+        create_bean(&beans_dir, &bean2);
 
         cmd_dep_add(&beans_dir, "1", "2").unwrap();
 
-        let updated = Bean::from_file(beans_dir.join("1.yaml")).unwrap();
+        let updated = Bean::from_file(beans_dir.join("1-task-1.md")).unwrap();
         assert_eq!(updated.dependencies, vec!["2".to_string()]);
     }
 
@@ -218,7 +221,7 @@ mod tests {
     fn test_dep_add_self_dependency_rejected() {
         let (_dir, beans_dir) = setup_test_beans_dir();
         let bean1 = Bean::new("1", "Task 1");
-        bean1.to_file(beans_dir.join("1.yaml")).unwrap();
+        create_bean(&beans_dir, &bean1);
 
         let result = cmd_dep_add(&beans_dir, "1", "1");
         assert!(result.is_err());
@@ -229,7 +232,7 @@ mod tests {
     fn test_dep_add_nonexistent_bean() {
         let (_dir, beans_dir) = setup_test_beans_dir();
         let bean1 = Bean::new("1", "Task 1");
-        bean1.to_file(beans_dir.join("1.yaml")).unwrap();
+        create_bean(&beans_dir, &bean1);
 
         let result = cmd_dep_add(&beans_dir, "1", "999");
         assert!(result.is_err());
@@ -241,8 +244,8 @@ mod tests {
         let mut bean1 = Bean::new("1", "Task 1");
         let bean2 = Bean::new("2", "Task 2");
         bean1.dependencies = vec!["2".to_string()];
-        bean1.to_file(beans_dir.join("1.yaml")).unwrap();
-        bean2.to_file(beans_dir.join("2.yaml")).unwrap();
+        create_bean(&beans_dir, &bean1);
+        create_bean(&beans_dir, &bean2);
 
         // Rebuild index so it's fresh
         Index::build(&beans_dir).unwrap().save(&beans_dir).unwrap();
@@ -259,12 +262,12 @@ mod tests {
         let mut bean1 = Bean::new("1", "Task 1");
         let bean2 = Bean::new("2", "Task 2");
         bean1.dependencies = vec!["2".to_string()];
-        bean1.to_file(beans_dir.join("1.yaml")).unwrap();
-        bean2.to_file(beans_dir.join("2.yaml")).unwrap();
+        create_bean(&beans_dir, &bean1);
+        create_bean(&beans_dir, &bean2);
 
         cmd_dep_remove(&beans_dir, "1", "2").unwrap();
 
-        let updated = Bean::from_file(beans_dir.join("1.yaml")).unwrap();
+        let updated = Bean::from_file(beans_dir.join("1-task-1.md")).unwrap();
         assert_eq!(updated.dependencies, Vec::<String>::new());
     }
 
@@ -272,7 +275,7 @@ mod tests {
     fn test_dep_remove_not_found() {
         let (_dir, beans_dir) = setup_test_beans_dir();
         let bean1 = Bean::new("1", "Task 1");
-        bean1.to_file(beans_dir.join("1.yaml")).unwrap();
+        create_bean(&beans_dir, &bean1);
 
         let result = cmd_dep_remove(&beans_dir, "1", "2");
         assert!(result.is_err());
@@ -286,9 +289,9 @@ mod tests {
         let mut bean3 = Bean::new("3", "Task 3");
         bean1.dependencies = vec!["2".to_string()];
         bean3.dependencies = vec!["1".to_string()];
-        bean1.to_file(beans_dir.join("1.yaml")).unwrap();
-        bean2.to_file(beans_dir.join("2.yaml")).unwrap();
-        bean3.to_file(beans_dir.join("3.yaml")).unwrap();
+        create_bean(&beans_dir, &bean1);
+        create_bean(&beans_dir, &bean2);
+        create_bean(&beans_dir, &bean3);
 
         // This should succeed — just testing that it runs
         let result = cmd_dep_list(&beans_dir, "1");
@@ -301,8 +304,8 @@ mod tests {
         let mut bean1 = Bean::new("1", "Task 1");
         let bean2 = Bean::new("2", "Task 2");
         bean1.dependencies = vec!["2".to_string()];
-        bean1.to_file(beans_dir.join("1.yaml")).unwrap();
-        bean2.to_file(beans_dir.join("2.yaml")).unwrap();
+        create_bean(&beans_dir, &bean1);
+        create_bean(&beans_dir, &bean2);
 
         // Try to add the same dependency again
         let result = cmd_dep_add(&beans_dir, "1", "2");

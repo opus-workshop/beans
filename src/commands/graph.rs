@@ -5,6 +5,7 @@ use anyhow::Result;
 
 use crate::bean::Status;
 use crate::index::{Index, IndexEntry};
+use crate::util::natural_cmp;
 
 /// Display dependency graph in ASCII, Mermaid, or DOT format
 /// Default format is ASCII (terminal-friendly visualization)
@@ -14,9 +15,9 @@ pub fn cmd_graph(beans_dir: &Path, format: &str) -> Result<()> {
     let index = Index::load_or_rebuild(beans_dir)?;
 
     match format {
-        "ascii" => output_ascii_graph(&index)?,
+        "mermaid" => output_mermaid_graph(&index)?,
         "dot" => output_dot_graph(&index)?,
-        "mermaid" | _ => output_mermaid_graph(&index)?,
+        "ascii" | _ => output_ascii_graph(&index)?,
     }
 
     Ok(())
@@ -318,16 +319,6 @@ fn format_node(entry: &IndexEntry) -> String {
     };
 
     format!("{} {}  {}", status_icon, entry.id, title)
-}
-
-/// Natural comparison for bean IDs (handles dot-separated numbers)
-fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
-    let parse_segments = |s: &str| -> Vec<u64> {
-        s.split('.')
-            .filter_map(|seg| seg.parse::<u64>().ok())
-            .collect()
-    };
-    parse_segments(a).cmp(&parse_segments(b))
 }
 
 fn output_dot_graph(index: &Index) -> Result<()> {
