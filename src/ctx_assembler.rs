@@ -16,14 +16,11 @@ use regex::Regex;
 /// # Returns
 /// A Vec of deduplicated file paths in order of appearance
 pub fn extract_paths(description: &str) -> Vec<String> {
-    // Pattern explanation:
-    // (?<![:/\w]) - negative lookbehind: ensure not preceded by /, :, or word character (blocks URLs and absolute paths)
-    // ([a-zA-Z0-9_.][a-zA-Z0-9_./\-]*\.(rs|ts|py|md|json|toml|yaml|sh|go|java))
-    //   - Starts with alphanumeric, dot, or underscore
-    //   - Followed by any alphanumeric, underscore, dot, forward slash, or hyphen
-    //   - Ends with one of the supported file extensions
-    // (?![\w\-]) - negative lookahead: ensure not followed by word character or hyphen
-    let pattern = r"(?<![:/\w])([a-zA-Z0-9_.][a-zA-Z0-9_./\-]*\.(rs|ts|py|md|json|toml|yaml|sh|go|java))(?![\w\-])";
+    // Simple pattern: match file paths with supported extensions
+    // Start with alphanumeric, underscore, or dot (NOT /)
+    // Can contain slashes, hyphens, dots, underscores
+    // Must end with a supported extension
+    let pattern = r"([a-zA-Z0-9_.][a-zA-Z0-9_./\-]*\.(rs|ts|py|md|json|toml|yaml|sh|go|java))\b";
 
     if let Ok(regex) = Regex::new(pattern) {
         let mut result = Vec::new();
@@ -31,9 +28,25 @@ pub fn extract_paths(description: &str) -> Vec<String> {
 
         for cap in regex.captures_iter(description) {
             if let Some(path) = cap.get(1) {
-                let path_str = path.as_str().to_string();
-                if seen.insert(path_str.clone()) {
-                    result.push(path_str);
+                let path_str = path.as_str();
+                let path_start = path.start();
+
+                // Filter out absolute paths: if preceded directly by /
+                if path_start > 0 && description.chars().nth(path_start - 1) == Some('/') {
+                    continue;
+                }
+
+                // Filter out URLs (check if preceded by :// in the description)
+                if path_start >= 3 {
+                    let before = &description[path_start.saturating_sub(3)..path_start];
+                    if before.ends_with("://") {
+                        continue;
+                    }
+                }
+
+                // Deduplicate and add to result
+                if seen.insert(path_str.to_string()) {
+                    result.push(path_str.to_string());
                 }
             }
         }
