@@ -143,8 +143,11 @@ pub fn cmd_close(
         // Archive the closed bean
         let slug = bean.slug.clone()
             .unwrap_or_else(|| title_to_slug(&bean.title));
+        let ext = bean_path.extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("md");
         let today = chrono::Local::now().naive_local().date();
-        let archive_path = archive_path_for_bean(beans_dir, id, &slug, today);
+        let archive_path = archive_path_for_bean(beans_dir, id, &slug, ext, today);
 
         // Create archive directories if needed
         if let Some(parent) = archive_path.parent() {

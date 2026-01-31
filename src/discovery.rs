@@ -71,10 +71,11 @@ pub fn find_bean_file(beans_dir: &Path, id: &str) -> Result<PathBuf> {
 /// * `beans_dir` - Path to the `.beans/` directory
 /// * `id` - The bean ID (e.g., "1", "11.1", "3.2.1")
 /// * `slug` - The bean slug (derived from title)
+/// * `ext` - The file extension (e.g., "md", "yaml")
 /// * `date` - The date to use for year/month subdirectories
 ///
 /// # Returns
-/// A PathBuf representing `.beans/archive/YYYY/MM/<id>-<slug>.md`
+/// A PathBuf representing `.beans/archive/YYYY/MM/<id>-<slug>.<ext>`
 ///
 /// # Examples
 /// ```ignore
@@ -82,6 +83,7 @@ pub fn find_bean_file(beans_dir: &Path, id: &str) -> Result<PathBuf> {
 ///     Path::new(".beans"),
 ///     "12",
 ///     "bean-archive-system",
+///     "md",
 ///     chrono::NaiveDate::from_ymd_opt(2026, 1, 31).unwrap()
 /// );
 /// // Returns: .beans/archive/2026/01/12-bean-archive-system.md
@@ -90,11 +92,12 @@ pub fn archive_path_for_bean(
     beans_dir: &Path,
     id: &str,
     slug: &str,
+    ext: &str,
     date: chrono::NaiveDate,
 ) -> PathBuf {
     let year = date.format("%Y").to_string();
     let month = date.format("%m").to_string();
-    let filename = format!("{}-{}.md", id, slug);
+    let filename = format!("{}-{}.{}", id, slug, ext);
     beans_dir.join("archive").join(&year).join(&month).join(filename)
 }
 
@@ -433,10 +436,10 @@ mod tests {
     fn archive_path_for_bean_basic() {
         let dir = tempfile::tempdir().unwrap();
         let beans_dir = dir.path().join(".beans");
-        
+
         let date = chrono::NaiveDate::from_ymd_opt(2026, 1, 31).unwrap();
-        let path = archive_path_for_bean(&beans_dir, "12", "bean-archive-system", date);
-        
+        let path = archive_path_for_bean(&beans_dir, "12", "bean-archive-system", "md", date);
+
         // Verify path structure
         assert_eq!(
             path,
@@ -448,10 +451,10 @@ mod tests {
     fn archive_path_for_bean_hierarchical_id() {
         let dir = tempfile::tempdir().unwrap();
         let beans_dir = dir.path().join(".beans");
-        
+
         let date = chrono::NaiveDate::from_ymd_opt(2025, 12, 15).unwrap();
-        let path = archive_path_for_bean(&beans_dir, "11.1", "refactor-parser", date);
-        
+        let path = archive_path_for_bean(&beans_dir, "11.1", "refactor-parser", "md", date);
+
         assert_eq!(
             path,
             beans_dir.join("archive/2025/12/11.1-refactor-parser.md")
@@ -462,10 +465,10 @@ mod tests {
     fn archive_path_for_bean_single_digit_month() {
         let dir = tempfile::tempdir().unwrap();
         let beans_dir = dir.path().join(".beans");
-        
+
         let date = chrono::NaiveDate::from_ymd_opt(2026, 3, 5).unwrap();
-        let path = archive_path_for_bean(&beans_dir, "5", "task", date);
-        
+        let path = archive_path_for_bean(&beans_dir, "5", "task", "md", date);
+
         // Month should be zero-padded (03, not 3)
         assert_eq!(
             path,
@@ -477,10 +480,10 @@ mod tests {
     fn archive_path_for_bean_three_level_id() {
         let dir = tempfile::tempdir().unwrap();
         let beans_dir = dir.path().join(".beans");
-        
+
         let date = chrono::NaiveDate::from_ymd_opt(2024, 8, 20).unwrap();
-        let path = archive_path_for_bean(&beans_dir, "3.2.1", "deep-task", date);
-        
+        let path = archive_path_for_bean(&beans_dir, "3.2.1", "deep-task", "md", date);
+
         assert_eq!(
             path,
             beans_dir.join("archive/2024/08/3.2.1-deep-task.md")
@@ -491,15 +494,29 @@ mod tests {
     fn archive_path_for_bean_long_slug() {
         let dir = tempfile::tempdir().unwrap();
         let beans_dir = dir.path().join(".beans");
-        
+
         let date = chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
         let long_slug = "implement-comprehensive-feature-with-full-test-coverage";
-        let path = archive_path_for_bean(&beans_dir, "42", long_slug, date);
-        
+        let path = archive_path_for_bean(&beans_dir, "42", long_slug, "md", date);
+
         assert!(path.to_str().unwrap().contains(long_slug));
         assert_eq!(
             path,
             beans_dir.join("archive/2026/01/42-implement-comprehensive-feature-with-full-test-coverage.md")
+        );
+    }
+
+    #[test]
+    fn archive_path_for_bean_yaml_extension() {
+        let dir = tempfile::tempdir().unwrap();
+        let beans_dir = dir.path().join(".beans");
+
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 1, 31).unwrap();
+        let path = archive_path_for_bean(&beans_dir, "5", "yaml-task", "yaml", date);
+
+        assert_eq!(
+            path,
+            beans_dir.join("archive/2026/01/5-yaml-task.yaml")
         );
     }
 
