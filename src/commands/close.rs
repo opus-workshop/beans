@@ -45,7 +45,7 @@ fn run_verify(beans_dir: &Path, verify_cmd: &str) -> Result<bool> {
 ///
 /// Sets status=closed, closed_at=now, and optionally close_reason.
 /// If the bean has a verify command, it must pass before closing.
-/// Calls pre-close hook before closing (can block close if hook fails).
+/// Calls pre-close hook before verify (can block close if hook fails).
 /// Rebuilds the index.
 pub fn cmd_close(
     beans_dir: &Path,
@@ -67,7 +67,33 @@ pub fn cmd_close(
         let mut bean = Bean::from_file(&bean_path)
             .with_context(|| format!("Failed to load bean: {}", id))?;
 
-        // Check if bean has a verify command
+        // Execute pre-close hook BEFORE verify command
+        // hooks.rs expects the project root (parent of .beans), not the .beans dir itself
+        let project_root = beans_dir
+            .parent()
+            .ok_or_else(|| anyhow!("Cannot determine project root from beans dir"))?;
+        
+        let pre_close_result = execute_hook(HookEvent::PreClose, &bean, project_root, reason.clone());
+        
+        let pre_close_passed = match pre_close_result {
+            Ok(hook_passed) => {
+                // Hook executed successfully, use its result
+                hook_passed
+            }
+            Err(e) => {
+                // Hook execution failed (not executable, timeout, etc.), log but don't block
+                eprintln!("Bean {} pre-close hook error: {}", id, e);
+                true // Silently pass (allow close to proceed)
+            }
+        };
+
+        if !pre_close_passed {
+            eprintln!("Bean {} rejected by pre-close hook", id);
+            rejected_beans.push(id.clone());
+            continue;
+        }
+
+        // Check if bean has a verify command (runs AFTER pre-close hook passes)
         if let Some(ref verify_cmd) = bean.verify {
             // Check if we've already exceeded max attempts
             if bean.attempts >= bean.max_attempts {
@@ -103,32 +129,6 @@ pub fn cmd_close(
             }
 
             println!("Verify passed for bean {}", id);
-        }
-
-        // Execute pre-close hook before closing
-        // hooks.rs expects the project root (parent of .beans), not the .beans dir itself
-        let project_root = beans_dir
-            .parent()
-            .ok_or_else(|| anyhow!("Cannot determine project root from beans dir"))?;
-        
-        let pre_close_result = execute_hook(HookEvent::PreClose, &bean, project_root, reason.clone());
-        
-        let pre_close_passed = match pre_close_result {
-            Ok(hook_passed) => {
-                // Hook executed successfully, use its result
-                hook_passed
-            }
-            Err(e) => {
-                // Hook execution failed (not executable, timeout, etc.), log but don't block
-                eprintln!("Bean {} pre-close hook error: {}", id, e);
-                true // Silently pass (allow close to proceed)
-            }
-        };
-
-        if !pre_close_passed {
-            eprintln!("Bean {} rejected by pre-close hook", id);
-            rejected_beans.push(id.clone());
-            continue;
         }
 
         // Close the bean
@@ -467,9 +467,8 @@ mod tests {
         crate::hooks::create_trust(project_root).unwrap();
 
         // Create a pre-close hook that passes (exits 0)
-        // Must read stdin to avoid broken pipe
         let hook_path = hooks_dir.join("pre-close");
-        fs::write(&hook_path, "#!/bin/bash\nread input\nexit 0").unwrap();
+        fs::write(&hook_path, "#!/bin/bash\nexit 0").unwrap();
 
         #[cfg(unix)]
         {
@@ -502,9 +501,8 @@ mod tests {
         crate::hooks::create_trust(project_root).unwrap();
 
         // Create a pre-close hook that fails (exits 1)
-        // Must read stdin to avoid broken pipe
         let hook_path = hooks_dir.join("pre-close");
-        fs::write(&hook_path, "#!/bin/bash\nread input\nexit 1").unwrap();
+        fs::write(&hook_path, "#!/bin/bash\nexit 1").unwrap();
 
         #[cfg(unix)]
         {
@@ -538,9 +536,8 @@ mod tests {
         crate::hooks::create_trust(project_root).unwrap();
 
         // Create a pre-close hook that passes
-        // Must read stdin to avoid broken pipe
         let hook_path = hooks_dir.join("pre-close");
-        fs::write(&hook_path, "#!/bin/bash\nread input\nexit 0").unwrap();
+        fs::write(&hook_path, "#!/bin/bash\nexit 0").unwrap();
 
         #[cfg(unix)]
         {
@@ -636,9 +633,8 @@ mod tests {
         crate::hooks::create_trust(project_root).unwrap();
 
         // Create a simple passing hook
-        // Must read stdin to avoid broken pipe
         let hook_path = hooks_dir.join("pre-close");
-        fs::write(&hook_path, "#!/bin/bash\nread input\nexit 0").unwrap();
+        fs::write(&hook_path, "#!/bin/bash\nexit 0").unwrap();
 
         #[cfg(unix)]
         {
@@ -671,9 +667,9 @@ mod tests {
         crate::hooks::create_trust(project_root).unwrap();
 
         // Create a hook that checks bean ID - reject ID 2
-        // Must read stdin first to avoid broken pipe, then check
+        // Use dd with timeout to consume stdin and check content
         let hook_path = hooks_dir.join("pre-close");
-        fs::write(&hook_path, "#!/bin/bash\nread input\necho \"$input\" | grep -q '\"id\":\"2\"' && exit 1 || exit 0").unwrap();
+        fs::write(&hook_path, "#!/bin/bash\ntimeout 5 dd bs=1M 2>/dev/null | grep -q '\"id\":\"2\"' && exit 1 || exit 0").unwrap();
 
         #[cfg(unix)]
         {
