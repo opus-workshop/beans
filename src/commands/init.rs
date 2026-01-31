@@ -1,15 +1,21 @@
 use std::fs;
 use std::env;
+use std::path::Path;
 
 use anyhow::{Context, Result};
 
 use crate::config::Config;
 
-/// Initialize a .beans/ directory in the current directory with a config.yaml file.
+/// Initialize a .beans/ directory with a config.yaml file.
 ///
-/// If `project_name` is provided, use it. Otherwise, auto-detect from the current directory name.
-pub fn cmd_init(project_name: Option<String>) -> Result<()> {
-    let cwd = env::current_dir()?;
+/// If `path` is provided, use it. Otherwise, use the current directory.
+/// If `project_name` is provided, use it. Otherwise, auto-detect from the directory name.
+pub fn cmd_init(path: Option<&Path>, project_name: Option<String>) -> Result<()> {
+    let cwd = if let Some(p) = path {
+        p.to_path_buf()
+    } else {
+        env::current_dir()?
+    };
     let beans_dir = cwd.join(".beans");
 
     // Create .beans/ directory if it doesn't exist
@@ -53,11 +59,7 @@ mod tests {
     #[test]
     fn init_creates_beans_dir() {
         let dir = TempDir::new().unwrap();
-        let original_cwd = env::current_dir().unwrap();
-
-        env::set_current_dir(dir.path()).unwrap();
-        let result = cmd_init(None);
-        env::set_current_dir(original_cwd).unwrap();
+        let result = cmd_init(Some(dir.path()), None);
 
         assert!(result.is_ok());
         assert!(dir.path().join(".beans").exists());
@@ -67,11 +69,7 @@ mod tests {
     #[test]
     fn init_creates_config_with_explicit_name() {
         let dir = TempDir::new().unwrap();
-        let original_cwd = env::current_dir().unwrap();
-
-        env::set_current_dir(dir.path()).unwrap();
-        let result = cmd_init(Some("my-project".to_string()));
-        env::set_current_dir(original_cwd).unwrap();
+        let result = cmd_init(Some(dir.path()), Some("my-project".to_string()));
 
         assert!(result.is_ok());
 
@@ -83,11 +81,7 @@ mod tests {
     #[test]
     fn init_auto_detects_project_name_from_dir() {
         let dir = TempDir::new().unwrap();
-        let original_cwd = env::current_dir().unwrap();
-
-        env::set_current_dir(dir.path()).unwrap();
-        let result = cmd_init(None);
-        env::set_current_dir(original_cwd).unwrap();
+        let result = cmd_init(Some(dir.path()), None);
 
         assert!(result.is_ok());
 
@@ -103,32 +97,24 @@ mod tests {
     #[test]
     fn init_idempotent() {
         let dir = TempDir::new().unwrap();
-        let original_cwd = env::current_dir().unwrap();
-
-        env::set_current_dir(dir.path()).unwrap();
 
         // First init
-        let result1 = cmd_init(Some("test-project".to_string()));
+        let result1 = cmd_init(Some(dir.path()), Some("test-project".to_string()));
         assert!(result1.is_ok());
 
         // Second init — should succeed without error
-        let result2 = cmd_init(Some("test-project".to_string()));
+        let result2 = cmd_init(Some(dir.path()), Some("test-project".to_string()));
         assert!(result2.is_ok());
 
-        // Check config before restoring cwd
+        // Check config
         let config = Config::load(&dir.path().join(".beans")).unwrap();
         assert_eq!(config.project, "test-project");
-
-        env::set_current_dir(original_cwd).unwrap();
     }
 
     #[test]
     fn init_config_is_valid_yaml() {
         let dir = TempDir::new().unwrap();
-        let original_cwd = env::current_dir().unwrap();
-
-        env::set_current_dir(dir.path()).unwrap();
-        let result = cmd_init(Some("yaml-test".to_string()));
+        let result = cmd_init(Some(dir.path()), Some("yaml-test".to_string()));
 
         assert!(result.is_ok());
 
@@ -138,7 +124,5 @@ mod tests {
         let contents = fs::read_to_string(&config_path).unwrap();
         assert!(contents.contains("project: yaml-test"));
         assert!(contents.contains("next_id: 1"));
-
-        env::set_current_dir(original_cwd).unwrap();
     }
 }

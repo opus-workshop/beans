@@ -35,7 +35,7 @@ fn main() -> Result<()> {
 
     match cli.command {
         Command::Init { name } => {
-            cmd_init(name)?;
+            cmd_init(None, name)?;
         }
         Command::Create {
             title,
