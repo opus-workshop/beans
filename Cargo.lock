@@ -102,6 +102,7 @@ dependencies = [
  "chrono",
  "clap",
  "glob",
+ "regex",
  "serde",
  "serde_json",
  "serde_yaml",

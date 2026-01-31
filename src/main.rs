@@ -6,7 +6,7 @@ use clap::Parser;
 mod cli;
 
 use cli::{Cli, Command, DepCommand};
-use bn::commands::{cmd_init, cmd_create, cmd_list, cmd_show, cmd_update, cmd_close, cmd_reopen, cmd_delete, cmd_ready, cmd_blocked, cmd_dep_add, cmd_dep_remove, cmd_dep_list, cmd_dep_tree, cmd_dep_cycles, cmd_tree, cmd_graph, cmd_stats, cmd_doctor, cmd_sync, cmd_verify, cmd_claim, cmd_release};
+use bn::commands::{cmd_init, cmd_create, cmd_list, cmd_show, cmd_update, cmd_close, cmd_reopen, cmd_delete, cmd_ready, cmd_blocked, cmd_dep_add, cmd_dep_remove, cmd_dep_list, cmd_dep_tree, cmd_dep_cycles, cmd_tree, cmd_graph, cmd_stats, cmd_doctor, cmd_sync, cmd_verify, cmd_claim, cmd_release, cmd_unarchive};
 use bn::discovery::find_beans_dir;
 use bn::commands::create::CreateArgs;
 use bn::util::validate_bean_id;
@@ -237,6 +237,11 @@ fn main() -> Result<()> {
         Command::Doctor => {
             let beans_dir = beans_dir_result.as_ref().unwrap();
             cmd_doctor(beans_dir)?;
+        }
+        Command::Unarchive { id } => {
+            validate_id(&id)?;
+            let beans_dir = beans_dir_result.as_ref().unwrap();
+            cmd_unarchive(beans_dir, &id)?;
         }
     }
 

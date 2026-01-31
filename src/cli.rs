@@ -240,6 +240,12 @@ pub enum Command {
 
     /// Health check -- orphans, cycles, index freshness
     Doctor,
+
+    /// Unarchive a bean (move from archive back to main beans directory)
+    Unarchive {
+        /// Bean ID to unarchive
+        id: String,
+    },
 }
 
 #[derive(Subcommand)]
