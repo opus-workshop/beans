@@ -1,0 +1,20 @@
+id: '4.1'
+title: Implement hook execution engine with timeout handling
+status: open
+priority: 2
+created_at: 2026-01-31T17:02:19.724120Z
+updated_at: 2026-01-31T17:02:19.724120Z
+description: "Implement core hook execution system.\n\n## What to Implement\nCreate src/hooks.rs with:\n\n- enum HookEvent { PreCreate, PostCreate, PreUpdate, PostUpdate, PreClose }\n\n- struct HookPayload \n  - event: String (pre-create, post-create, etc.)\n  - bean: Bean (full bean struct serialized)\n  - reason: Option<String> (for pre-close hook)\n\n- fn execute_hook(event: HookEvent, bean: &Bean, beans_dir: &Path) -> Result<bool>\n  - Get hook path via get_hook_path(beans_dir, event)\n  - If hook doesn't exist: return Ok(true) silently\n  - If not executable: return Err\n  - Serialize bean to JSON\n  - Spawn subprocess with hook script\n  - Pipe JSON to stdin\n  - Wait with 30-second timeout\n  - Check exit code: 0 = Ok(true), non-zero = Ok(false)\n  - Capture stderr for error messages\n\n- fn get_hook_path(beans_dir: &Path, event: HookEvent) -> PathBuf\n  - Return .beans/hooks/{event_name}\n\n- fn is_hook_executable(path: &Path) -> bool\n  - Check file exists and has execute permission\n\n## Files\n- src/hooks.rs (new file)\n- Add to src/lib.rs: pub mod hooks;\n\n## Testing\n- Test: hook execution with valid shell script\n- Test: missing hook returns Ok (not an error)\n- Test: non-executable hook returns Err\n- Test: hook timeout after 30s kills process\n- Test: JSON payload structure correct\n- Test: stderr captured on non-zero exit"
+acceptance: |-
+  - HookEvent enum compiles with all 5 variants
+  - HookPayload serializes to valid JSON
+  - execute_hook() returns bool on success
+  - Missing hooks silently skipped (Ok(true))
+  - Non-executable hooks return Err
+  - Hook timeout kills process after 30s
+  - JSON payload includes all bean fields
+  - Stderr captured and available to caller
+  - Exit code 0 = success, non-zero = failure
+  - cargo test passes
+parent: '4'
+verify: cargo test --lib hooks::execute

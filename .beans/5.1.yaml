@@ -1,0 +1,62 @@
+id: '5.1'
+title: Implement selector parsing and @latest/@blocked resolution
+status: open
+priority: 2
+created_at: 2026-01-31T17:02:51.688461Z
+updated_at: 2026-01-31T17:02:51.688461Z
+description: |-
+  Implement core selector parsing and resolution functions.
+
+  ## What to Implement
+  Create src/selector.rs module with:
+
+  - enum SelectorType { Latest, Blocked, Parent, Me }
+
+  - struct SelectionContext {
+      pub index: &Index,
+      pub current_bean_id: Option<String>,
+      pub current_user: Option<String>,
+    }
+
+  - fn parse_selector(input: &str) -> Result<SelectorType>
+    - Check if input starts with @
+    - If not: return Err (not a selector)
+    - Match keyword: latest, blocked, parent, me
+    - Return SelectorType
+
+  - fn resolve_latest(context: &SelectionContext) -> Result<String>
+    - Find bean with max updated_at
+    - Return bean ID
+    - Error if no beans in index
+
+  - fn resolve_blocked(context: &SelectionContext) -> Result<Vec<String>>
+    - Filter index for open beans with unresolved dependencies
+    - Return list of IDs
+    - Return empty vec if no blocked beans (not an error)
+
+  ## Files
+  - src/selector.rs (new file)
+  - Add to src/lib.rs: pub mod selector;
+
+  ## Testing
+  - Test: parse_selector identifies @latest, @blocked correctly
+  - Test: parse_selector rejects invalid @xyz
+  - Test: parse_selector rejects non-selector IDs
+  - Test: resolve_latest returns most recent bean
+  - Test: resolve_latest errors on empty index
+  - Test: resolve_blocked returns open beans with deps
+  - Test: resolve_blocked returns empty vec if none blocked
+  - Test: resolve with various dependency scenarios
+acceptance: |-
+  - parse_selector() identifies @-prefixed keywords
+  - Rejects invalid selectors with clear error
+  - resolve_latest() returns bean with max updated_at
+  - resolve_latest() errors on empty index
+  - resolve_blocked() returns open beans with unresolved deps
+  - resolve_blocked() returns empty vec if no blocked
+  - Can handle complex dependency trees
+  - Unit test coverage >90%
+  - All selector test cases pass
+  - cargo test passes
+parent: '5'
+verify: cargo test --lib selector

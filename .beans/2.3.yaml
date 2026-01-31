@@ -1,0 +1,22 @@
+id: '2.3'
+title: Integrate bn edit into CLI command dispatcher
+status: open
+priority: 2
+created_at: 2026-01-31T17:02:12.004481Z
+updated_at: 2026-01-31T17:02:12.004481Z
+description: "Wire bn edit command into main.rs and CLI dispatcher.\n\n## What to Implement\n- src/cli.rs: Add Edit variant to Command enum\n  - Add: Command::Edit { id: String }\n  \n- src/commands/mod.rs:\n  - Add: pub mod edit;\n  - Add: pub use edit::cmd_edit;\n\n- src/commands/edit.rs:\n  - Add: pub fn cmd_edit(beans_dir: &Path, id: &str) -> Result<()>\n  - Orchestrate: validate_id -> find_bean -> load_backup -> open_editor -> validate_and_save -> rebuild_index\n\n- src/main.rs:\n  - Add Command::Edit handler in match statement\n  - Validate ID before calling cmd_edit\n  - Reuse beans_dir discovery pattern from other commands\n\n## Files\n- src/cli.rs (add Edit variant)\n- src/commands/mod.rs (export edit module)\n- src/commands/edit.rs (implement cmd_edit orchestrator)\n- src/main.rs (add match arm for Edit)\n\n## Usage\n```\nbn edit 1\nbn edit 2.1\n```\n\n## Integration Pattern\nFollow existing pattern from cmd_show, cmd_update:\n- main.rs validates ID with validate_bean_id()\n- Finds beans_dir\n- Calls cmd_edit(beans_dir, id)\n- cmd_edit orchestrates 2.1 + 2.2 functions"
+acceptance: |-
+  - bn edit [id] opens bean in editor
+  - Edits to any field (title, description, priority, status) persist
+  - updated_at timestamp increments after successful edit
+  - Invalid YAML shows validation error and prompts rollback
+  - Bean file preserves {id}-{slug}.md naming
+  - Index is rebuilt after save
+  - Returns error if bean ID not found or invalid
+  - Returns error if $EDITOR not set or unavailable
+  - Handles both YAML and markdown frontmatter formats
+  - Editor subprocess crash triggers rollback prompt
+parent: '2'
+dependencies:
+- '2.2'
+verify: cargo build && cargo test

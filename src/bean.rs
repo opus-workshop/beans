@@ -100,6 +100,10 @@ pub struct Bean {
     /// When the claim was acquired.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub claimed_at: Option<DateTime<Utc>>,
+
+    /// Whether this bean has been moved to the archive.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub is_archived: bool,
 }
 
 fn default_priority() -> u8 {
@@ -116,6 +120,10 @@ fn is_zero(v: &u32) -> bool {
 
 fn is_default_max_attempts(v: &u32) -> bool {
     *v == 3
+}
+
+fn is_false(v: &bool) -> bool {
+    !*v
 }
 
 impl Bean {
@@ -152,6 +160,7 @@ impl Bean {
             max_attempts: 3,
             claimed_by: None,
             claimed_at: None,
+            is_archived: false,
         }
     }
 
@@ -294,6 +303,7 @@ mod tests {
             max_attempts: 5,
             claimed_by: Some("agent-7".to_string()),
             claimed_at: Some(now),
+            is_archived: false,
         };
 
         let yaml = serde_yaml::to_string(&bean).unwrap();
@@ -333,6 +343,7 @@ mod tests {
         assert!(!yaml.contains("max_attempts:"));
         assert!(!yaml.contains("claimed_by:"));
         assert!(!yaml.contains("claimed_at:"));
+        assert!(!yaml.contains("is_archived:"));
     }
 
     #[test]

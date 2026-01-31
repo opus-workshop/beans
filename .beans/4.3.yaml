@@ -1,0 +1,54 @@
+id: '4.3'
+title: Integrate pre-create and post-create hooks into cmd_create
+status: open
+priority: 2
+created_at: 2026-01-31T17:02:33.696998Z
+updated_at: 2026-01-31T17:02:33.696998Z
+description: |-
+  Add hook calls to bean creation workflow.
+
+  ## What to Modify
+  In src/commands/create.rs:
+
+  In cmd_create() function:
+  1. After parsing args, before creating bean:
+     - Call execute_hook(HookEvent::PreCreate, &new_bean, beans_dir)?
+     - If hook returns false: abort with 'Bean rejected by pre-create hook'
+     - If hook error: print stderr, abort
+
+  2. After successfully writing bean to disk:
+     - Call execute_hook(HookEvent::PostCreate, &new_bean, beans_dir)?
+     - If hook fails: log warning but don't abort
+     - (post-hooks are informational, not blocking)
+
+  ## Pattern to Follow
+  Look at similar hooks pattern:
+  - Construct JSON payload (done by execute_hook)
+  - Call execute_hook()
+  - Check return value
+  - Handle errors
+
+  ## Integration Points
+  - Pre-create: blocking (failures prevent bean creation)
+  - Post-create: non-blocking (failures logged but ignored)
+
+  ## Testing
+  - Test: pre-create hook runs before bean created
+  - Test: pre-create hook can reject bean creation
+  - Test: post-create hook runs after successful creation
+  - Test: post-create hook failure doesn't affect outcome
+  - Integration test: create bean, verify hooks called
+acceptance: |-
+  - pre-create hook runs and can reject bean creation
+  - post-create hook runs after successful creation
+  - pre-create failure shows clear error message
+  - post-create failure logged but doesn't break flow
+  - Untrusted hooks are silently skipped
+  - Bean not created if pre-create hook fails
+  - Bean created if post-create hook fails
+  - Hook stderr visible to user on failure
+  - cargo test passes
+parent: '4'
+dependencies:
+- '4.2'
+verify: cargo test --lib commands::create

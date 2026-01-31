@@ -1,0 +1,50 @@
+id: '4.4'
+title: Integrate pre-update and post-update hooks into cmd_update
+status: open
+priority: 2
+created_at: 2026-01-31T17:02:38.222967Z
+updated_at: 2026-01-31T17:02:38.222967Z
+description: |-
+  Add hook calls to bean update workflow.
+
+  ## What to Modify
+  In src/commands/update.rs:
+
+  In cmd_update() function:
+  1. Before applying updates to bean:
+     - Call execute_hook(HookEvent::PreUpdate, &bean_with_changes, beans_dir)?
+     - If hook returns false: abort with 'Update rejected by pre-update hook'
+     - If hook error: print stderr, abort
+
+  2. After successfully saving updated bean:
+     - Call execute_hook(HookEvent::PostUpdate, &updated_bean, beans_dir)?
+     - If hook fails: log warning but don't abort
+
+  ## Pattern to Follow
+  Same as 4.3 (create.rs):
+  - Pre-update: blocking
+  - Post-update: non-blocking
+  - Construct bean payload with changes applied
+  - Handle errors appropriately
+
+  ## Testing
+  - Test: pre-update hook runs and can reject changes
+  - Test: post-update hook runs after successful update
+  - Test: pre-update failure prevents save
+  - Test: post-update failure doesn't affect outcome
+  - Integration test: update bean, verify hooks called
+acceptance: |-
+  - pre-update hook runs before changes saved
+  - post-update hook runs after successful update
+  - pre-update hook can reject update
+  - pre-update failure shows clear error
+  - post-update failure logged but doesn't break flow
+  - Bean not updated if pre-update hook fails
+  - Bean updated if post-update hook fails
+  - Untrusted hooks silently skipped
+  - Hook stderr visible on failure
+  - cargo test passes
+parent: '4'
+dependencies:
+- '4.2'
+verify: cargo test --lib commands::update

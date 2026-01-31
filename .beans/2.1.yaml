@@ -1,0 +1,48 @@
+id: '2.1'
+title: Implement editor subprocess and file operations for bn edit
+status: open
+priority: 2
+created_at: 2026-01-31T17:01:58.391797Z
+updated_at: 2026-01-31T17:01:58.391797Z
+description: |-
+  Implement low-level file operations for bn edit command.
+
+  ## What to Implement
+  Create src/commands/edit.rs with:
+  - fn open_editor(path: &Path) -> Result<()>
+    - Get $EDITOR env var (error if not set)
+    - Spawn subprocess with editor
+    - Wait for process to exit
+    - Check exit status (0 = success, non-zero = failure)
+    - Return Result
+
+  - fn load_backup(path: &Path) -> Result<Vec<u8>>
+    - Read file content to memory before editing
+    - Return as bytes for comparison later
+
+  - Error handling: editor not found, permission denied, subprocess crash
+
+  ## Files
+  - src/commands/edit.rs (new file)
+
+  ## Integration with Existing Code
+  - Use find_bean_file() from discovery.rs to locate bean
+  - Use validate_bean_id() from util.rs
+  - Use std::process::Command for subprocess
+
+  ## Testing
+  - Test: open_editor returns Ok(()) when editor succeeds
+  - Test: open_editor returns Err when $EDITOR not set
+  - Test: backup created successfully
+  - Integration test: edit bean file, changes visible on disk
+acceptance: |-
+  - open_editor() spawns editor subprocess correctly
+  - Returns error if $EDITOR not set
+  - Returns error if editor not found
+  - Returns error if editor crashes (non-zero exit)
+  - load_backup() reads file content successfully
+  - backup creates correct copy
+  - Can detect file modification via mtime
+  - cargo test passes
+parent: '2'
+verify: cargo test --lib commands::edit

@@ -1,0 +1,20 @@
+id: '1.2'
+title: Read files and format as markdown for bctx output
+status: open
+priority: 2
+created_at: 2026-01-31T17:01:44.350895Z
+updated_at: 2026-01-31T17:01:44.350895Z
+description: "Implement file I/O and markdown formatting for bctx.\n\n## What to Implement\nExtend src/ctx_assembler.rs with:\n- fn read_file(path: &Path) -> Result<String>\n  - Read file from disk\n  - Handle missing files: return Err\n  - Skip binary files with warning to stderr\n  \n- fn format_file_block(path: &str, content: &str) -> String\n  - Wrap in markdown code fence\n  - Detect language from extension (.rs → rust, .py → python)\n  - Format: ## File: {path}\n            ```{lang}\n            {content}\n            ```\n\n- fn assemble_context(paths: Vec<String>, base_dir: &Path) -> Result<String>\n  - Takes extracted paths from 1.1\n  - Reads each file\n  - Formats and concatenates\n  - Output is valid markdown\n\n## Files\n- src/ctx_assembler.rs (extend from 1.1)\n\n## Error Handling\n- Missing file: warn to stderr, skip, continue\n- Binary file: warn to stderr, skip\n- Valid output: concatenated markdown blocks"
+acceptance: |-
+  - read_file() loads text files successfully
+  - read_file() returns error for missing files
+  - read_file() skips binary files with stderr warning
+  - format_file_block() creates valid markdown code fence
+  - Language detection works (.rs→rust, .py→python, .json→json)
+  - assemble_context() produces valid markdown output
+  - Multiple files concatenate correctly
+  - cargo test passes
+parent: '1'
+dependencies:
+- '1.1'
+verify: cargo test --lib ctx_assembler

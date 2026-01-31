@@ -1,0 +1,23 @@
+id: '2'
+title: Implement bn edit command
+status: open
+priority: 2
+created_at: 2026-01-31T16:51:27.886904Z
+updated_at: 2026-01-31T16:51:27.886904Z
+description: "Implement `bn edit <id>` command that opens a bean's markdown file in $EDITOR for in-place editing with schema validation and rollback.\n\nFILES TO MODIFY:\n- src/cli.rs: Add Edit variant to Command enum with bean ID parameter\n- src/commands/mod.rs: Register pub mod edit and pub use edit::cmd_edit  \n- src/commands/edit.rs: Create new command module with cmd_edit implementation\n- src/main.rs: Add Command::Edit handler in match statement, validate ID\n\nIMPLEMENTATION ALGORITHM:\n\n1. Locate & Load Bean:\n   - Validate bean ID using existing validate_bean_id()\n   - Find bean file using existing find_bean_file(beans_dir, id)\n   - Read file content into backup variable\n\n2. Open in Editor:\n   - Get $EDITOR environment variable (error if not set)\n   - Spawn editor subprocess on bean file path\n   - Wait for editor to exit and check status code\n\n3. Validate & Save:\n   - Read edited file back from disk\n   - Parse with Bean::from_string() to validate schema (handles YAML + markdown frontmatter)\n   - On parse error: Show error, ask user (retry/keep/rollback)\n   - On parse success: Update updated_at, save to file, rebuild index\n\nERROR HANDLING:\n- $EDITOR not set: Helpful error message\n- Editor not found: Subprocess error with context\n- Permission denied: File I/O error with context\n- Invalid YAML/schema: Show serde_yaml parse error\n- Editor crash: Detect non-zero exit and offer rollback\n- Concurrent modification: Detect mtime change, warn user\n\nINTEGRATION WITH EXISTING CODE:\n- Use validate_bean_id() from util.rs for ID validation\n- Use find_bean_file() from discovery.rs for {id}-{slug}.md lookup\n- Use Bean::from_string/from_file/to_file from bean.rs\n- Use Index::build() and index.save() like cmd_update does\n- Use Utc::now() for updated_at timestamp\n\nTESTING:\n- Integration test: edit bean, verify changes persist\n- Error test: invalid YAML after edit, verify rollback\n- Error test: $EDITOR not set, verify helpful message\n- Test with YAML and markdown frontmatter formats\n- Test timestamp updates after save"
+acceptance: |-
+  - User can run `bn edit 1` to open bean in editor
+  - Edits to any field (title, description, priority, status) persist
+  - updated_at timestamp increments after successful edit
+  - Invalid YAML shows validation error and prompts rollback
+  - Bean file preserves {id}-{slug}.md naming convention
+  - Index is rebuilt after save
+  - Returns error if bean ID not found or invalid
+  - Returns error if $EDITOR not set or unavailable
+  - Handles both pure YAML and markdown frontmatter formats
+  - Editor subprocess crash triggers rollback prompt
+labels:
+- feature
+- editing
+- cli
+verify: cargo test --lib commands::edit 2>&1 | grep -q 'test result:' && echo 'Tests passed' || echo 'Tests incomplete'

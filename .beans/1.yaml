@@ -1,0 +1,82 @@
+id: '1'
+title: Implement bctx context assembler for agent prompts
+status: open
+priority: 2
+created_at: 2026-01-31T16:51:17.831446Z
+updated_at: 2026-01-31T16:51:17.831446Z
+description: |-
+  Design and implement bctx - a context assembler tool that reads a bean specification and extracts file paths from its description, then concatenates file contents into a properly formatted markdown block suitable for piping to LLM agents.
+
+  ## Problem Statement
+  Agents need a 'cold start' - quickly assembling context about which files to modify for a given bean. Currently, agents manually read bean descriptions, extract file paths, and request files one-by-one. This is inefficient and adds latency.
+
+  ## Solution Overview
+  Build bctx as a new command or separate binary that:
+  1. Reads bean markdown file (e.g., .beans/14-bctx-context-assembler.md)
+  2. Extracts all file paths from the description section using regex
+  3. Reads each file and wraps it in markdown code fences with filename headers
+  4. Outputs to stdout for piping to 'llm "Implement this"'
+
+  ## Implementation Design
+
+  ### File Path Extraction Strategy
+  Use regex patterns to detect file paths in descriptions:
+  - Relative paths: src/foo.rs, tests/bar.rs, Cargo.toml
+  - Paths with common extensions: .rs, .ts, .py, .md, .json, .toml, .yaml
+  - Optional: absolute paths (less common in bean descriptions)
+  - Pattern: paths like src/main.rs with word boundaries
+
+  ### Output Format
+  Markdown code block for each file:
+  ## File: src/main.rs
+  ```rust
+  [file contents]
+  ```
+
+  ## Integration Options
+  1. **New separate binary** (bctx command):
+     - cargo install --path . would install bn and bctx
+     - Usage: bctx 14 or bctx .beans/14-slug.md
+     - Can be extended with its own subcommands later
+
+  2. **New bn subcommand** (bn ctx):
+     - Usage: bn ctx 14
+     - Integrates with existing bean discovery
+     - Consistent with bn ecosystem
+
+  ### Edge Cases & Handling
+  - **File doesn't exist**: Print warning to stderr, skip file, continue with others
+  - **Directory instead of file**: Recursively include .rs files or error
+  - **Binary files** (e.g., images): Skip with warning, print path to stderr
+  - **Very large files** (>1MB): Include full content initially, add truncation later
+  - **Symlinks**: Follow and read (be careful with circular refs)
+  - **Non-UTF8 files**: Skip with warning
+
+  ### Design Decisions
+  - Start with separate binary to keep CLI surface simple and testable independently
+  - Use regex crate for pattern matching (lightweight, standard)
+  - Read files into memory initially (assume reasonable sizes for bn use case)
+  - Output to stdout for Unix piping philosophy
+  - Warnings go to stderr for clean piping
+
+  ## Files to Create/Modify
+  - src/bin/bctx.rs - New binary entry point
+  - src/ctx_assembler.rs - Core logic (path extraction, file reading, formatting)
+  - Cargo.toml - Add regex dependency if not present
+  - Tests in src/ctx_assembler.rs - Unit tests for path extraction and formatting
+acceptance: |-
+  - Correctly extracts file paths (relative, with extensions) from bean descriptions using regex
+  - Reads each extracted file and wraps in markdown code fences with file path as header
+  - Handles missing files gracefully: prints warning to stderr, skips file, continues
+  - Handles binary files: skips with warning, does not output binary content
+  - Output is valid markdown readable by both humans and LLM tools
+  - Can pipe output directly to 'llm' or other tools without errors
+  - Preserves original file contents without modification
+  - Relative paths are resolved relative to beans root directory
+  - Works with bean ID shorthand (e.g., bctx 14) and full paths
+design: Start with separate binary (src/bin/bctx.rs) rather than bn subcommand for simplicity. Use regex crate for path extraction. Read files into memory initially for reasonable file sizes. Output to stdout for Unix piping. Warnings to stderr to keep output clean for piping. Pattern matching should catch relative paths with common source extensions (.rs, .ts, .py, .md, .toml, .json, .yaml, .sh, .go, .java).
+labels:
+- feature
+- context
+- agent
+verify: cargo test --lib ctx_assembler && cargo test --bin bctx && bctx 14 | wc -l

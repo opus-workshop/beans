@@ -1,0 +1,122 @@
+id: '4'
+title: Implement bean hook system (pre/post create/update/close)
+status: open
+priority: 2
+created_at: 2026-01-31T16:51:42.401832Z
+updated_at: 2026-01-31T16:51:42.401832Z
+description: |-
+  Synchronous hooks that run shell scripts with JSON bean context piped to stdin. Similar to direnv's trust model—hooks disabled by default, enabled via `bn trust` command.
+
+  ## Architecture
+
+  **Hook Directory Structure:**
+  ```
+  .beans/
+    hooks/
+      pre-create      # Run before bean creation, validate bean data
+      post-create     # Run after successful bean creation
+      pre-update      # Run before bean update
+      post-update     # Run after successful bean update
+      pre-close       # Run before bean close (e.g., test gatekeeper)
+  ```
+
+  ## Hook Execution Flow
+
+  1. **Trust Model**: Hooks require `.beans/.hooks-trusted` file (created by `bn trust`). If missing, hooks are silently skipped.
+  2. **JSON Payload**: Each hook receives JSON via stdin containing full bean context + operation details.
+  3. **Exit Code**: Hook exit 0 = proceed, non-zero = abort operation with error message.
+  4. **Stderr Output**: Hook stderr is printed to user if exit fails.
+  5. **Timeout**: 30 second timeout per hook (configurable via environment).
+
+  ## JSON Payload Format
+
+  **Pre-create hook:**
+  ```json
+  {
+    "event": "pre-create",
+    "bean": {
+      "id": "1",
+      "title": "Build auth module",
+      "status": "open",
+      "priority": 2,
+      "description": "...",
+      "acceptance": "...",
+      "verify": "cargo test",
+      "labels": ["backend"],
+      "parent": null,
+      "dependencies": []
+    }
+  }
+  ```
+
+  **Post-create, pre-update, post-update:**
+  ```json
+  {
+    "event": "post-create",
+    "bean": { ... full bean structure ... }
+  }
+  ```
+
+  **Pre-close hook:**
+  ```json
+  {
+    "event": "pre-close",
+    "bean": { ... },
+    "reason": "Verification passed"
+  }
+  ```
+
+  ## Files to Modify
+
+  - **src/lib.rs**: Add `pub mod hooks;` for new hooks module
+  - **src/hooks.rs** (new): Hook execution engine with functions:
+    - `fn execute_hook(event: HookEvent, bean: &Bean, beans_dir: &Path) -> Result<bool>` - Run hook, return success
+    - `fn is_trusted(beans_dir: &Path) -> bool` - Check .beans/.hooks-trusted exists
+    - `fn get_hook_path(beans_dir: &Path, event: &str) -> PathBuf` - Return path to hook script
+    - `enum HookEvent` with PreCreate, PostCreate, PreUpdate, PostUpdate, PreClose variants
+  - **src/cli.rs**: Add `Trust` command variant
+  - **src/main.rs**: Wire up `cmd_trust` handler
+  - **src/commands/mod.rs**: Export new trust command
+  - **src/commands/trust.rs** (new): `pub fn cmd_trust(beans_dir: &Path, revoke: bool, check: bool) -> Result<()>`
+  - **src/commands/create.rs**: Call `execute_hook(HookEvent::PreCreate, &bean, beans_dir)?` before create, `execute_hook(HookEvent::PostCreate, &bean, beans_dir)?` after
+  - **src/commands/update.rs**: Similar pre/post-update hooks
+  - **src/commands/close.rs**: Call `execute_hook(HookEvent::PreClose, &bean, beans_dir, reason)?` before verify
+
+  ## Error Handling
+
+  - **Hook doesn't exist**: Silently skip (optional hook)
+  - **Hook not executable**: Error message: "Hook {event} not executable. Run: chmod +x .beans/hooks/{event}"
+  - **Hook crashes (non-zero exit)**: Print stderr, abort operation with error: "Hook {event} failed: {stderr output}"
+  - **Hook timeout**: Abort with "Hook {event} timed out after 30s"
+  - **Untrusted hooks**: Silently skip all hooks unless `.beans/.hooks-trusted` exists
+  - **Trust state**: `bn trust --check` shows whether hooks are enabled
+
+  ## Security Implications
+
+  - Hooks execute arbitrary shell code with project context
+  - Trust file acts as explicit confirmation by project maintainer (like direnv's .envrc.local)
+  - Hooks inherit CLI process env (PATH, shell, etc.)
+  - Users should review .beans/hooks/* before running `bn trust`
+  - Recommend versioning .beans/hooks/* in git for team consistency
+
+  ## Edge Cases
+
+  1. Hook exits with non-zero: Operation aborts, user sees hook's stderr
+  2. Hook script deletes itself: Silently treat as missing
+  3. Hook takes >30s: Kill process, abort with timeout error
+  4. Multiple parallel operations: Each runs hooks independently
+  5. Bean modified by hook: Document that hooks should not modify bean files
+  6. Pre-create hook rejects invalid bean: Clear error message "Bean rejected by pre-create hook"
+acceptance: |-
+  - Hook system executes without errors
+  - Pre-create, post-create, pre-update, post-update, pre-close hooks all work
+  - JSON payload structure is correct and includes all bean fields
+  - Trust mechanism enforced (hooks disabled without .beans/.hooks-trusted)
+  - Hook errors abort operations and print stderr to user
+  - Missing hooks silently skipped (optional)
+  - Non-executable hooks produce clear error message
+  - Hook timeout (>30s) aborts operation
+  - `bn trust` creates .beans/.hooks-trusted file
+  - `bn trust --revoke` removes trust file
+  - `bn trust --check` reports trust status
+verify: cargo test --lib hooks && cargo build --release
