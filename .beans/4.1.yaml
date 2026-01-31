@@ -1,6 +1,6 @@
 id: '4.1'
 title: Implement hook execution engine with timeout handling
-status: open
+status: closed
 priority: 2
 created_at: 2026-01-31T17:02:19.724120Z
 updated_at: 2026-01-31T17:02:19.724120Z

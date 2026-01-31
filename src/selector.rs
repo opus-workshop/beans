@@ -97,19 +97,13 @@ pub fn parse_selector(input: &str) -> Result<SelectorType> {
 /// let latest_id = resolve_latest(&context)?;
 /// ```
 pub fn resolve_latest(context: &SelectionContext) -> Result<String> {
-    if context.index.beans.is_empty() {
-        return Err(anyhow!("Cannot resolve @latest: index is empty"));
-    }
-
-    // Find the bean with the maximum updated_at timestamp
-    let latest = context
+    context
         .index
         .beans
         .iter()
         .max_by_key(|entry| entry.updated_at)
-        .ok_or_else(|| anyhow!("Failed to find latest bean"))?;
-
-    Ok(latest.id.clone())
+        .map(|entry| entry.id.clone())
+        .ok_or_else(|| anyhow!("Cannot resolve @latest: index is empty"))
 }
 
 // ---------------------------------------------------------------------------

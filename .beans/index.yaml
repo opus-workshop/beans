@@ -94,12 +94,12 @@ beans:
   updated_at: 2026-01-27T08:04:28.350601Z
 - id: '4'
   title: Implement bean hook system (pre/post create/update/close)
-  status: open
+  status: closed
   priority: 2
   updated_at: 2026-01-31T16:51:42.401832Z
 - id: '4.1'
   title: Implement hook execution engine with timeout handling
-  status: open
+  status: closed
   priority: 2
   parent: '4'
   updated_at: 2026-01-31T17:02:19.724120Z
@@ -113,7 +113,7 @@ beans:
   updated_at: 2026-01-31T17:02:26.947708Z
 - id: '4.3'
   title: Integrate pre-create and post-create hooks into cmd_create
-  status: open
+  status: closed
   priority: 2
   parent: '4'
   dependencies:
@@ -121,7 +121,7 @@ beans:
   updated_at: 2026-01-31T17:02:33.696998Z
 - id: '4.4'
   title: Integrate pre-update and post-update hooks into cmd_update
-  status: open
+  status: closed
   priority: 2
   parent: '4'
   dependencies:
@@ -129,7 +129,7 @@ beans:
   updated_at: 2026-01-31T17:02:38.222967Z
 - id: '4.5'
   title: Integrate pre-close hook as CI gatekeeper into cmd_close
-  status: open
+  status: closed
   priority: 2
   parent: '4'
   dependencies:

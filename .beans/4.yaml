@@ -1,6 +1,6 @@
 id: '4'
 title: Implement bean hook system (pre/post create/update/close)
-status: open
+status: closed
 priority: 2
 created_at: 2026-01-31T16:51:42.401832Z
 updated_at: 2026-01-31T16:51:42.401832Z

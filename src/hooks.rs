@@ -168,7 +168,7 @@ pub fn execute_hook(
             .stdin
             .as_mut()
             .ok_or_else(|| anyhow!("Failed to open stdin"))?;
-        use std::io::Write as StdWrite;
+        use std::io::Write;
         stdin
             .write_all(json_payload.as_bytes())
             .map_err(|e| anyhow!("Failed to write payload to hook stdin: {}", e))?;

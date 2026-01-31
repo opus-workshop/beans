@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use anyhow::anyhow;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 
 use crate::index::Index;
 
@@ -71,10 +70,7 @@ pub fn build_dependency_tree(index: &Index, id: &str) -> Result<String> {
     let mut reverse_graph: HashMap<String, Vec<String>> = HashMap::new();
     for (id, deps) in &graph {
         for dep in deps {
-            reverse_graph
-                .entry(dep.clone())
-                .or_insert_with(Vec::new)
-                .push(id.clone());
+            reverse_graph.entry(dep.clone()).or_default().push(id.clone());
         }
     }
 
@@ -161,10 +157,7 @@ pub fn build_full_graph(index: &Index) -> Result<String> {
     let mut reverse_graph: HashMap<String, Vec<String>> = HashMap::new();
     for entry in &index.beans {
         for dep in &entry.dependencies {
-            reverse_graph
-                .entry(dep.clone())
-                .or_insert_with(Vec::new)
-                .push(entry.id.clone());
+            reverse_graph.entry(dep.clone()).or_default().push(entry.id.clone());
         }
     }
 
@@ -204,9 +197,7 @@ pub fn find_all_cycles(index: &Index) -> Result<Vec<Vec<String>>> {
     for start_id in graph.keys() {
         let mut visited = HashSet::new();
         let mut path = vec![start_id.clone()];
-        if find_cycle_dfs(&graph, start_id, &mut visited, &mut path, &mut cycles) {
-            // Cycle found
-        }
+        find_cycle_dfs(&graph, start_id, &mut visited, &mut path, &mut cycles);
     }
 
     Ok(cycles)

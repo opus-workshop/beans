@@ -1,6 +1,6 @@
 id: '4.3'
 title: Integrate pre-create and post-create hooks into cmd_create
-status: open
+status: closed
 priority: 2
 created_at: 2026-01-31T17:02:33.696998Z
 updated_at: 2026-01-31T17:02:33.696998Z

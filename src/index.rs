@@ -57,6 +57,19 @@ pub struct Index {
 // Files to exclude when scanning for bean YAMLs.
 const EXCLUDED_FILES: &[&str] = &["config.yaml", "index.yaml", "bean.yaml"];
 
+/// Check if a filename represents a bean file (not a config/index/template file).
+fn is_bean_filename(filename: &str) -> bool {
+    if EXCLUDED_FILES.contains(&filename) {
+        return false;
+    }
+    let ext = std::path::Path::new(filename).extension().and_then(|e| e.to_str());
+    match ext {
+        Some("md") => filename.contains('-'),  // New format: {id}-{slug}.md
+        Some("yaml") => true,                  // Legacy format: {id}.yaml
+        _ => false,
+    }
+}
+
 impl Index {
     /// Build the index by reading all bean files from the beans directory.
     /// Supports both new format ({id}-{slug}.md) and legacy format ({id}.yaml).
@@ -77,20 +90,7 @@ impl Index {
                 .and_then(|n| n.to_str())
                 .unwrap_or_default();
 
-            // Skip excluded files
-            if EXCLUDED_FILES.contains(&filename) {
-                continue;
-            }
-
-            // Support both new format ({id}-{slug}.md) and legacy (.yaml)
-            let ext = path.extension().and_then(|e| e.to_str());
-            let is_bean_file = match ext {
-                Some("md") => filename.contains('-'), // New format: {id}-{slug}.md
-                Some("yaml") => true,                   // Legacy format: {id}.yaml
-                _ => false,
-            };
-
-            if !is_bean_file {
+            if !is_bean_filename(filename) {
                 continue;
             }
 
@@ -132,20 +132,7 @@ impl Index {
                 .and_then(|n| n.to_str())
                 .unwrap_or_default();
 
-            // Skip index.yaml
-            if filename == "index.yaml" {
-                continue;
-            }
-
-            // Check both .md and .yaml bean files
-            let ext = path.extension().and_then(|e| e.to_str());
-            let is_bean_file = match ext {
-                Some("md") => filename.contains('-'),   // New format: {id}-{slug}.md
-                Some("yaml") => !EXCLUDED_FILES.contains(&filename), // Legacy, but skip excluded
-                _ => false,
-            };
-
-            if !is_bean_file {
+            if !is_bean_filename(filename) {
                 continue;
             }
 

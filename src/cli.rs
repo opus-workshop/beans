@@ -26,7 +26,6 @@ pub enum Command {
         title: Option<String>,
 
         /// Bean title (alternative to positional arg)
-        #[arg(long)]
         #[arg(long, conflicts_with = "title")]
         set_title: Option<String>,
 
