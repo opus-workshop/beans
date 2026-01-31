@@ -480,9 +480,92 @@ verify: npm test -- --grep "register" && npm run build
 
 ---
 
+## The Agent Toolkit
+
+When executing beans, agents have access to a powerful toolkit from `~/.claude/skills/agent-prompt-template.md`:
+
+### Context Gathering (Do This First)
+
+```bash
+# Structural overview of imports, types, function signatures
+beads-context scan src/ --task "Implement token refresh"
+
+# Targeted context for specific files
+beads-context build src/routes/auth.rs src/auth/mod.rs
+
+# Check project specs for constraints
+spec context "token refresh implementation"
+```
+
+Use `beads-context scan` before reading full files. Only read complete code when you need implementation details beyond signatures.
+
+### Safety & Rollback
+
+```bash
+# Create rollback point before risky changes
+undo checkpoint "before-refresh-impl"
+
+# Roll back if things go wrong
+undo restore {checkpoint-id}
+```
+
+### Verification
+
+```bash
+# Fast check after significant edits (lint + types)
+verify --quick
+
+# Full check before committing (lint, types, build, test)
+verify
+```
+
+### Error Recovery
+
+```bash
+# Check if this error has a known solution
+error_db match "{error message}"
+
+# Iterate until tests pass
+loop start "{fix task}" --promise "{test cmd}"
+
+# Record new error pattern for future agents
+error_db add --pattern "{regex}" --solution "{fix}"
+```
+
+### Handoff Notes
+
+```bash
+# Write notes for downstream workers
+bn update <bean-id> --note "Implemented X in file Y, tests in Z"
+```
+
+This toolkit is **standard for all agents** in the project. Agents should use these tools instead of exploring blindly.
+
+---
+
 ## The Agent Workflow
 
 This is how agents use beans in practice.
+
+### Step 0: Prepare Context (New!)
+
+Before claiming, agents gather context with the toolkit:
+
+```bash
+# Structural overview (fast)
+beads-context scan src/ --task "Implement user registration"
+
+# Targeted context for key files
+beads-context build src/routes/auth.rs src/auth/mod.rs
+
+# Check project specs
+spec context "user authentication"
+
+# Create rollback point
+undo checkpoint "before-registration-impl"
+```
+
+This prevents wasted time exploring blindly.
 
 ### Step 1: Agent Claims Work
 
@@ -516,17 +599,33 @@ Status transitions: **open → in_progress**. The bean is now claimed by this ag
 
 ### Step 2: Agent Works
 
-Agent modifies code, writes tests, iterates locally.
-
-**Mid-work sanity check:**
+Agent modifies code, writes tests, iterates locally. Uses toolkit for safety:
 
 ```bash
+# Make changes
+vim src/routes/auth.rs
+# ... implement ...
+
+# Quick verification (fast)
+verify --quick
+# If OK, continue...
+
+# Write tests
+vim tests/auth.test.ts
+# ...
+
+# Test the bean's verify command (without closing)
 bn verify 1.1
 ```
 
-This runs the verify command **without closing the bean**. If the tests fail, the agent knows there's work to do.
+This runs the verify command **without closing the bean**. If tests fail, agent debugs or rolls back:
 
-**Mid-work notes (optional):**
+```bash
+# If needed, roll back to checkpoint
+undo restore {checkpoint-id}
+```
+
+**Mid-work notes (recommended):**
 
 ```bash
 bn update 1.1 --note "Added password validation, testing edge cases"
@@ -541,6 +640,10 @@ Notes are timestamped automatically. Useful for logging progress if the bean nee
 Agent believes work is done:
 
 ```bash
+# Full verification before closing (lint, types, build, test)
+verify
+
+# If all checks pass:
 bn close 1.1
 ```
 
@@ -564,6 +667,7 @@ Verify fails (exit code non-zero):
 Agent 1 claimed 1.1, worked, failed verify, released.
 Agent 2 runs `bn ready`, sees 1.1 again.
 Agent 2 claims 1.1, reads `.beans/1.1.yaml` and notes from Agent 1.
+Agent 2 gathers fresh context with toolkit (beads-context, spec context).
 Agent 2 knows what Agent 1 tried and avoids the same mistake.
 
 #### Middle Path: Release Without Closing
@@ -583,6 +687,22 @@ bn update 1.1 --note "Need to clarify password validation rules with team"
 
 Human reads the notes, updates the description, re-prioritizes.
 
+#### Handoff & Commit
+
+When work is verified and closed:
+
+```bash
+# Write handoff notes for downstream workers
+bn update 1.1 --note "Implemented registration in src/routes/auth.rs, tests in tests/auth.test.ts, validates email uniqueness and password strength"
+
+# Commit with bean ID prefix
+git add -A
+git commit -m "[beans-1.1] Implement user registration endpoint"
+
+# Sync at session end (optional)
+bn sync --flush-only
+```
+
 ### Step 4: Dependents Become Ready
 
 Once 1.1 is closed, any bean that depended on it becomes ready:
@@ -593,6 +713,43 @@ bn dep add 1.2 1.1    # "1.2 depends on 1.1"
 bn close 1.1          # closes successfully
 bn ready              # now shows 1.2
 ```
+
+---
+
+## Smart Selectors (@ Syntax)
+
+Instead of memorizing or typing bean IDs, use smart selectors:
+
+### Available Selectors
+
+| Selector | Purpose | Example |
+|----------|---------|---------|
+| `@latest` | Most recently created bean | `bn show @latest` |
+| `@blocked` | All blocked beans (waiting on dependencies) | `bn list @blocked` |
+| `@ready` | All ready beans (no blockers) | `bn list @ready --tree` |
+| `@parent` | Parent of the current bean | `bn close @parent` |
+| `@me` | Current bean you're working on | `bn update @me --assignee alice` |
+
+### Examples
+
+```bash
+# Show the newest bean
+bn show @latest
+
+# List blocked beans
+bn list @blocked
+
+# Display ready beans in tree format
+bn list @ready --tree
+
+# Update your current bean's assignee
+bn update @me --assignee $(whoami)
+
+# Close a bean's parent (useful in scripts)
+bn close @parent
+```
+
+This eliminates the need to remember IDs and makes scripts more readable.
 
 ---
 
@@ -1161,6 +1318,88 @@ Verify passes. Bean closes.
 
 ---
 
+## The Development Loop
+
+All work in the project follows a standard workflow:
+
+1. **Understand** — `beads-context scan` + `spec context` before touching code
+2. **Plan** — Single task: just do it. Multi-step: break into beans with `bn create`
+3. **Implement** — Single bean: implement directly. Epic: `/swarm` for parallel agents
+4. **Verify** — `verify` before committing (lint, types, build, test)
+5. **Close** — `bn close <id>` when verified, `bn sync --flush-only` at session end
+
+This ensures consistency across all bean execution and agent work.
+
+---
+
+## The Beanstalk Vision: Future Toolchain
+
+Beans is evolving from a task tracker into a comprehensive orchestration platform. Here's the strategic vision:
+
+### Planned Companion Tools
+
+**`bctx`** — Context Assembler (Killer App for Agents)
+- Reads a bean, extracts file paths from description, concatenates file contents
+- Solves the "cold start" problem for agents
+- Usage: `bctx beans-3.2 | llm "Implement this"`
+- Status: Partially implemented (1.1, 1.2)
+
+**`bpick`** — Fuzzy Selector
+- Interactive bean selection using `fzf`
+- Never type an ID manually
+- Usage: `bn close $(bpick)`
+- Status: Planned
+
+**`bmake`** — Dependency-Aware Execution
+- Execute commands only when DAG permits (CI/CD gatekeeper)
+- Usage: `bmake beans-50 "./deploy.sh"` (only runs if bean is closed)
+- Status: Planned
+
+**`btime`** — Punch Clock
+- Calculate cycle time from `created_at` to `closed_at`
+- Track active time via git log analysis
+- Status: Planned
+
+**`bgrep`** — Semantic Grep
+- Search beans with field filtering
+- Usage: `bgrep "database" --field description --status open`
+- Status: Planned
+
+**`bviz`** — TUI Dashboard
+- Left pane: Tree view of beans
+- Right pane: Markdown renderer
+- Bottom pane: Dependency graph
+- Status: Planned
+
+### Infrastructure Improvements
+
+**Git Hook Integration**
+- Auto-prepend bean ID to commits
+- Branch: `feat/beans-3.2-list-command` → Commit: `[beans-3.2] Added sorting`
+- Status: Planned
+
+**Markdown Format Migration**
+- Current: Pure YAML files (flexible, direct file access)
+- Future: Markdown with YAML frontmatter (better for agents, LLMs, humans)
+- Status: Foundation in place, migration planned
+
+**Bean Server Protocol**
+- JSON-RPC interface for IDE/Agent integration
+- Status: Planned
+
+### Current Implementation Status
+
+Already available:
+- `bn claim` / `bn verify` — Atomic task claiming and verification without closing
+- `bn edit` — Edit beans in $EDITOR with schema validation
+- Smart selectors (@latest, @blocked, @parent, @me)
+- Hook system — Pre-close hooks for CI gatekeeper patterns
+- Archive system — Auto-archiving closed beans to dated directories
+- Multi-format support — YAML and Markdown
+- Agent toolkit — beads-context, undo checkpoints, error_db, loop integration
+
+---
+
 ## Summary
 
 ### Key Takeaways
@@ -1171,21 +1410,34 @@ Verify passes. Bean closes.
 4. **Acceptance criteria must be testable.** Verify command proves it.
 5. **Use hierarchy for decomposition** (parent/child), **dependencies for blocking** (A waits for B).
 6. **Parents provide context.** Leaves are executable.
-7. **Agents claim atomically.** Only one agent per bean.
-8. **Verify gates closing.** No force-close. If verify fails, retry with a fresh agent.
-9. **Notes are the execution log.** Timestamp automatically, visible to next agent.
-10. **Dependencies enable waves.** Agents work in parallel, constrained by scheduling.
+7. **Agents use the toolkit** (beads-context, undo, verify, error_db) instead of exploring blindly.
+8. **Agents claim atomically.** Only one agent per bean.
+9. **Verify gates closing.** No force-close. If verify fails, retry with a fresh agent.
+10. **Notes are the execution log.** Timestamp automatically, visible to next agent.
+11. **Dependencies enable waves.** Agents work in parallel, constrained by scheduling.
+12. **Follow the development loop** — Understand → Plan → Implement → Verify → Close.
 
 ### Quick Checklist: Is My Bean Ready for Agents?
 
+#### Before Creation
+- [ ] **Standalone or part of epic?** If epic: create parent, assign as child
+- [ ] **Size right?** 1-5 files, 1-5 functions modified, <64k tokens
+- [ ] **Blockers identified?** Know what must be done first
+
+#### During Creation
 - [ ] **Title** — One-liner, clear and descriptive
 - [ ] **Priority** — Set appropriately (P0-P4)
 - [ ] **Description** — Rich context, file paths, edge cases, no exploration needed
 - [ ] **Acceptance** — Concrete, testable criteria (not vague goals)
 - [ ] **Verify** — Shell command that proves acceptance is met
 - [ ] **Dependencies** — Only include true blocking relationships
-- [ ] **Size** — 1-5 files, <64k tokens estimated
 - [ ] **Labels** — Tagged for organization (optional but helpful)
+
+#### Before Agent Execution
+- [ ] **Bean is in ready state** — `bn ready` shows it
+- [ ] **Agent has toolkit installed** — beads-context, undo, verify, error_db
+- [ ] **Acceptance criteria are complete** — No ambiguity
+- [ ] **Verify command is tested** — You've run it locally
 
 If all checked, the bean is ready for an agent to claim.
 
@@ -1193,10 +1445,28 @@ If all checked, the bean is ready for an agent to claim.
 
 ## Further Reading
 
+**Project Documentation:**
 - [beans README.md](./README.md) — System overview and commands
 - [Bean YAML Format](./README.md#a-bean-looks-like-this) — Field reference
 - [Agent Workflow](./README.md#agent-workflow) — How agents execute beans
+- [TODO.md](./TODO.md) — Strategic vision and roadmap
+
+**Agent Resources:**
+- [Agent Toolkit Instructions](../.claude/skills/agent-prompt-template.md) — Toolkit for spawned agents (beads-context, undo, verify, error_db)
+- Agent prompt template includes: context gathering, safety, verification, error recovery, handoff
+
+**Command Reference:**
+- `bn --help` — Full CLI help
+- `bn <command> --help` — Help for specific command
+
+**Key New Commands:**
+- `bn claim <id>` — Atomically claim bean for work
+- `bn claim <id> --release` — Release claim
+- `bn verify <id>` — Test verify without closing
+- `bn edit <id>` — Edit in $EDITOR with validation
+- Smart selectors: `@latest`, `@blocked`, `@ready`, `@parent`, `@me`
 
 ---
 
-*Last updated: 2026-01-27*
+*Last updated: 2026-01-30*
+*Reflects project changes through commit 606509b*
