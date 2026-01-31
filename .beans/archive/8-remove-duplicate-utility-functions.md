@@ -1,0 +1,37 @@
+---
+id: 8
+title: Remove duplicate utility functions
+status: closed
+priority: 1
+created_at: |-
+  2026-01-30T18:41:55.008023Z
+updated_at: |-
+  2026-01-30T18:52:17.686266Z
+labels: - code-quality
+- core
+closed_at: |-
+  2026-01-30T18:52:17.686266Z
+dependencies: - '1'
+- '2'
+- '6'
+- '7'
+verify: cargo test --lib index
+---
+
+Eliminate DRY violation in natural_cmp() and parse_id_segments().
+
+Currently duplicated:
+- src/index.rs lines 184-197: natural_cmp() and parse_id_segments()
+- src/util.rs lines 13-31: Same functions exported
+
+## Solution
+1. Keep implementations in src/util.rs only
+2. Remove from src/index.rs
+3. Import and use from util module: use crate::util::{natural_cmp, parse_id_segments};
+4. Verify all usages in index.rs work with imported versions
+
+## Acceptance Criteria
+- No duplicate implementations of natural_cmp or parse_id_segments
+- index.rs imports both functions from util
+- All uses of these functions in index.rs work correctly
+- All tests pass
