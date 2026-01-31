@@ -51,6 +51,8 @@ pub fn validate_priority(priority: u8) -> Result<()> {
 pub struct Bean {
     pub id: String,
     pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub slug: Option<String>,
     pub status: Status,
     #[serde(default = "default_priority")]
     pub priority: u8,
@@ -130,6 +132,7 @@ impl Bean {
         Self {
             id: id_str,
             title: title.into(),
+            slug: None,
             status: Status::Open,
             priority: 2,
             created_at: now,
@@ -271,6 +274,7 @@ mod tests {
         let bean = Bean {
             id: "3.2.1".to_string(),
             title: "Implement parser".to_string(),
+            slug: None,
             status: Status::InProgress,
             priority: 1,
             created_at: now,
