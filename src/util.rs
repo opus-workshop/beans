@@ -93,9 +93,194 @@ impl FromStr for Status {
     }
 }
 
+/// Convert a bean title into a URL-safe kebab-case slug for use in filenames.
+///
+/// Algorithm:
+/// 1. Trim whitespace
+/// 2. Lowercase all characters
+/// 3. Replace spaces with hyphens
+/// 4. Remove non-alphanumeric characters except hyphens
+/// 5. Collapse consecutive hyphens into single hyphen
+/// 6. Remove leading/trailing hyphens
+/// 7. Truncate to 50 characters
+/// 8. Return "unnamed" if empty
+///
+/// # Examples
+/// - "My Task" → "my-task"
+/// - "Build API v2.0" → "build-api-v20"
+/// - "Foo   Bar" → "foo-bar"
+/// - "Implement `bn show` to render Markdown" → "implement-bn-show-to-render-markdown"
+/// - "Update Bean parser to read .md + YAML frontmatter" → "update-bean-parser-to-read-md-yaml-frontmatter"
+/// - "My-Task!!!" → "my-task"
+/// - "   Spaces   " → "spaces"
+/// - "" (empty) → "unnamed"
+/// - "a" (single char) → "a"
+pub fn title_to_slug(title: &str) -> String {
+    // Step 1: Trim whitespace
+    let trimmed = title.trim();
+    
+    // Step 2: Lowercase all characters
+    let lowercased = trimmed.to_lowercase();
+    
+    // Step 3 & 4: Replace spaces with hyphens and remove non-alphanumeric (except hyphens)
+    let mut slug = String::new();
+    for c in lowercased.chars() {
+        if c.is_ascii_alphanumeric() {
+            slug.push(c);
+        } else if c.is_whitespace() {
+            slug.push('-');
+        } else if c == '-' {
+            slug.push('-');
+        }
+        // Skip all other characters (special chars, punctuation, etc.)
+    }
+    
+    // Step 5: Collapse consecutive hyphens into single hyphen
+    let slug = slug
+        .chars()
+        .fold(String::new(), |mut acc, c| {
+            if c == '-' && acc.ends_with('-') {
+                acc
+            } else {
+                acc.push(c);
+                acc
+            }
+        });
+    
+    // Step 6: Remove leading/trailing hyphens
+    let slug = slug.trim_matches('-').to_string();
+    
+    // Step 7: Truncate to 50 characters
+    let slug = if slug.len() > 50 {
+        slug.chars().take(50).collect::<String>()
+    } else {
+        slug
+    };
+    
+    // Step 8: Return "unnamed" if empty
+    if slug.is_empty() {
+        "unnamed".to_string()
+    } else {
+        slug
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ---------- title_to_slug tests ----------
+
+    #[test]
+    fn title_to_slug_simple_case() {
+        assert_eq!(title_to_slug("My Task"), "my-task");
+    }
+
+    #[test]
+    fn title_to_slug_with_numbers_and_dots() {
+        assert_eq!(title_to_slug("Build API v2.0"), "build-api-v20");
+    }
+
+    #[test]
+    fn title_to_slug_multiple_spaces() {
+        assert_eq!(title_to_slug("Foo   Bar"), "foo-bar");
+    }
+
+    #[test]
+    fn title_to_slug_with_backticks() {
+        assert_eq!(
+            title_to_slug("Implement `bn show` to render Markdown"),
+            "implement-bn-show-to-render-markdown"
+        );
+    }
+
+    #[test]
+    fn title_to_slug_with_special_chars() {
+        assert_eq!(
+            title_to_slug("Update Bean parser to read .md + YAML frontmatter"),
+            "update-bean-parser-to-read-md-yaml-frontmatter"
+        );
+    }
+
+    #[test]
+    fn title_to_slug_with_exclamation() {
+        assert_eq!(title_to_slug("My-Task!!!"), "my-task");
+    }
+
+    #[test]
+    fn title_to_slug_leading_trailing_spaces() {
+        assert_eq!(title_to_slug("   Spaces   "), "spaces");
+    }
+
+    #[test]
+    fn title_to_slug_empty_string() {
+        assert_eq!(title_to_slug(""), "unnamed");
+    }
+
+    #[test]
+    fn title_to_slug_single_character() {
+        assert_eq!(title_to_slug("a"), "a");
+        assert_eq!(title_to_slug("Z"), "z");
+    }
+
+    #[test]
+    fn title_to_slug_only_spaces() {
+        assert_eq!(title_to_slug("   "), "unnamed");
+    }
+
+    #[test]
+    fn title_to_slug_only_special_chars() {
+        assert_eq!(title_to_slug("!!!@@@###"), "unnamed");
+    }
+
+    #[test]
+    fn title_to_slug_truncate_50_chars() {
+        let long_title = "a".repeat(60);
+        let result = title_to_slug(&long_title);
+        assert_eq!(result, "a".repeat(50));
+        assert_eq!(result.len(), 50);
+    }
+
+    #[test]
+    fn title_to_slug_truncate_with_hyphens() {
+        let title = "word ".repeat(20); // Creates long string with hyphens after truncation
+        let result = title_to_slug(&title);
+        assert!(result.len() <= 50);
+    }
+
+    #[test]
+    fn title_to_slug_mixed_case() {
+        assert_eq!(title_to_slug("ThIs Is A MiXeD CaSe TiTle"), "this-is-a-mixed-case-title");
+    }
+
+    #[test]
+    fn title_to_slug_numbers_preserved() {
+        assert_eq!(title_to_slug("Task 123 Version 4.5.6"), "task-123-version-456");
+    }
+
+    #[test]
+    fn title_to_slug_consecutive_hyphens() {
+        assert_eq!(title_to_slug("foo---bar"), "foo-bar");
+        assert_eq!(title_to_slug("foo - - bar"), "foo-bar");
+    }
+
+    #[test]
+    fn title_to_slug_unicode_removed() {
+        // Unicode characters are not ASCII alphanumeric, so they get removed
+        assert_eq!(title_to_slug("café"), "caf");
+        assert_eq!(title_to_slug("naïve"), "nave");
+    }
+
+    #[test]
+    fn title_to_slug_all_whitespace_types() {
+        assert_eq!(title_to_slug("foo\tbar\nbaz"), "foo-bar-baz");
+    }
+
+    #[test]
+    fn title_to_slug_exactly_50_chars() {
+        let title = "a".repeat(50);
+        assert_eq!(title_to_slug(&title), title);
+    }
 
     // ---------- natural_cmp tests ----------
 
