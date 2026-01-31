@@ -25,7 +25,7 @@ pub use create::cmd_create;
 pub use delete::cmd_delete;
 pub use dep::{cmd_dep_add, cmd_dep_cycles, cmd_dep_list, cmd_dep_remove, cmd_dep_tree};
 pub use doctor::cmd_doctor;
-pub use edit::{load_backup, open_editor};
+pub use edit::{cmd_edit, load_backup, open_editor};
 pub use graph::cmd_graph;
 pub use init::cmd_init;
 pub use list::cmd_list;

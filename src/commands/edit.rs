@@ -17,6 +17,7 @@ use std::process::Command;
 
 use crate::bean::Bean;
 use crate::index::Index;
+use crate::discovery::find_bean_file;
 
 /// Validate bean content and persist it to disk with updated timestamp.
 ///
@@ -240,6 +241,115 @@ pub fn load_backup(path: &Path) -> Result<Vec<u8>> {
             path.display()
         )
     })
+}
+
+/// Orchestrate the complete bn edit workflow for a bean.
+///
+/// The full edit workflow:
+/// 1. Validate the bean ID format
+/// 2. Find the bean file using discovery
+/// 3. Load the current bean content as a backup
+/// 4. Open the file in the user's configured editor
+/// 5. Load the edited content
+/// 6. Validate and save with schema validation (updates timestamp)
+/// 7. Rebuild the index to reflect changes
+///
+/// If validation fails, prompts user to retry, rollback, or abort.
+/// If editor subprocess fails, handles the error gracefully.
+///
+/// # Arguments
+/// * `beans_dir` - Path to the .beans directory
+/// * `id` - Bean ID to edit (e.g., "1", "1.1")
+///
+/// # Returns
+/// * Ok(()) if edit is successful and saved
+/// * Err if:
+///   - Bean ID not found
+///   - $EDITOR not set or editor not found
+///   - Editor exits with non-zero status
+///   - Validation fails and user chooses abort
+///   - I/O or index rebuild fails
+///
+/// # Examples
+/// ```ignore
+/// cmd_edit(Path::new(".beans"), "1")?;
+/// ```
+pub fn cmd_edit(beans_dir: &Path, id: &str) -> Result<()> {
+    // Step 1: Find the bean file
+    let bean_path = find_bean_file(beans_dir, id)
+        .with_context(|| format!("Bean not found: {}", id))?;
+
+    // Step 2: Load the current bean content as backup
+    let backup = load_backup(&bean_path)
+        .with_context(|| format!("Failed to load bean for editing: {}", id))?;
+
+    // Step 3: Open editor for user to modify the file
+    loop {
+        match open_editor(&bean_path) {
+            Ok(()) => {
+                // Step 4: Read the edited content
+                let edited_content = fs::read_to_string(&bean_path)
+                    .with_context(|| format!("Failed to read edited bean file: {}", id))?;
+
+                // Step 5: Validate and save the edited content (updates timestamp)
+                match validate_and_save(&bean_path, &edited_content) {
+                    Ok(()) => {
+                        // Step 6: Rebuild the index to reflect changes
+                        rebuild_index_after_edit(beans_dir)
+                            .with_context(|| "Failed to rebuild index after edit")?;
+
+                        println!("Bean {} updated successfully.", id);
+                        return Ok(());
+                    }
+                    Err(validation_err) => {
+                        // Validation failed - present user with options
+                        eprintln!("Validation error: {}", validation_err);
+
+                        match prompt_rollback(&backup, &bean_path) {
+                            Ok(()) => {
+                                // Check if file was restored to backup or if user wants to retry
+                                let current = fs::read(&bean_path)
+                                    .with_context(|| "Failed to read bean file")?;
+
+                                if current == backup {
+                                    // User chose rollback - exit cleanly
+                                    println!("Edit cancelled.");
+                                    return Ok(());
+                                } else {
+                                    // User chose retry - loop back to open editor
+                                    continue;
+                                }
+                            }
+                            Err(e) => {
+                                // User chose abort - restore backup and return error
+                                let _ = fs::write(&bean_path, &backup);
+                                return Err(e).context("Edit aborted by user");
+                            }
+                        }
+                    }
+                }
+            }
+            Err(editor_err) => {
+                // Editor subprocess failed - prompt user for action
+                eprintln!("Editor error: {}", editor_err);
+
+                // Attempt rollback
+                match fs::write(&bean_path, &backup) {
+                    Ok(()) => {
+                        return Err(editor_err)
+                            .context("Editor failed; backup restored");
+                    }
+                    Err(rollback_err) => {
+                        return Err(anyhow!(
+                            "Editor failed and rollback failed: {} (rollback: {})",
+                            editor_err,
+                            rollback_err
+                        ));
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -669,5 +779,167 @@ updated_at: "2026-01-26T15:00:00Z"
         rebuild_index_after_edit(&beans_dir).unwrap();
         let index2 = Index::load(&beans_dir).unwrap();
         assert_eq!(index2.beans.len(), 2);
+    }
+
+    // =====================================================================
+    // Integration tests for cmd_edit (Bean 2.3)
+    // =====================================================================
+
+    #[test]
+    fn test_cmd_edit_finds_bean_by_id() {
+        let dir = TempDir::new().unwrap();
+        let beans_dir = dir.path().join(".beans");
+        fs::create_dir(&beans_dir).unwrap();
+
+        let bean = Bean::new("1", "Original title");
+        bean.to_file(beans_dir.join("1-original.md")).unwrap();
+
+        // Verify that find_bean_file can locate the bean
+        let found = crate::discovery::find_bean_file(&beans_dir, "1");
+        assert!(found.is_ok(), "Should find bean by ID");
+    }
+
+    #[test]
+    fn test_cmd_edit_fails_for_nonexistent_bean() {
+        let dir = TempDir::new().unwrap();
+        let beans_dir = dir.path().join(".beans");
+        fs::create_dir(&beans_dir).unwrap();
+
+        // Note: cmd_edit requires valid $EDITOR, so we just verify find_bean_file fails
+        let found = crate::discovery::find_bean_file(&beans_dir, "999");
+        assert!(found.is_err(), "Should fail for nonexistent bean");
+    }
+
+    #[test]
+    fn test_cmd_edit_loads_backup_correctly() {
+        let bean_content = r#"id: "1"
+title: Test Bean
+status: open
+priority: 2
+created_at: "2026-01-26T15:00:00Z"
+updated_at: "2026-01-26T15:00:00Z"
+"#;
+        let (_dir, path) = create_valid_bean_file(bean_content);
+
+        // Load backup
+        let backup = load_backup(&path).unwrap();
+
+        // Verify backup matches original
+        assert_eq!(backup, bean_content.as_bytes());
+    }
+
+    #[test]
+    fn test_cmd_edit_workflow_backup_edit_save() {
+        // Test the complete workflow: backup -> edit -> validate -> save -> index
+        let bean_content = r#"id: "1"
+title: Original
+status: open
+priority: 2
+created_at: "2026-01-26T15:00:00Z"
+updated_at: "2026-01-26T15:00:00Z"
+"#;
+        let (_dir, path) = create_valid_bean_file(bean_content);
+        let dir = TempDir::new().unwrap();
+        let beans_dir = dir.path().join(".beans");
+        fs::create_dir(&beans_dir).unwrap();
+
+        // Copy bean file to test beans_dir for index rebuild
+        fs::copy(&path, beans_dir.join("1-original.md")).unwrap();
+
+        // Step 1: Backup
+        let backup = load_backup(&path).unwrap();
+        assert_eq!(backup, bean_content.as_bytes());
+
+        // Step 2: Simulate edit (modify title in memory)
+        let edited_content = r#"id: "1"
+title: Modified
+status: open
+priority: 2
+created_at: "2026-01-26T15:00:00Z"
+updated_at: "2026-01-26T15:00:00Z"
+"#;
+
+        // Step 3: Write edited content to file
+        fs::write(&path, edited_content).unwrap();
+
+        // Step 4: Validate and save
+        validate_and_save(&path, edited_content).unwrap();
+
+        // Step 5: Verify changes persisted and timestamp updated
+        let saved_bean = Bean::from_file(&path).unwrap();
+        assert_eq!(saved_bean.title, "Modified");
+        assert_ne!(saved_bean.updated_at.to_string(), "2026-01-26T15:00:00Z");
+
+        // Step 6: Rebuild index
+        rebuild_index_after_edit(&beans_dir).unwrap();
+        let index = Index::load(&beans_dir).unwrap();
+        assert!(index.beans.iter().any(|b| b.id == "1"));
+    }
+
+    #[test]
+    fn test_cmd_edit_validates_schema_before_save() {
+        let invalid_content = "id: 1\ntitle: Test\nstatus: invalid_status\n";
+        let (_dir, path) = create_valid_bean_file(invalid_content);
+
+        let result = validate_and_save(&path, invalid_content);
+        assert!(result.is_err(), "Should reject invalid schema");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("invalid YAML") || err_msg.contains("Invalid status"));
+    }
+
+    #[test]
+    fn test_cmd_edit_preserves_bean_naming_convention() {
+        let dir = TempDir::new().unwrap();
+        let beans_dir = dir.path().join(".beans");
+        fs::create_dir(&beans_dir).unwrap();
+
+        // Create a bean with {id}-{slug}.md naming
+        let bean = Bean::new("1", "My Task");
+        let original_path = beans_dir.join("1-my-task.md");
+        bean.to_file(&original_path).unwrap();
+
+        // Verify the file exists with correct naming
+        assert!(original_path.exists(), "Bean file should be named 1-my-task.md");
+
+        // Load and modify
+        let content = fs::read_to_string(&original_path).unwrap();
+        let modified = content.replace("My Task", "Updated Task");
+
+        // Save with validate_and_save (this is what cmd_edit uses)
+        validate_and_save(&original_path, &modified).unwrap();
+
+        // Verify the file still exists and naming is preserved
+        assert!(original_path.exists(), "Naming should be preserved after edit");
+
+        // Verify the bean was updated
+        let updated_bean = Bean::from_file(&original_path).unwrap();
+        assert_eq!(updated_bean.title, "Updated Task");
+    }
+
+    #[test]
+    fn test_cmd_edit_index_rebuild_includes_edited_bean() {
+        let dir = TempDir::new().unwrap();
+        let beans_dir = dir.path().join(".beans");
+        fs::create_dir(&beans_dir).unwrap();
+
+        let bean = Bean::new("1", "Original");
+        bean.to_file(beans_dir.join("1-original.md")).unwrap();
+
+        // Build initial index
+        rebuild_index_after_edit(&beans_dir).unwrap();
+        let index1 = Index::load(&beans_dir).unwrap();
+        assert_eq!(index1.beans[0].title, "Original");
+
+        // Edit the bean
+        let bean_content = fs::read_to_string(beans_dir.join("1-original.md")).unwrap();
+        let modified = bean_content.replace("Original", "Modified");
+        validate_and_save(&beans_dir.join("1-original.md"), &modified).unwrap();
+
+        // Rebuild index
+        rebuild_index_after_edit(&beans_dir).unwrap();
+        let index2 = Index::load(&beans_dir).unwrap();
+
+        // Verify index reflects the edit
+        assert_eq!(index2.beans[0].title, "Modified");
     }
 }

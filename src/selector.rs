@@ -318,6 +318,44 @@ pub fn resolve_selector_full(selector_type: SelectorType, context: &SelectionCon
 }
 
 // ---------------------------------------------------------------------------
+// resolve_selector_string
+// ---------------------------------------------------------------------------
+
+/// Resolve a selector string (e.g., "@latest", "@blocked") to bean IDs.
+///
+/// This is the main entry point for selector resolution from CLI arguments.
+/// It combines parsing and resolution in one step.
+///
+/// # Arguments
+/// * `selector_str` - A selector string starting with @ or a literal bean ID
+/// * `context` - Selection context for resolution
+///
+/// # Returns
+/// * `Ok(vec_of_ids)` - list of resolved bean IDs
+/// * `Err` if selector parsing fails or resolution fails
+///
+/// # Examples
+/// ```ignore
+/// let context = SelectionContext {
+///     index: &my_index,
+///     current_bean_id: None,
+///     current_user: None,
+/// };
+/// let ids = resolve_selector_string("@latest", &context)?;
+/// ```
+pub fn resolve_selector_string(selector_str: &str, context: &SelectionContext) -> Result<Vec<String>> {
+    // Check if it's a selector (starts with @)
+    if !selector_str.starts_with('@') {
+        // Not a selector, return as-is (literal bean ID)
+        return Ok(vec![selector_str.to_string()]);
+    }
+
+    // Parse and resolve the selector
+    let selector_type = parse_selector(selector_str)?;
+    resolve_selector_full(selector_type, context)
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -1066,5 +1104,69 @@ mod tests {
         assert!(result.is_ok());
         let ids = result.unwrap();
         assert_eq!(ids, vec!["1"]);
+    }
+
+    // ---------------------------------------------------------------------------
+    // resolve_selector_string tests
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn resolve_selector_string_literal_id() {
+        let index = create_test_index(vec![("1", Status::Open, vec![])]);
+        let context = SelectionContext {
+            index: &index,
+            current_bean_id: None,
+            current_user: None,
+        };
+
+        let result = resolve_selector_string("1", &context);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), vec!["1"]);
+    }
+
+    #[test]
+    fn resolve_selector_string_selector() {
+        let index = create_test_index(vec![("1", Status::Open, vec![])]);
+        let context = SelectionContext {
+            index: &index,
+            current_bean_id: None,
+            current_user: None,
+        };
+
+        let result = resolve_selector_string("@latest", &context);
+        assert!(result.is_ok());
+        let ids = result.unwrap();
+        assert_eq!(ids.len(), 1);
+        assert!(index.beans.iter().any(|e| e.id == ids[0]));
+    }
+
+    #[test]
+    fn resolve_selector_string_blocked_selector() {
+        let index = create_test_index(vec![
+            ("1", Status::Open, vec![]),
+            ("2", Status::Open, vec!["1"]),
+        ]);
+        let context = SelectionContext {
+            index: &index,
+            current_bean_id: None,
+            current_user: None,
+        };
+
+        let result = resolve_selector_string("@blocked", &context);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), vec!["2"]);
+    }
+
+    #[test]
+    fn resolve_selector_string_invalid_selector() {
+        let index = create_test_index(vec![("1", Status::Open, vec![])]);
+        let context = SelectionContext {
+            index: &index,
+            current_bean_id: None,
+            current_user: None,
+        };
+
+        let result = resolve_selector_string("@invalid", &context);
+        assert!(result.is_err());
     }
 }

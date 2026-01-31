@@ -27,7 +27,7 @@ pub enum Command {
 
         /// Bean title (alternative to positional arg)
         #[arg(long)]
-        #[arg(conflicts_with = "title")]
+        #[arg(long, conflicts_with = "title")]
         set_title: Option<String>,
 
         /// Full description / agent context
@@ -116,6 +116,12 @@ pub enum Command {
         /// JSON output
         #[arg(long)]
         json: bool,
+    },
+
+    /// Edit bean in $EDITOR
+    Edit {
+        /// Bean ID
+        id: String,
     },
 
     /// Update bean fields

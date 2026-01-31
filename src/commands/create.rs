@@ -1,10 +1,11 @@
 use std::fs;
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 
 use crate::bean::{Bean, validate_priority};
 use crate::config::Config;
+use crate::hooks::{execute_hook, HookEvent};
 use crate::index::Index;
 use crate::util::title_to_slug;
 
@@ -150,6 +151,19 @@ pub fn cmd_create(beans_dir: &Path, args: CreateArgs) -> Result<()> {
             .collect();
     }
 
+    // Get the project directory (parent of beans_dir which is .beans)
+    let project_dir = beans_dir
+        .parent()
+        .ok_or_else(|| anyhow!("Failed to determine project directory"))?;
+
+    // Call pre-create hook (blocking - abort if it fails)
+    let pre_passed = execute_hook(HookEvent::PreCreate, &bean, project_dir, None)
+        .context("Pre-create hook execution failed")?;
+
+    if !pre_passed {
+        return Err(anyhow!("Pre-create hook rejected bean creation"));
+    }
+
     // Write the bean file with new naming convention: {id}-{slug}.md
     let bean_path = beans_dir.join(format!("{}-{}.md", bean_id, slug));
     bean.to_file(&bean_path)?;
@@ -159,6 +173,11 @@ pub fn cmd_create(beans_dir: &Path, args: CreateArgs) -> Result<()> {
     index.save(beans_dir)?;
 
     println!("Created bean {}: {}", bean_id, args.title);
+
+    // Call post-create hook (non-blocking - log warning if it fails)
+    if let Err(e) = execute_hook(HookEvent::PostCreate, &bean, project_dir, None) {
+        eprintln!("Warning: post-create hook failed: {}", e);
+    }
 
     Ok(())
 }
@@ -506,5 +525,225 @@ mod tests {
             let result = cmd_create(&beans_dir, args);
             assert!(result.is_ok(), "Priority {} should be valid", priority);
         }
+    }
+
+    // =========================================================================
+    // Hook Integration Tests
+    // =========================================================================
+
+    #[test]
+    fn pre_create_hook_accepts_bean_creation() {
+        use std::os::unix::fs::PermissionsExt;
+        let (dir, beans_dir) = setup_beans_dir_with_config();
+        let project_dir = dir.path();
+        let hooks_dir = beans_dir.join("hooks");
+        fs::create_dir_all(&hooks_dir).unwrap();
+
+        // Enable trust and create a pre-create hook that succeeds
+        crate::hooks::create_trust(project_dir).unwrap();
+
+        let hook_path = hooks_dir.join("pre-create");
+        fs::write(&hook_path, "#!/bin/bash\nexit 0").unwrap();
+
+        #[cfg(unix)]
+        fs::set_permissions(&hook_path, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let args = CreateArgs {
+            title: "Bean with accepting hook".to_string(),
+            description: None,
+            acceptance: Some("Done".to_string()),
+            notes: None,
+            design: None,
+            verify: None,
+            priority: None,
+            labels: None,
+            assignee: None,
+            deps: None,
+            parent: None,
+        };
+
+        // Bean should be created
+        let result = cmd_create(&beans_dir, args);
+        assert!(result.is_ok(), "Creation should succeed with accepting pre-create hook");
+
+        // Verify bean was created
+        let bean_path = beans_dir.join("1-bean-with-accepting-hook.md");
+        assert!(bean_path.exists(), "Bean file should exist");
+    }
+
+    #[test]
+    fn pre_create_hook_rejects_bean_creation() {
+        use std::os::unix::fs::PermissionsExt;
+        let (dir, beans_dir) = setup_beans_dir_with_config();
+        let project_dir = dir.path();
+        let hooks_dir = beans_dir.join("hooks");
+        fs::create_dir_all(&hooks_dir).unwrap();
+
+        // Enable trust and create a pre-create hook that fails
+        crate::hooks::create_trust(project_dir).unwrap();
+
+        let hook_path = hooks_dir.join("pre-create");
+        fs::write(&hook_path, "#!/bin/bash\nexit 1").unwrap();
+
+        #[cfg(unix)]
+        fs::set_permissions(&hook_path, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let args = CreateArgs {
+            title: "Bean with rejecting hook".to_string(),
+            description: None,
+            acceptance: Some("Done".to_string()),
+            notes: None,
+            design: None,
+            verify: None,
+            priority: None,
+            labels: None,
+            assignee: None,
+            deps: None,
+            parent: None,
+        };
+
+        // Bean creation should fail
+        let result = cmd_create(&beans_dir, args);
+        assert!(result.is_err(), "Creation should fail with rejecting pre-create hook");
+
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("Pre-create hook rejected"),
+            "Error should indicate hook rejection"
+        );
+
+        // Verify bean was NOT created
+        let bean_path = beans_dir.join("1-bean-with-rejecting-hook.md");
+        assert!(
+            !bean_path.exists(),
+            "Bean file should NOT exist when pre-create hook rejects"
+        );
+    }
+
+    #[test]
+    fn post_create_hook_runs_after_creation() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (dir, beans_dir) = setup_beans_dir_with_config();
+        let project_dir = dir.path();
+        let hooks_dir = beans_dir.join("hooks");
+        fs::create_dir_all(&hooks_dir).unwrap();
+
+        // Enable trust and create a post-create hook that writes to a file
+        crate::hooks::create_trust(project_dir).unwrap();
+
+        let hook_path = hooks_dir.join("post-create");
+        let marker_file = project_dir.join("hook-executed.txt");
+        let marker_file_str = marker_file.to_string_lossy().to_string();
+
+        // Create hook that writes to marker file
+        let hook_script = format!("#!/bin/bash\necho 'post-create executed' >> '{}'\nexit 0", marker_file_str);
+        fs::write(&hook_path, hook_script).unwrap();
+
+        #[cfg(unix)]
+        fs::set_permissions(&hook_path, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let args = CreateArgs {
+            title: "Bean with post-create hook".to_string(),
+            description: None,
+            acceptance: Some("Done".to_string()),
+            notes: None,
+            design: None,
+            verify: None,
+            priority: None,
+            labels: None,
+            assignee: None,
+            deps: None,
+            parent: None,
+        };
+
+        // Create bean
+        let result = cmd_create(&beans_dir, args);
+        assert!(result.is_ok(), "Creation should succeed");
+
+        // Verify bean was created
+        let bean_path = beans_dir.join("1-bean-with-post-create-hook.md");
+        assert!(bean_path.exists(), "Bean file should exist");
+
+        // Verify post-create hook ran (marker file exists)
+        assert!(marker_file.exists(), "Post-create hook should have run and created marker file");
+    }
+
+    #[test]
+    fn post_create_hook_failure_does_not_break_creation() {
+        use std::os::unix::fs::PermissionsExt;
+        let (dir, beans_dir) = setup_beans_dir_with_config();
+        let project_dir = dir.path();
+        let hooks_dir = beans_dir.join("hooks");
+        fs::create_dir_all(&hooks_dir).unwrap();
+
+        // Enable trust and create a post-create hook that fails
+        crate::hooks::create_trust(project_dir).unwrap();
+
+        let hook_path = hooks_dir.join("post-create");
+        fs::write(&hook_path, "#!/bin/bash\nexit 1").unwrap();
+
+        #[cfg(unix)]
+        fs::set_permissions(&hook_path, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let args = CreateArgs {
+            title: "Bean with failing post-create hook".to_string(),
+            description: None,
+            acceptance: Some("Done".to_string()),
+            notes: None,
+            design: None,
+            verify: None,
+            priority: None,
+            labels: None,
+            assignee: None,
+            deps: None,
+            parent: None,
+        };
+
+        // Bean creation should STILL succeed (post-create failures are non-blocking)
+        let result = cmd_create(&beans_dir, args);
+        assert!(result.is_ok(), "Creation should succeed even if post-create hook fails");
+
+        // Verify bean WAS created
+        let bean_path = beans_dir.join("1-bean-with-failing-post-create-hook.md");
+        assert!(bean_path.exists(), "Bean file should exist even when post-create hook fails");
+    }
+
+    #[test]
+    fn untrusted_hooks_are_silently_skipped() {
+        use std::os::unix::fs::PermissionsExt;
+        let (_dir, beans_dir) = setup_beans_dir_with_config();
+        let hooks_dir = beans_dir.join("hooks");
+        fs::create_dir_all(&hooks_dir).unwrap();
+
+        // DO NOT enable trust - hooks should be skipped
+
+        let hook_path = hooks_dir.join("pre-create");
+        fs::write(&hook_path, "#!/bin/bash\nexit 1").unwrap();
+
+        #[cfg(unix)]
+        fs::set_permissions(&hook_path, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let args = CreateArgs {
+            title: "Bean with untrusted hook".to_string(),
+            description: None,
+            acceptance: Some("Done".to_string()),
+            notes: None,
+            design: None,
+            verify: None,
+            priority: None,
+            labels: None,
+            assignee: None,
+            deps: None,
+            parent: None,
+        };
+
+        // Bean creation should succeed (untrusted hooks are skipped)
+        let result = cmd_create(&beans_dir, args);
+        assert!(result.is_ok(), "Creation should succeed when hooks are untrusted");
+
+        // Verify bean WAS created
+        let bean_path = beans_dir.join("1-bean-with-untrusted-hook.md");
+        assert!(bean_path.exists(), "Bean file should exist when hooks are untrusted");
     }
 }

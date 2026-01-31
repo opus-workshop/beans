@@ -9,6 +9,7 @@ use crate::bean::Bean;
 use crate::discovery::{archive_path_for_bean, find_bean_file};
 use crate::index::Index;
 use crate::util::title_to_slug;
+use crate::hooks::{execute_hook, HookEvent};
 
 #[cfg(test)]
 use std::fs;
@@ -44,6 +45,7 @@ fn run_verify(beans_dir: &Path, verify_cmd: &str) -> Result<bool> {
 ///
 /// Sets status=closed, closed_at=now, and optionally close_reason.
 /// If the bean has a verify command, it must pass before closing.
+/// Calls pre-close hook before closing (can block close if hook fails).
 /// Rebuilds the index.
 pub fn cmd_close(
     beans_dir: &Path,
@@ -56,6 +58,7 @@ pub fn cmd_close(
 
     let now = Utc::now();
     let mut any_closed = false;
+    let mut rejected_beans = Vec::new();
 
     for id in &ids {
         let bean_path = find_bean_file(beans_dir, id)
@@ -102,6 +105,32 @@ pub fn cmd_close(
             println!("Verify passed for bean {}", id);
         }
 
+        // Execute pre-close hook before closing
+        // hooks.rs expects the project root (parent of .beans), not the .beans dir itself
+        let project_root = beans_dir
+            .parent()
+            .ok_or_else(|| anyhow!("Cannot determine project root from beans dir"))?;
+        
+        let pre_close_result = execute_hook(HookEvent::PreClose, &bean, project_root, reason.clone());
+        
+        let pre_close_passed = match pre_close_result {
+            Ok(hook_passed) => {
+                // Hook executed successfully, use its result
+                hook_passed
+            }
+            Err(e) => {
+                // Hook execution failed (not executable, timeout, etc.), log but don't block
+                eprintln!("Bean {} pre-close hook error: {}", id, e);
+                true // Silently pass (allow close to proceed)
+            }
+        };
+
+        if !pre_close_passed {
+            eprintln!("Bean {} rejected by pre-close hook", id);
+            rejected_beans.push(id.clone());
+            continue;
+        }
+
         // Close the bean
         bean.status = crate::bean::Status::Closed;
         bean.closed_at = Some(now);
@@ -134,6 +163,15 @@ pub fn cmd_close(
 
         println!("Closed bean {}: {}", id, bean.title);
         any_closed = true;
+    }
+
+    // Report rejected beans
+    if !rejected_beans.is_empty() {
+        eprintln!(
+            "Failed to close {} bean(s) due to pre-close hook rejection: {}",
+            rejected_beans.len(),
+            rejected_beans.join(", ")
+        );
     }
 
     // Rebuild index once after all updates (even if some failed verification)
@@ -412,5 +450,267 @@ mod tests {
         let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert_eq!(updated.status, Status::Open); // Not closed
         assert_eq!(updated.attempts, 1); // Attempts incremented
+    }
+
+    // =====================================================================
+    // Pre-Close Hook Tests
+    // =====================================================================
+
+    #[test]
+    fn test_close_with_passing_pre_close_hook() {
+        let (dir, beans_dir) = setup_test_beans_dir();
+        let project_root = dir.path();
+        let hooks_dir = beans_dir.join("hooks");
+        fs::create_dir_all(&hooks_dir).unwrap();
+
+        // Enable trust so hooks execute - pass project root, not .beans dir
+        crate::hooks::create_trust(project_root).unwrap();
+
+        // Create a pre-close hook that passes (exits 0)
+        // Must read stdin to avoid broken pipe
+        let hook_path = hooks_dir.join("pre-close");
+        fs::write(&hook_path, "#!/bin/bash\nread input\nexit 0").unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&hook_path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let bean = Bean::new("1", "Task with passing hook");
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+
+        // Close should succeed
+        cmd_close(&beans_dir, vec!["1".to_string()], None).unwrap();
+
+        // Bean should be archived
+        let archived = crate::discovery::find_archived_bean(&beans_dir, "1").unwrap();
+        let updated = Bean::from_file(&archived).unwrap();
+        assert_eq!(updated.status, Status::Closed);
+        assert!(updated.is_archived);
+    }
+
+    #[test]
+    fn test_close_with_failing_pre_close_hook_blocks_close() {
+        let (dir, beans_dir) = setup_test_beans_dir();
+        let project_root = dir.path();
+        let hooks_dir = beans_dir.join("hooks");
+        fs::create_dir_all(&hooks_dir).unwrap();
+
+        // Enable trust so hooks execute - pass project root, not .beans dir
+        crate::hooks::create_trust(project_root).unwrap();
+
+        // Create a pre-close hook that fails (exits 1)
+        // Must read stdin to avoid broken pipe
+        let hook_path = hooks_dir.join("pre-close");
+        fs::write(&hook_path, "#!/bin/bash\nread input\nexit 1").unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&hook_path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let bean = Bean::new("1", "Task with failing hook");
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+
+        // Close should still succeed (returns Ok), but bean not closed
+        cmd_close(&beans_dir, vec!["1".to_string()], None).unwrap();
+
+        // Bean should NOT be archived or closed
+        let not_archived = crate::discovery::find_bean_file(&beans_dir, "1");
+        assert!(not_archived.is_ok());
+        let updated = Bean::from_file(&not_archived.unwrap()).unwrap();
+        assert_eq!(updated.status, Status::Open);
+        assert!(!updated.is_archived);
+    }
+
+    #[test]
+    fn test_close_batch_with_mixed_hook_results() {
+        let (dir, beans_dir) = setup_test_beans_dir();
+        let project_root = dir.path();
+        let hooks_dir = beans_dir.join("hooks");
+        fs::create_dir_all(&hooks_dir).unwrap();
+
+        // Enable trust so hooks execute - pass project root, not .beans dir
+        crate::hooks::create_trust(project_root).unwrap();
+
+        // Create a pre-close hook that passes
+        // Must read stdin to avoid broken pipe
+        let hook_path = hooks_dir.join("pre-close");
+        fs::write(&hook_path, "#!/bin/bash\nread input\nexit 0").unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&hook_path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        // Create three beans
+        let bean1 = Bean::new("1", "Task 1 - will close");
+        let bean2 = Bean::new("2", "Task 2 - will close");
+        let bean3 = Bean::new("3", "Task 3 - will close");
+        let slug1 = title_to_slug(&bean1.title);
+        let slug2 = title_to_slug(&bean2.title);
+        let slug3 = title_to_slug(&bean3.title);
+        bean1.to_file(beans_dir.join(format!("1-{}.md", slug1))).unwrap();
+        bean2.to_file(beans_dir.join(format!("2-{}.md", slug2))).unwrap();
+        bean3.to_file(beans_dir.join(format!("3-{}.md", slug3))).unwrap();
+
+        // Close all three (hook passes for all)
+        cmd_close(&beans_dir, vec!["1".to_string(), "2".to_string(), "3".to_string()], None).unwrap();
+
+        // All should be archived
+        for id in &["1", "2", "3"] {
+            let archived = crate::discovery::find_archived_bean(&beans_dir, id).unwrap();
+            let bean = Bean::from_file(&archived).unwrap();
+            assert_eq!(bean.status, Status::Closed);
+            assert!(bean.is_archived);
+        }
+    }
+
+    #[test]
+    fn test_close_with_untrusted_hooks_silently_skips() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+        let hooks_dir = beans_dir.join("hooks");
+        fs::create_dir_all(&hooks_dir).unwrap();
+
+        // DO NOT enable trust - hooks should not execute
+
+        // Create a pre-close hook that would fail if executed
+        let hook_path = hooks_dir.join("pre-close");
+        fs::write(&hook_path, "#!/bin/bash\nexit 1").unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&hook_path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let bean = Bean::new("1", "Task with untrusted hook");
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+
+        // Close should succeed (hooks are untrusted so they're skipped)
+        cmd_close(&beans_dir, vec!["1".to_string()], None).unwrap();
+
+        // Bean should be archived
+        let archived = crate::discovery::find_archived_bean(&beans_dir, "1").unwrap();
+        let updated = Bean::from_file(&archived).unwrap();
+        assert_eq!(updated.status, Status::Closed);
+        assert!(updated.is_archived);
+    }
+
+    #[test]
+    fn test_close_with_missing_hook_silently_succeeds() {
+        let (dir, beans_dir) = setup_test_beans_dir();
+        let project_root = dir.path();
+        
+        // Enable trust but don't create hook - pass project root, not .beans dir
+        crate::hooks::create_trust(project_root).unwrap();
+
+        let bean = Bean::new("1", "Task with missing hook");
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+
+        // Close should succeed (missing hooks silently pass)
+        cmd_close(&beans_dir, vec!["1".to_string()], None).unwrap();
+
+        // Bean should be archived
+        let archived = crate::discovery::find_archived_bean(&beans_dir, "1").unwrap();
+        let updated = Bean::from_file(&archived).unwrap();
+        assert_eq!(updated.status, Status::Closed);
+        assert!(updated.is_archived);
+    }
+
+    #[test]
+    fn test_close_passes_reason_to_pre_close_hook() {
+        let (dir, beans_dir) = setup_test_beans_dir();
+        let project_root = dir.path();
+        let hooks_dir = beans_dir.join("hooks");
+        fs::create_dir_all(&hooks_dir).unwrap();
+
+        // Enable trust - pass project root, not .beans dir
+        crate::hooks::create_trust(project_root).unwrap();
+
+        // Create a simple passing hook
+        // Must read stdin to avoid broken pipe
+        let hook_path = hooks_dir.join("pre-close");
+        fs::write(&hook_path, "#!/bin/bash\nread input\nexit 0").unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&hook_path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let bean = Bean::new("1", "Task with reason");
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+
+        // Close with a reason
+        cmd_close(&beans_dir, vec!["1".to_string()], Some("Completed".to_string())).unwrap();
+
+        // Verify bean is closed with reason
+        let archived = crate::discovery::find_archived_bean(&beans_dir, "1").unwrap();
+        let updated = Bean::from_file(&archived).unwrap();
+        assert_eq!(updated.status, Status::Closed);
+        assert_eq!(updated.close_reason, Some("Completed".to_string()));
+    }
+
+    #[test]
+    fn test_close_batch_partial_rejection_by_hook() {
+        let (dir, beans_dir) = setup_test_beans_dir();
+        let project_root = dir.path();
+        let hooks_dir = beans_dir.join("hooks");
+        fs::create_dir_all(&hooks_dir).unwrap();
+
+        // Enable trust - pass project root, not .beans dir
+        crate::hooks::create_trust(project_root).unwrap();
+
+        // Create a hook that checks bean ID - reject ID 2
+        // Must read stdin first to avoid broken pipe, then check
+        let hook_path = hooks_dir.join("pre-close");
+        fs::write(&hook_path, "#!/bin/bash\nread input\necho \"$input\" | grep -q '\"id\":\"2\"' && exit 1 || exit 0").unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&hook_path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        // Create three beans
+        let bean1 = Bean::new("1", "Task 1");
+        let bean2 = Bean::new("2", "Task 2 - will be rejected");
+        let bean3 = Bean::new("3", "Task 3");
+        let slug1 = title_to_slug(&bean1.title);
+        let slug2 = title_to_slug(&bean2.title);
+        let slug3 = title_to_slug(&bean3.title);
+        bean1.to_file(beans_dir.join(format!("1-{}.md", slug1))).unwrap();
+        bean2.to_file(beans_dir.join(format!("2-{}.md", slug2))).unwrap();
+        bean3.to_file(beans_dir.join(format!("3-{}.md", slug3))).unwrap();
+
+        // Try to close all three
+        cmd_close(&beans_dir, vec!["1".to_string(), "2".to_string(), "3".to_string()], None).unwrap();
+
+        // Bean 1 should be archived
+        let archived1 = crate::discovery::find_archived_bean(&beans_dir, "1");
+        assert!(archived1.is_ok());
+        let bean1_result = Bean::from_file(&archived1.unwrap()).unwrap();
+        assert_eq!(bean1_result.status, Status::Closed);
+
+        // Bean 2 should NOT be archived (rejected by hook)
+        let open2 = crate::discovery::find_bean_file(&beans_dir, "2");
+        assert!(open2.is_ok());
+        let bean2_result = Bean::from_file(&open2.unwrap()).unwrap();
+        assert_eq!(bean2_result.status, Status::Open);
+
+        // Bean 3 should be archived
+        let archived3 = crate::discovery::find_archived_bean(&beans_dir, "3");
+        assert!(archived3.is_ok());
+        let bean3_result = Bean::from_file(&archived3.unwrap()).unwrap();
+        assert_eq!(bean3_result.status, Status::Closed);
     }
 }

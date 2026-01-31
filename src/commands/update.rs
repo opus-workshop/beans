@@ -5,6 +5,7 @@ use chrono::Utc;
 
 use crate::bean::Bean;
 use crate::discovery::find_bean_file;
+use crate::hooks::{execute_hook, HookEvent};
 use crate::index::Index;
 use crate::util::parse_status;
 
@@ -39,6 +40,19 @@ pub fn cmd_update(
 
     let mut bean = Bean::from_file(&bean_path)
         .with_context(|| format!("Failed to load bean: {}", id))?;
+
+    // Get project root for hooks (parent of .beans)
+    let project_root = beans_dir
+        .parent()
+        .ok_or_else(|| anyhow!("Cannot determine project root from beans dir"))?;
+
+    // Call pre-update hook (blocking - abort if it fails)
+    let pre_passed = execute_hook(HookEvent::PreUpdate, &bean, project_root, None)
+        .context("Pre-update hook execution failed")?;
+
+    if !pre_passed {
+        return Err(anyhow!("Pre-update hook rejected bean update"));
+    }
 
     // Apply updates
     if let Some(new_title) = title {
@@ -104,6 +118,12 @@ pub fn cmd_update(
         .with_context(|| "Failed to save index")?;
 
     println!("Updated bean {}: {}", id, bean.title);
+
+    // Call post-update hook (non-blocking - log warning if it fails)
+    if let Err(e) = execute_hook(HookEvent::PostUpdate, &bean, project_root, None) {
+        eprintln!("Warning: post-update hook failed: {}", e);
+    }
+
     Ok(())
 }
 
@@ -292,5 +312,214 @@ mod tests {
             let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
             assert_eq!(updated.priority, priority);
         }
+    }
+
+    // =====================================================================
+    // Hook Tests
+    // =====================================================================
+
+    #[test]
+    fn test_pre_update_hook_skipped_when_not_trusted() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+        let bean = Bean::new("1", "Original");
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+
+        // Update should succeed even without hooks (untrusted)
+        let result = cmd_update(&beans_dir, "1", Some("New title".to_string()), None, None, None, None, None, None, None, None, None);
+        assert!(result.is_ok(), "Update should succeed when hooks not trusted");
+
+        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        assert_eq!(updated.title, "New title");
+    }
+
+    #[test]
+    fn test_pre_update_hook_rejects_update_when_fails() {
+        use crate::hooks::create_trust;
+        use std::os::unix::fs::PermissionsExt;
+
+        let (dir, beans_dir) = setup_test_beans_dir();
+        let project_root = dir.path();
+        let bean = Bean::new("1", "Original");
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+
+        // Enable trust and create failing hook
+        create_trust(project_root).unwrap();
+        let hooks_dir = project_root.join(".beans").join("hooks");
+        fs::create_dir_all(&hooks_dir).unwrap();
+        let hook_path = hooks_dir.join("pre-update");
+        fs::write(&hook_path, "#!/bin/bash\nexit 1").unwrap();
+
+        #[cfg(unix)]
+        {
+            fs::set_permissions(&hook_path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        // Update should fail
+        let result = cmd_update(&beans_dir, "1", Some("New title".to_string()), None, None, None, None, None, None, None, None, None);
+        assert!(result.is_err(), "Update should fail when pre-update hook rejects");
+        assert!(result.unwrap_err().to_string().contains("rejected"));
+
+        // Bean should not be modified
+        let unchanged = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        assert_eq!(unchanged.title, "Original");
+    }
+
+    #[test]
+    fn test_pre_update_hook_allows_update_when_passes() {
+        use crate::hooks::create_trust;
+        use std::os::unix::fs::PermissionsExt;
+
+        let (dir, beans_dir) = setup_test_beans_dir();
+        let project_root = dir.path();
+        let bean = Bean::new("1", "Original");
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+
+        // Enable trust and create passing hook
+        create_trust(project_root).unwrap();
+        let hooks_dir = project_root.join(".beans").join("hooks");
+        fs::create_dir_all(&hooks_dir).unwrap();
+        let hook_path = hooks_dir.join("pre-update");
+        fs::write(&hook_path, "#!/bin/bash\nexit 0").unwrap();
+
+        #[cfg(unix)]
+        {
+            fs::set_permissions(&hook_path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        // Update should succeed
+        let result = cmd_update(&beans_dir, "1", Some("New title".to_string()), None, None, None, None, None, None, None, None, None);
+        assert!(result.is_ok(), "Update should succeed when pre-update hook passes");
+
+        // Bean should be modified
+        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        assert_eq!(updated.title, "New title");
+    }
+
+    #[test]
+    fn test_post_update_hook_runs_after_successful_update() {
+        use crate::hooks::create_trust;
+        use std::os::unix::fs::PermissionsExt;
+
+        let (dir, beans_dir) = setup_test_beans_dir();
+        let project_root = dir.path();
+        let bean = Bean::new("1", "Original");
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+
+        // Enable trust and create post-update hook that writes a marker file
+        create_trust(project_root).unwrap();
+        let hooks_dir = project_root.join(".beans").join("hooks");
+        fs::create_dir_all(&hooks_dir).unwrap();
+        let hook_path = hooks_dir.join("post-update");
+        let marker_path = project_root.join("post_update_ran");
+        let marker_path_str = marker_path.to_string_lossy();
+
+        fs::write(
+            &hook_path,
+            format!("#!/bin/bash\necho 'post-update hook ran' > {}", marker_path_str),
+        )
+        .unwrap();
+
+        #[cfg(unix)]
+        {
+            fs::set_permissions(&hook_path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        // Update bean
+        cmd_update(&beans_dir, "1", Some("New title".to_string()), None, None, None, None, None, None, None, None, None).unwrap();
+
+        // Bean should be updated
+        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        assert_eq!(updated.title, "New title");
+
+        // Post-update hook should have run (marker file created)
+        assert!(marker_path.exists(), "Post-update hook should have run");
+    }
+
+    #[test]
+    fn test_post_update_hook_failure_does_not_prevent_update() {
+        use crate::hooks::create_trust;
+        use std::os::unix::fs::PermissionsExt;
+
+        let (dir, beans_dir) = setup_test_beans_dir();
+        let project_root = dir.path();
+        let bean = Bean::new("1", "Original");
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+
+        // Enable trust and create failing post-update hook
+        create_trust(project_root).unwrap();
+        let hooks_dir = project_root.join(".beans").join("hooks");
+        fs::create_dir_all(&hooks_dir).unwrap();
+        let hook_path = hooks_dir.join("post-update");
+        fs::write(&hook_path, "#!/bin/bash\nexit 1").unwrap();
+
+        #[cfg(unix)]
+        {
+            fs::set_permissions(&hook_path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        // Update should still succeed even though post-hook fails
+        let result = cmd_update(&beans_dir, "1", Some("New title".to_string()), None, None, None, None, None, None, None, None, None);
+        assert!(result.is_ok(), "Update should succeed even if post-update hook fails");
+
+        // Bean should still be modified
+        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        assert_eq!(updated.title, "New title");
+    }
+
+    #[test]
+    fn test_update_with_multiple_fields_triggers_hooks() {
+        use crate::hooks::create_trust;
+        use std::os::unix::fs::PermissionsExt;
+
+        let (dir, beans_dir) = setup_test_beans_dir();
+        let project_root = dir.path();
+        let bean = Bean::new("1", "Original");
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+
+        // Enable trust and create hooks
+        create_trust(project_root).unwrap();
+        let hooks_dir = project_root.join(".beans").join("hooks");
+        fs::create_dir_all(&hooks_dir).unwrap();
+
+        let pre_hook = hooks_dir.join("pre-update");
+        fs::write(&pre_hook, "#!/bin/bash\nexit 0").unwrap();
+
+        let post_hook = hooks_dir.join("post-update");
+        fs::write(&post_hook, "#!/bin/bash\nexit 0").unwrap();
+
+        #[cfg(unix)]
+        {
+            fs::set_permissions(&pre_hook, fs::Permissions::from_mode(0o755)).unwrap();
+            fs::set_permissions(&post_hook, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        // Update multiple fields
+        let result = cmd_update(
+            &beans_dir,
+            "1",
+            Some("New title".to_string()),
+            Some("New desc".to_string()),
+            None,
+            None,
+            None,
+            Some("in_progress".to_string()),
+            None,
+            None,
+            None,
+            None,
+        );
+        assert!(result.is_ok());
+
+        // Verify all changes applied
+        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        assert_eq!(updated.title, "New title");
+        assert_eq!(updated.description, Some("New desc".to_string()));
+        assert_eq!(updated.status, Status::InProgress);
     }
 }

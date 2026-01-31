@@ -17,6 +17,10 @@ glob = "0.3"
 regex = "1"
 
 [[bin]]
+name = "bctx"
+path = "src/bin/bctx.rs"
+
+[[bin]]
 name = "migrate_beans"
 path = "tools/migrate_beans.rs"
 
