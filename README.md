@@ -38,21 +38,23 @@ cp tools/bpick ~/.local/bin/
 
 ### Agent-Native Task Trackers
 
-| Aspect | beans | [beads](https://github.com/steveyegge/beads) (Steve Yegge) |
-|--------|-------|-------|
-| **Philosophy** | Simplicity, verify gates | Scale, multi-agent swarms |
-| **Storage** | Markdown + YAML frontmatter | JSONL + SQLite cache |
-| **ID scheme** | Hierarchical (`3.1` = child of `3`) | Hash-based (`bd-a1b2`) |
-| **Verify gates** | ✓ Enforced (must exit 0) | ✗ Not enforced |
-| **Daemon required** | ✗ Stateless CLI | ✓ Background sync daemon |
-| **Direct file access** | ✓ `cat .beans/1-*.md` | ✗ Query via CLI |
-| **Git diffs** | ✓ Clean, human-readable | ✗ JSONL harder to review |
-| **Merge conflicts** | Rare (separate files) | Rare (hash IDs) |
-| **Memory compaction** | ✗ Archive only | ✓ Semantic decay |
-| **Lifecycle hooks** | ✓ Pre/post create/update/close | ✗ Not supported |
-| **Task scalability** | Hundreds (optimal) | Thousands+ (indexed) |
-| **Language** | Rust | Go |
-| **Best for** | Small teams, strict verification | Large swarms, long-horizon |
+| Aspect | beans (this project) | [beads](https://github.com/steveyegge/beads) | [hmans/beans](https://github.com/hmans/beans) |
+|--------|----------------------|----------------------------------------------|-----------------------------------------------|
+| **Philosophy** | Simplicity, verify gates | Scale, multi-agent swarms | Agent-friendly, GraphQL |
+| **Storage** | Markdown + YAML frontmatter | JSONL + SQLite cache | Markdown files |
+| **ID scheme** | Hierarchical (`3.1` = child of `3`) | Hash-based (`bd-a1b2`) | UUID-based |
+| **Verify gates** | ✓ Enforced (must exit 0) | ✗ Not enforced | ✗ Not enforced |
+| **Daemon required** | ✗ Stateless CLI | ✓ Background sync | ✗ Stateless |
+| **Direct file access** | ✓ `cat .beans/1-*.md` | ✗ Query via CLI | ✓ Markdown files |
+| **Git diffs** | ✓ Clean, human-readable | ✗ JSONL harder to review | ✓ Clean |
+| **Query interface** | CLI + JSON | CLI + JSON | GraphQL |
+| **Built-in TUI** | ✗ (use `bpick`) | ✗ | ✓ |
+| **Memory compaction** | ✗ Archive only | ✓ Semantic decay | ✗ |
+| **Lifecycle hooks** | ✓ Pre/post create/update/close | ✗ | ✗ |
+| **Auto-archive** | ✓ On close | ✗ | ✓ Archive command |
+| **Task scalability** | Hundreds | Thousands+ | Hundreds |
+| **Language** | Rust | Go | Go |
+| **Best for** | Strict verification | Large swarms | GraphQL integrations |
 
 ### vs Traditional Issue Trackers
 
@@ -75,8 +77,9 @@ cp tools/bpick ~/.local/bin/
 
 | Use Case | Recommended |
 |----------|-------------|
-| Single agent, strict verification | **beans** |
+| Single agent, strict verification | **beans** (this project) |
 | Multi-agent swarms at scale | **beads** |
+| GraphQL-based agent integrations | **hmans/beans** |
 | Human team with rich workflows | **Jira** or **Linear** |
 | Open source project | **GitHub Issues** |
 | Mixed human + agent workflow | **beans** or **beads** + sync to Jira/Linear |
