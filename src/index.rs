@@ -24,6 +24,8 @@ pub struct IndexEntry {
     pub dependencies: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub labels: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub assignee: Option<String>,
     pub updated_at: DateTime<Utc>,
 }
 
@@ -37,6 +39,7 @@ impl From<&Bean> for IndexEntry {
             parent: bean.parent.clone(),
             dependencies: bean.dependencies.clone(),
             labels: bean.labels.clone(),
+            assignee: bean.assignee.clone(),
             updated_at: bean.updated_at,
         }
     }

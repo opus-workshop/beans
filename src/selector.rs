@@ -177,6 +177,147 @@ pub fn resolve_blocked(context: &SelectionContext) -> Result<Vec<String>> {
 }
 
 // ---------------------------------------------------------------------------
+// resolve_parent
+// ---------------------------------------------------------------------------
+
+/// Resolve @parent to the parent bean ID of the current bean.
+///
+/// # Arguments
+/// * `context` - Selection context containing the current bean ID and index
+///
+/// # Returns
+/// * `Ok(parent_id)` - the parent bean's ID
+/// * `Err` if current bean has no parent, is not found, or parent is not in index
+///
+/// # Examples
+/// ```ignore
+/// let context = SelectionContext {
+///     index: &my_index,
+///     current_bean_id: Some("3.1".to_string()),
+///     current_user: None,
+/// };
+/// let parent_id = resolve_parent(&context)?; // Returns "3"
+/// ```
+pub fn resolve_parent(context: &SelectionContext) -> Result<String> {
+    let current_id = context.current_bean_id.as_ref()
+        .ok_or_else(|| anyhow!("No current bean ID in context for @parent resolution"))?;
+
+    let current_bean = context.index.beans.iter()
+        .find(|entry| entry.id == *current_id)
+        .ok_or_else(|| anyhow!("Bean {} not found in index", current_id))?;
+
+    let parent_id = current_bean.parent.as_ref()
+        .ok_or_else(|| anyhow!("Bean {} has no parent", current_id))?;
+
+    // Verify parent exists in index
+    context.index.beans.iter()
+        .find(|entry| entry.id == *parent_id)
+        .ok_or_else(|| anyhow!("Parent {} not found in index", parent_id))?;
+
+    Ok(parent_id.clone())
+}
+
+// ---------------------------------------------------------------------------
+// resolve_me
+// ---------------------------------------------------------------------------
+
+/// Resolve @me to the list of open beans assigned to the current user.
+///
+/// The current user is determined by:
+/// 1. The `current_user` field in the context (if provided), OR
+/// 2. The `BN_USER` environment variable
+///
+/// Only open (non-closed) beans are returned.
+///
+/// # Arguments
+/// * `context` - Selection context containing the current user and index
+///
+/// # Returns
+/// * `Ok(vec_of_ids)` - list of open beans assigned to the user (sorted naturally)
+/// * `Err` if current user is not set and BN_USER environment variable is not set
+///
+/// # Examples
+/// ```ignore
+/// let context = SelectionContext {
+///     index: &my_index,
+///     current_bean_id: None,
+///     current_user: Some("alice".to_string()),
+/// };
+/// let my_beans = resolve_me(&context)?; // Returns beans assigned to alice
+/// ```
+pub fn resolve_me(context: &SelectionContext) -> Result<Vec<String>> {
+    let current_user = if let Some(user) = &context.current_user {
+        user.clone()
+    } else {
+        std::env::var("BN_USER").map_err(|_| {
+            anyhow!("BN_USER environment variable not set. Please set: export BN_USER=myname")
+        })?
+    };
+
+    let mut my_beans: Vec<String> = context.index.beans.iter()
+        .filter(|entry| {
+            entry.assignee.as_ref().map_or(false, |a| a == &current_user)
+                && entry.status != Status::Closed
+        })
+        .map(|entry| entry.id.clone())
+        .collect();
+
+    // Sort by natural order (1, 2, 3.1, 10, etc.)
+    my_beans.sort_by(|a, b| crate::util::natural_cmp(a, b));
+
+    Ok(my_beans)
+}
+
+// ---------------------------------------------------------------------------
+// resolve_selector_full
+// ---------------------------------------------------------------------------
+
+/// Unified resolver that converts any selector to a list of bean IDs.
+///
+/// This function provides a consistent interface for all selector types:
+/// - @latest returns a single-element vec
+/// - @blocked returns multiple beans or empty vec
+/// - @parent returns a single-element vec
+/// - @me returns multiple beans or empty vec
+///
+/// # Arguments
+/// * `selector_type` - The type of selector to resolve
+/// * `context` - Selection context for resolution
+///
+/// # Returns
+/// * `Ok(vec_of_ids)` - list of resolved bean IDs
+/// * `Err` if resolution fails (e.g., missing context, empty index)
+///
+/// # Examples
+/// ```ignore
+/// let context = SelectionContext {
+///     index: &my_index,
+///     current_bean_id: Some("3.1".to_string()),
+///     current_user: Some("alice".to_string()),
+/// };
+/// let ids = resolve_selector_full(SelectorType::Parent, &context)?;
+/// assert_eq!(ids.len(), 1); // Parent selector always returns one bean
+/// ```
+pub fn resolve_selector_full(selector_type: SelectorType, context: &SelectionContext) -> Result<Vec<String>> {
+    match selector_type {
+        SelectorType::Latest => {
+            let id = resolve_latest(context)?;
+            Ok(vec![id])
+        }
+        SelectorType::Blocked => {
+            resolve_blocked(context)
+        }
+        SelectorType::Parent => {
+            let id = resolve_parent(context)?;
+            Ok(vec![id])
+        }
+        SelectorType::Me => {
+            resolve_me(context)
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -199,6 +340,7 @@ mod tests {
                 parent: None,
                 dependencies: deps.into_iter().map(|s| s.to_string()).collect(),
                 labels: vec![],
+                assignee: None,
                 updated_at: Utc::now(),
             })
             .collect();
@@ -335,6 +477,7 @@ mod tests {
                 parent: None,
                 dependencies: vec![],
                 labels: vec![],
+                assignee: None,
                 updated_at: earlier,
             },
             IndexEntry {
@@ -345,6 +488,7 @@ mod tests {
                 parent: None,
                 dependencies: vec![],
                 labels: vec![],
+                assignee: None,
                 updated_at: later,
             },
             IndexEntry {
@@ -355,6 +499,7 @@ mod tests {
                 parent: None,
                 dependencies: vec![],
                 labels: vec![],
+                assignee: None,
                 updated_at: now,
             },
         ];
@@ -554,5 +699,372 @@ mod tests {
         assert!(result.is_ok());
         let blocked = result.unwrap();
         assert_eq!(blocked, vec!["2"]);
+    }
+
+    // ---------------------------------------------------------------------------
+    // resolve_parent tests
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn resolve_parent_simple() {
+        use crate::index::IndexEntry;
+
+        let entry_parent = IndexEntry {
+            id: "3".to_string(),
+            title: "Parent".to_string(),
+            status: Status::Open,
+            priority: 2,
+            parent: None,
+            dependencies: vec![],
+            labels: vec![],
+            assignee: None,
+            updated_at: Utc::now(),
+        };
+
+        let entry_child = IndexEntry {
+            id: "3.1".to_string(),
+            title: "Child".to_string(),
+            status: Status::Open,
+            priority: 2,
+            parent: Some("3".to_string()),
+            dependencies: vec![],
+            labels: vec![],
+            assignee: None,
+            updated_at: Utc::now(),
+        };
+
+        let index = Index { beans: vec![entry_parent, entry_child] };
+        let context = SelectionContext {
+            index: &index,
+            current_bean_id: Some("3.1".to_string()),
+            current_user: None,
+        };
+
+        let result = resolve_parent(&context);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "3");
+    }
+
+    #[test]
+    fn resolve_parent_no_current_bean() {
+        let index = create_test_index(vec![("1", Status::Open, vec![])]);
+        let context = SelectionContext {
+            index: &index,
+            current_bean_id: None,
+            current_user: None,
+        };
+
+        let result = resolve_parent(&context);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("No current bean ID"));
+    }
+
+    #[test]
+    fn resolve_parent_current_bean_not_found() {
+        let index = create_test_index(vec![("1", Status::Open, vec![])]);
+        let context = SelectionContext {
+            index: &index,
+            current_bean_id: Some("999".to_string()),
+            current_user: None,
+        };
+
+        let result = resolve_parent(&context);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not found in index"));
+    }
+
+    #[test]
+    fn resolve_parent_no_parent() {
+        let index = create_test_index(vec![("1", Status::Open, vec![])]);
+        let context = SelectionContext {
+            index: &index,
+            current_bean_id: Some("1".to_string()),
+            current_user: None,
+        };
+
+        let result = resolve_parent(&context);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("has no parent"));
+    }
+
+    #[test]
+    fn resolve_parent_parent_not_in_index() {
+        use crate::index::IndexEntry;
+
+        let entry = IndexEntry {
+            id: "3.1".to_string(),
+            title: "Child".to_string(),
+            status: Status::Open,
+            priority: 2,
+            parent: Some("999".to_string()),
+            dependencies: vec![],
+            labels: vec![],
+            assignee: None,
+            updated_at: Utc::now(),
+        };
+
+        let index = Index { beans: vec![entry] };
+        let context = SelectionContext {
+            index: &index,
+            current_bean_id: Some("3.1".to_string()),
+            current_user: None,
+        };
+
+        let result = resolve_parent(&context);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Parent 999 not found"));
+    }
+
+    // ---------------------------------------------------------------------------
+    // resolve_me tests
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn resolve_me_with_current_user() {
+        use crate::index::IndexEntry;
+
+        let beans = vec![
+            IndexEntry {
+                id: "1".to_string(),
+                title: "Bean 1".to_string(),
+                status: Status::Open,
+                priority: 2,
+                parent: None,
+                dependencies: vec![],
+                labels: vec![],
+                assignee: Some("alice".to_string()),
+                updated_at: Utc::now(),
+            },
+            IndexEntry {
+                id: "2".to_string(),
+                title: "Bean 2".to_string(),
+                status: Status::Open,
+                priority: 2,
+                parent: None,
+                dependencies: vec![],
+                labels: vec![],
+                assignee: Some("bob".to_string()),
+                updated_at: Utc::now(),
+            },
+            IndexEntry {
+                id: "3".to_string(),
+                title: "Bean 3".to_string(),
+                status: Status::Open,
+                priority: 2,
+                parent: None,
+                dependencies: vec![],
+                labels: vec![],
+                assignee: Some("alice".to_string()),
+                updated_at: Utc::now(),
+            },
+        ];
+
+        let index = Index { beans };
+        let context = SelectionContext {
+            index: &index,
+            current_bean_id: None,
+            current_user: Some("alice".to_string()),
+        };
+
+        let result = resolve_me(&context);
+        assert!(result.is_ok());
+        let my_beans = result.unwrap();
+        assert_eq!(my_beans.len(), 2);
+        assert_eq!(my_beans, vec!["1", "3"]);
+    }
+
+    #[test]
+    fn resolve_me_excludes_closed() {
+        use crate::index::IndexEntry;
+
+        let beans = vec![
+            IndexEntry {
+                id: "1".to_string(),
+                title: "Bean 1".to_string(),
+                status: Status::Open,
+                priority: 2,
+                parent: None,
+                dependencies: vec![],
+                labels: vec![],
+                assignee: Some("alice".to_string()),
+                updated_at: Utc::now(),
+            },
+            IndexEntry {
+                id: "2".to_string(),
+                title: "Bean 2".to_string(),
+                status: Status::Closed,
+                priority: 2,
+                parent: None,
+                dependencies: vec![],
+                labels: vec![],
+                assignee: Some("alice".to_string()),
+                updated_at: Utc::now(),
+            },
+        ];
+
+        let index = Index { beans };
+        let context = SelectionContext {
+            index: &index,
+            current_bean_id: None,
+            current_user: Some("alice".to_string()),
+        };
+
+        let result = resolve_me(&context);
+        assert!(result.is_ok());
+        let my_beans = result.unwrap();
+        assert_eq!(my_beans.len(), 1);
+        assert_eq!(my_beans, vec!["1"]);
+    }
+
+    #[test]
+    fn resolve_me_no_assignee() {
+        let index = create_test_index(vec![("1", Status::Open, vec![])]);
+        let context = SelectionContext {
+            index: &index,
+            current_bean_id: None,
+            current_user: Some("alice".to_string()),
+        };
+
+        let result = resolve_me(&context);
+        assert!(result.is_ok());
+        let my_beans = result.unwrap();
+        assert!(my_beans.is_empty());
+    }
+
+    #[test]
+    fn resolve_me_no_user_env_var_set() {
+        // This test requires BN_USER to not be set
+        // We temporarily unset it, run the test, then restore
+        let original = std::env::var("BN_USER").ok();
+        std::env::remove_var("BN_USER");
+
+        let index = create_test_index(vec![("1", Status::Open, vec![])]);
+        let context = SelectionContext {
+            index: &index,
+            current_bean_id: None,
+            current_user: None,
+        };
+
+        let result = resolve_me(&context);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("BN_USER"));
+
+        // Restore original
+        if let Some(user) = original {
+            std::env::set_var("BN_USER", user);
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // resolve_selector_full tests
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn resolve_selector_full_latest() {
+        let index = create_test_index(vec![
+            ("1", Status::Open, vec![]),
+            ("2", Status::Open, vec![]),
+        ]);
+        let context = SelectionContext {
+            index: &index,
+            current_bean_id: None,
+            current_user: None,
+        };
+
+        let result = resolve_selector_full(SelectorType::Latest, &context);
+        assert!(result.is_ok());
+        let ids = result.unwrap();
+        assert_eq!(ids.len(), 1);
+    }
+
+    #[test]
+    fn resolve_selector_full_blocked() {
+        let index = create_test_index(vec![
+            ("1", Status::Open, vec![]),
+            ("2", Status::Open, vec!["1"]),
+        ]);
+        let context = SelectionContext {
+            index: &index,
+            current_bean_id: None,
+            current_user: None,
+        };
+
+        let result = resolve_selector_full(SelectorType::Blocked, &context);
+        assert!(result.is_ok());
+        let ids = result.unwrap();
+        assert_eq!(ids, vec!["2"]);
+    }
+
+    #[test]
+    fn resolve_selector_full_parent() {
+        use crate::index::IndexEntry;
+
+        let beans = vec![
+            IndexEntry {
+                id: "3".to_string(),
+                title: "Parent".to_string(),
+                status: Status::Open,
+                priority: 2,
+                parent: None,
+                dependencies: vec![],
+                labels: vec![],
+                assignee: None,
+                updated_at: Utc::now(),
+            },
+            IndexEntry {
+                id: "3.1".to_string(),
+                title: "Child".to_string(),
+                status: Status::Open,
+                priority: 2,
+                parent: Some("3".to_string()),
+                dependencies: vec![],
+                labels: vec![],
+                assignee: None,
+                updated_at: Utc::now(),
+            },
+        ];
+
+        let index = Index { beans };
+        let context = SelectionContext {
+            index: &index,
+            current_bean_id: Some("3.1".to_string()),
+            current_user: None,
+        };
+
+        let result = resolve_selector_full(SelectorType::Parent, &context);
+        assert!(result.is_ok());
+        let ids = result.unwrap();
+        assert_eq!(ids, vec!["3"]);
+    }
+
+    #[test]
+    fn resolve_selector_full_me() {
+        use crate::index::IndexEntry;
+
+        let beans = vec![
+            IndexEntry {
+                id: "1".to_string(),
+                title: "Bean 1".to_string(),
+                status: Status::Open,
+                priority: 2,
+                parent: None,
+                dependencies: vec![],
+                labels: vec![],
+                assignee: Some("alice".to_string()),
+                updated_at: Utc::now(),
+            },
+        ];
+
+        let index = Index { beans };
+        let context = SelectionContext {
+            index: &index,
+            current_bean_id: None,
+            current_user: Some("alice".to_string()),
+        };
+
+        let result = resolve_selector_full(SelectorType::Me, &context);
+        assert!(result.is_ok());
+        let ids = result.unwrap();
+        assert_eq!(ids, vec!["1"]);
     }
 }

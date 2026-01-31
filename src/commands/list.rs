@@ -250,6 +250,7 @@ mod tests {
             parent: None,
             dependencies: Vec::new(),
             labels: Vec::new(),
+            assignee: None,
             updated_at: chrono::Utc::now(),
         };
         let index = Index {
@@ -268,6 +269,7 @@ mod tests {
             parent: None,
             dependencies: Vec::new(),
             labels: Vec::new(),
+            assignee: None,
             updated_at: chrono::Utc::now(),
         };
         let index = Index {
@@ -286,6 +288,7 @@ mod tests {
             parent: None,
             dependencies: Vec::new(),
             labels: Vec::new(),
+            assignee: None,
             updated_at: chrono::Utc::now(),
         };
         let index = Index {
