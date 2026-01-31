@@ -83,6 +83,13 @@ pub fn cmd_create(beans_dir: &Path, args: CreateArgs) -> Result<()> {
         validate_priority(priority)?;
     }
 
+    // Require at least acceptance or verify criteria
+    if args.acceptance.is_none() && args.verify.is_none() {
+        anyhow::bail!(
+            "Bean must have validation criteria: provide --acceptance or --verify (or both)"
+        );
+    }
+
     // Load config
     let mut config = Config::load(beans_dir)?;
 
@@ -185,7 +192,7 @@ mod tests {
             acceptance: None,
             notes: None,
             design: None,
-            verify: None,
+            verify: Some("cargo test".to_string()),
             priority: None,
             labels: None,
             assignee: None,
@@ -207,6 +214,30 @@ mod tests {
     }
 
     #[test]
+    fn create_rejects_missing_validation_criteria() {
+        let (_dir, beans_dir) = setup_beans_dir_with_config();
+
+        let args = CreateArgs {
+            title: "No criteria".to_string(),
+            description: None,
+            acceptance: None,
+            notes: None,
+            design: None,
+            verify: None,
+            priority: None,
+            labels: None,
+            assignee: None,
+            deps: None,
+            parent: None,
+        };
+
+        let result = cmd_create(&beans_dir, args);
+        assert!(result.is_err(), "Should reject bean without validation criteria");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("validation criteria"), "Error should mention validation criteria");
+    }
+
+    #[test]
     fn create_increments_id() {
         let (_dir, beans_dir) = setup_beans_dir_with_config();
 
@@ -214,7 +245,7 @@ mod tests {
         let args1 = CreateArgs {
             title: "First".to_string(),
             description: None,
-            acceptance: None,
+            acceptance: Some("Done".to_string()),
             notes: None,
             design: None,
             verify: None,
@@ -233,7 +264,7 @@ mod tests {
             acceptance: None,
             notes: None,
             design: None,
-            verify: None,
+            verify: Some("true".to_string()),
             priority: None,
             labels: None,
             assignee: None,
@@ -257,7 +288,7 @@ mod tests {
         let parent_args = CreateArgs {
             title: "Parent".to_string(),
             description: None,
-            acceptance: None,
+            acceptance: Some("Children complete".to_string()),
             notes: None,
             design: None,
             verify: None,
@@ -276,7 +307,7 @@ mod tests {
             acceptance: None,
             notes: None,
             design: None,
-            verify: None,
+            verify: Some("cargo test".to_string()),
             priority: None,
             labels: None,
             assignee: None,
@@ -299,7 +330,7 @@ mod tests {
         let parent_args = CreateArgs {
             title: "Parent".to_string(),
             description: None,
-            acceptance: None,
+            acceptance: Some("All children complete".to_string()),
             notes: None,
             design: None,
             verify: None,
@@ -319,7 +350,7 @@ mod tests {
                 acceptance: None,
                 notes: None,
                 design: None,
-                verify: None,
+                verify: Some("cargo test".to_string()),
                 priority: None,
                 labels: None,
                 assignee: None,
@@ -380,7 +411,7 @@ mod tests {
         let args = CreateArgs {
             title: "Indexed bean".to_string(),
             description: None,
-            acceptance: None,
+            acceptance: Some("Indexed correctly".to_string()),
             notes: None,
             design: None,
             verify: None,
@@ -436,7 +467,7 @@ mod tests {
         let args = CreateArgs {
             title: "Invalid priority bean".to_string(),
             description: None,
-            acceptance: None,
+            acceptance: Some("Done".to_string()),
             notes: None,
             design: None,
             verify: None,
@@ -461,7 +492,7 @@ mod tests {
             let args = CreateArgs {
                 title: format!("Bean with priority {}", priority),
                 description: None,
-                acceptance: None,
+                acceptance: Some("Done".to_string()),
                 notes: None,
                 design: None,
                 verify: None,
