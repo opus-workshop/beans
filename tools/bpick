@@ -1,0 +1,124 @@
+#!/bin/bash
+# bpick - Interactive bean selector using fzf and bn
+# Usage: bn close $(bpick)  # Close selected bean
+#        bn show $(bpick)   # Show details of selected bean
+
+set -e
+
+# Color codes for error messages
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+# Print error message to stderr
+error() {
+    printf "${RED}error:${NC} %s\n" "$1" >&2
+}
+
+# Print warning message to stderr
+warn() {
+    printf "${YELLOW}warn:${NC} %s\n" "$1" >&2
+}
+
+# Check for required dependencies
+check_dependencies() {
+    local missing=""
+
+    if ! command -v fzf >/dev/null 2>&1; then
+        missing="fzf"
+    fi
+
+    if ! command -v jq >/dev/null 2>&1; then
+        if [ -n "$missing" ]; then
+            missing="$missing, jq"
+        else
+            missing="jq"
+        fi
+    fi
+
+    if ! command -v bn >/dev/null 2>&1; then
+        if [ -n "$missing" ]; then
+            missing="$missing, bn"
+        else
+            missing="bn"
+        fi
+    fi
+
+    if [ -n "$missing" ]; then
+        error "Missing required dependencies: $missing"
+        error "Please install: $missing"
+        return 1
+    fi
+}
+
+# Get list of beans in interactive format
+pick_bean() {
+    # Fetch beans as JSON from bn list
+    local json_output
+    if ! json_output=$(bn list --json 2>/dev/null); then
+        error "Failed to fetch beans from 'bn list --json'"
+        return 1
+    fi
+
+    # Check if output is empty or invalid
+    if [ -z "$json_output" ] || [ "$json_output" = "[]" ]; then
+        error "No beans available"
+        return 1
+    fi
+
+    # Format beans and pipe to fzf
+    # Format: {id} [{status}] {title}
+    local selected
+    selected=$(echo "$json_output" | \
+        jq -r '.[] | "\(.id) [\(.status)] \(.title)"' 2>/dev/null | \
+        fzf \
+            --height=50% \
+            --reverse \
+            --no-info \
+            --preview='bn show {1}' 2>/dev/null)
+
+    local fzf_exit=$?
+
+    # Handle fzf exit codes
+    if [ $fzf_exit -eq 130 ]; then
+        # User abort (Ctrl+C)
+        return 130
+    elif [ $fzf_exit -ne 0 ]; then
+        # Other fzf errors
+        error "fzf selection failed"
+        return 1
+    fi
+
+    if [ -z "$selected" ]; then
+        error "No bean selected"
+        return 1
+    fi
+
+    # Extract bean ID (first field, space-delimited)
+    local bean_id
+    bean_id=$(echo "$selected" | cut -d' ' -f1)
+
+    if [ -z "$bean_id" ]; then
+        error "Failed to parse bean ID from selection"
+        return 1
+    fi
+
+    # Output the bean ID to stdout
+    echo "$bean_id"
+}
+
+# Main entry point
+main() {
+    # Check for required dependencies
+    if ! check_dependencies; then
+        return 1
+    fi
+
+    # Pick a bean and output the ID
+    if ! pick_bean; then
+        return $?
+    fi
+}
+
+# Run main function
+main
