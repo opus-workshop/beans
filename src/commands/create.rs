@@ -6,6 +6,7 @@ use anyhow::{Context, Result};
 use crate::bean::{Bean, validate_priority};
 use crate::config::Config;
 use crate::index::Index;
+use crate::util::title_to_slug;
 
 /// Create arguments structure for organizing all the parameters passed to create.
 pub struct CreateArgs {
@@ -23,7 +24,7 @@ pub struct CreateArgs {
 }
 
 /// Assign a child ID for a parent bean.
-/// Scans .beans/ for {parent_id}.*.yaml, finds highest N, returns "{parent_id}.{N+1}".
+/// Scans .beans/ for {parent_id}.{N}-*.md, finds highest N, returns "{parent_id}.{N+1}".
 fn assign_child_id(beans_dir: &Path, parent_id: &str) -> Result<String> {
     let mut max_child: u32 = 0;
 
@@ -39,7 +40,23 @@ fn assign_child_id(beans_dir: &Path, parent_id: &str) -> Result<String> {
             .and_then(|n| n.to_str())
             .unwrap_or_default();
 
-        // Look for files matching "{parent_id}.{N}.yaml"
+        // Look for files matching "{parent_id}.{N}-*.md" (new format)
+        if let Some(name_without_ext) = filename.strip_suffix(".md") {
+            if let Some(name_without_parent) = name_without_ext.strip_prefix(parent_id) {
+                if name_without_parent.starts_with('.') {
+                    // Extract the number part before the hyphen
+                    let after_dot = &name_without_parent[1..];
+                    let num_part = after_dot.split('-').next().unwrap_or_default();
+                    if let Ok(child_num) = num_part.parse::<u32>() {
+                        if child_num > max_child {
+                            max_child = child_num;
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Also support legacy format for backward compatibility: {parent_id}.{N}.yaml
         if let Some(name_without_ext) = filename.strip_suffix(".yaml") {
             if let Some(name_without_parent) = name_without_ext.strip_prefix(parent_id) {
                 if name_without_parent.starts_with('.') {
@@ -78,8 +95,12 @@ pub fn cmd_create(beans_dir: &Path, args: CreateArgs) -> Result<()> {
         id.to_string()
     };
 
+    // Generate slug from title
+    let slug = title_to_slug(&args.title);
+
     // Create the bean
     let mut bean = Bean::new(&bean_id, &args.title);
+    bean.slug = Some(slug.clone());
 
     if let Some(desc) = args.description {
         bean.description = Some(desc);
@@ -122,8 +143,8 @@ pub fn cmd_create(beans_dir: &Path, args: CreateArgs) -> Result<()> {
             .collect();
     }
 
-    // Write the bean file
-    let bean_path = beans_dir.join(format!("{}.yaml", bean_id));
+    // Write the bean file with new naming convention: {id}-{slug}.md
+    let bean_path = beans_dir.join(format!("{}-{}.md", bean_id, slug));
     bean.to_file(&bean_path)?;
 
     // Update the index by rebuilding from disk (includes the bean we just wrote)
@@ -174,14 +195,15 @@ mod tests {
 
         cmd_create(&beans_dir, args).unwrap();
 
-        // Check the bean file exists
-        let bean_path = beans_dir.join("1.yaml");
+        // Check the bean file exists with new naming convention
+        let bean_path = beans_dir.join("1-first-task.md");
         assert!(bean_path.exists());
 
         // Verify content
         let bean = Bean::from_file(&bean_path).unwrap();
         assert_eq!(bean.id, "1");
         assert_eq!(bean.title, "First task");
+        assert_eq!(bean.slug, Some("first-task".to_string()));
     }
 
     #[test]
@@ -220,9 +242,9 @@ mod tests {
         };
         cmd_create(&beans_dir, args2).unwrap();
 
-        // Verify both exist with correct IDs
-        let bean1 = Bean::from_file(&beans_dir.join("1.yaml")).unwrap();
-        let bean2 = Bean::from_file(&beans_dir.join("2.yaml")).unwrap();
+        // Verify both exist with correct IDs and new filenames
+        let bean1 = Bean::from_file(&beans_dir.join("1-first.md")).unwrap();
+        let bean2 = Bean::from_file(&beans_dir.join("2-second.md")).unwrap();
         assert_eq!(bean1.id, "1");
         assert_eq!(bean2.id, "2");
     }
@@ -263,8 +285,8 @@ mod tests {
         };
         cmd_create(&beans_dir, child_args).unwrap();
 
-        // Verify child ID is 1.1
-        let bean = Bean::from_file(&beans_dir.join("1.1.yaml")).unwrap();
+        // Verify child ID is 1.1 with new filename
+        let bean = Bean::from_file(&beans_dir.join("1.1-child-1.md")).unwrap();
         assert_eq!(bean.id, "1.1");
         assert_eq!(bean.parent, Some("1".to_string()));
     }
@@ -307,11 +329,12 @@ mod tests {
             cmd_create(&beans_dir, child_args).unwrap();
         }
 
-        // Verify all children exist
+        // Verify all children exist with new naming
         for i in 1..=3 {
             let expected_id = format!("1.{}", i);
-            let path = beans_dir.join(format!("{}.yaml", expected_id));
-            assert!(path.exists(), "Child {} should exist", i);
+            let expected_slug = format!("child-{}", i);
+            let path = beans_dir.join(format!("{}-{}.md", expected_id, expected_slug));
+            assert!(path.exists(), "Child {} should exist at {:?}", i, path);
 
             let bean = Bean::from_file(&path).unwrap();
             assert_eq!(bean.id, expected_id);
@@ -338,7 +361,7 @@ mod tests {
 
         cmd_create(&beans_dir, args).unwrap();
 
-        let bean = Bean::from_file(&beans_dir.join("1.yaml")).unwrap();
+        let bean = Bean::from_file(&beans_dir.join("1-complex-bean.md")).unwrap();
         assert_eq!(bean.title, "Complex bean");
         assert_eq!(bean.description, Some("A description".to_string()));
         assert_eq!(bean.acceptance, Some("All tests pass".to_string()));
@@ -393,14 +416,14 @@ mod tests {
         let beans_dir = dir.path().join(".beans");
         fs::create_dir(&beans_dir).unwrap();
 
-        // Create some child files
+        // Create some child files with new naming convention
         let bean1 = Bean::new("parent.1", "Child 1");
         let bean2 = Bean::new("parent.2", "Child 2");
-        let bean3 = Bean::new("parent.5", "Child 5");
+        let bean5 = Bean::new("parent.5", "Child 5");
 
-        bean1.to_file(&beans_dir.join("parent.1.yaml")).unwrap();
-        bean2.to_file(&beans_dir.join("parent.2.yaml")).unwrap();
-        bean3.to_file(&beans_dir.join("parent.5.yaml")).unwrap();
+        bean1.to_file(&beans_dir.join("parent.1-child-1.md")).unwrap();
+        bean2.to_file(&beans_dir.join("parent.2-child-2.md")).unwrap();
+        bean5.to_file(&beans_dir.join("parent.5-child-5.md")).unwrap();
 
         let id = assign_child_id(&beans_dir, "parent").unwrap();
         assert_eq!(id, "parent.6");

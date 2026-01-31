@@ -56,7 +56,8 @@ pub struct Index {
 const EXCLUDED_FILES: &[&str] = &["config.yaml", "index.yaml", "bean.yaml"];
 
 impl Index {
-    /// Build the index by reading all bean YAML files from the beans directory.
+    /// Build the index by reading all bean files from the beans directory.
+    /// Supports both new format ({id}-{slug}.md) and legacy format ({id}.yaml).
     /// Excludes config.yaml, index.yaml, and bean.yaml.
     /// Sorts entries by ID using natural ordering.
     pub fn build(beans_dir: &Path) -> Result<Self> {
@@ -69,18 +70,25 @@ impl Index {
             let entry = entry?;
             let path = entry.path();
 
-            // Only process .yaml files
-            let ext = path.extension().and_then(|e| e.to_str());
-            if ext != Some("yaml") {
-                continue;
-            }
-
-            // Skip excluded files
             let filename = path
                 .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or_default();
+
+            // Skip excluded files
             if EXCLUDED_FILES.contains(&filename) {
+                continue;
+            }
+
+            // Support both new format ({id}-{slug}.md) and legacy (.yaml)
+            let ext = path.extension().and_then(|e| e.to_str());
+            let is_bean_file = match ext {
+                Some("md") => filename.contains('-'), // New format: {id}-{slug}.md
+                Some("yaml") => true,                   // Legacy format: {id}.yaml
+                _ => false,
+            };
+
+            if !is_bean_file {
                 continue;
             }
 
@@ -95,8 +103,8 @@ impl Index {
     }
 
     /// Check whether the cached index is stale.
-    /// Returns true if the index file is missing or if any YAML file in the
-    /// beans directory has been modified after the index was last written.
+    /// Returns true if the index file is missing or if any bean file (.md or .yaml)
+    /// in the beans directory has been modified after the index was last written.
     pub fn is_stale(beans_dir: &Path) -> Result<bool> {
         let index_path = beans_dir.join("index.yaml");
 
@@ -117,16 +125,25 @@ impl Index {
             let entry = entry?;
             let path = entry.path();
 
-            let ext = path.extension().and_then(|e| e.to_str());
-            if ext != Some("yaml") {
-                continue;
-            }
-
             let filename = path
                 .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or_default();
+
+            // Skip index.yaml
             if filename == "index.yaml" {
+                continue;
+            }
+
+            // Check both .md and .yaml bean files
+            let ext = path.extension().and_then(|e| e.to_str());
+            let is_bean_file = match ext {
+                Some("md") => filename.contains('-'),   // New format: {id}-{slug}.md
+                Some("yaml") => !EXCLUDED_FILES.contains(&filename), // Legacy, but skip excluded
+                _ => false,
+            };
+
+            if !is_bean_file {
                 continue;
             }
 
