@@ -1,5 +1,5 @@
-beans:
-- id: '6'
+---
+beans: - id: '6'
   title: Add path traversal protection for bean IDs
   status: closed
   priority: 0
@@ -30,7 +30,7 @@ beans:
   updated_at: 2026-01-30T18:52:17.686266Z
 - id: '9'
   title: Extract beans_dir discovery pattern
-  status: closed
+  status: open
   priority: 1
   dependencies:
   - '3'
@@ -38,7 +38,7 @@ beans:
   labels:
   - refactor
   - code-quality
-  updated_at: 2026-01-30T18:54:25.290677Z
+  updated_at: 2026-01-30T18:46:30.023197Z
 - id: '10'
   title: Expand .gitignore with platform artifacts
   status: closed
@@ -47,3 +47,5 @@ beans:
   - hygiene
   - meta
   updated_at: 2026-01-30T18:51:07.517469Z
+---
+

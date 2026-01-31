@@ -6,6 +6,7 @@ use chrono::Utc;
 use shell_escape::unix::escape;
 
 use crate::bean::Bean;
+use crate::discovery::find_bean_file;
 use crate::index::Index;
 
 #[cfg(test)]
@@ -56,10 +57,8 @@ pub fn cmd_close(
     let mut any_closed = false;
 
     for id in &ids {
-        let bean_path = beans_dir.join(format!("{}.yaml", id));
-        if !bean_path.exists() {
-            return Err(anyhow!("Bean not found: {}", id));
-        }
+        let bean_path = find_bean_file(beans_dir, id)
+            .with_context(|| format!("Bean not found: {}", id))?;
 
         let mut bean = Bean::from_file(&bean_path)
             .with_context(|| format!("Failed to load bean: {}", id))?;
@@ -130,6 +129,7 @@ pub fn cmd_close(
 mod tests {
     use super::*;
     use tempfile::TempDir;
+    use crate::util::title_to_slug;
 
     fn setup_test_beans_dir() -> (TempDir, std::path::PathBuf) {
         let dir = TempDir::new().unwrap();
@@ -142,11 +142,12 @@ mod tests {
     fn test_close_single_bean() {
         let (_dir, beans_dir) = setup_test_beans_dir();
         let bean = Bean::new("1", "Task");
-        bean.to_file(beans_dir.join("1.yaml")).unwrap();
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
 
         cmd_close(&beans_dir, vec!["1".to_string()], None).unwrap();
 
-        let updated = Bean::from_file(beans_dir.join("1.yaml")).unwrap();
+        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert_eq!(updated.status, Status::Closed);
         assert!(updated.closed_at.is_some());
         assert!(updated.close_reason.is_none());
@@ -156,11 +157,12 @@ mod tests {
     fn test_close_with_reason() {
         let (_dir, beans_dir) = setup_test_beans_dir();
         let bean = Bean::new("1", "Task");
-        bean.to_file(beans_dir.join("1.yaml")).unwrap();
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
 
         cmd_close(&beans_dir, vec!["1".to_string()], Some("Fixed".to_string())).unwrap();
 
-        let updated = Bean::from_file(beans_dir.join("1.yaml")).unwrap();
+        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert_eq!(updated.status, Status::Closed);
         assert_eq!(updated.close_reason, Some("Fixed".to_string()));
     }
@@ -171,14 +173,17 @@ mod tests {
         let bean1 = Bean::new("1", "Task 1");
         let bean2 = Bean::new("2", "Task 2");
         let bean3 = Bean::new("3", "Task 3");
-        bean1.to_file(beans_dir.join("1.yaml")).unwrap();
-        bean2.to_file(beans_dir.join("2.yaml")).unwrap();
-        bean3.to_file(beans_dir.join("3.yaml")).unwrap();
+        let slug1 = title_to_slug(&bean1.title);
+        let slug2 = title_to_slug(&bean2.title);
+        let slug3 = title_to_slug(&bean3.title);
+        bean1.to_file(beans_dir.join(format!("1-{}.md", slug1))).unwrap();
+        bean2.to_file(beans_dir.join(format!("2-{}.md", slug2))).unwrap();
+        bean3.to_file(beans_dir.join(format!("3-{}.md", slug3))).unwrap();
 
         cmd_close(&beans_dir, vec!["1".to_string(), "2".to_string(), "3".to_string()], None).unwrap();
 
         for id in &["1", "2", "3"] {
-            let bean = Bean::from_file(beans_dir.join(format!("{}.yaml", id))).unwrap();
+            let bean = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, id).unwrap()).unwrap();
             assert_eq!(bean.status, Status::Closed);
             assert!(bean.closed_at.is_some());
         }
@@ -203,8 +208,10 @@ mod tests {
         let (_dir, beans_dir) = setup_test_beans_dir();
         let bean1 = Bean::new("1", "Task 1");
         let bean2 = Bean::new("2", "Task 2");
-        bean1.to_file(beans_dir.join("1.yaml")).unwrap();
-        bean2.to_file(beans_dir.join("2.yaml")).unwrap();
+        let slug1 = title_to_slug(&bean1.title);
+        let slug2 = title_to_slug(&bean2.title);
+        bean1.to_file(beans_dir.join(format!("1-{}.md", slug1))).unwrap();
+        bean2.to_file(beans_dir.join(format!("2-{}.md", slug2))).unwrap();
 
         cmd_close(&beans_dir, vec!["1".to_string()], None).unwrap();
 
@@ -219,13 +226,14 @@ mod tests {
         let (_dir, beans_dir) = setup_test_beans_dir();
         let bean = Bean::new("1", "Task");
         let original_updated_at = bean.updated_at;
-        bean.to_file(beans_dir.join("1.yaml")).unwrap();
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
 
         std::thread::sleep(std::time::Duration::from_millis(10));
 
         cmd_close(&beans_dir, vec!["1".to_string()], None).unwrap();
 
-        let updated = Bean::from_file(beans_dir.join("1.yaml")).unwrap();
+        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert!(updated.updated_at > original_updated_at);
     }
 
@@ -234,11 +242,12 @@ mod tests {
         let (_dir, beans_dir) = setup_test_beans_dir();
         let mut bean = Bean::new("1", "Task with verify");
         bean.verify = Some("true".to_string());
-        bean.to_file(beans_dir.join("1.yaml")).unwrap();
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
 
         cmd_close(&beans_dir, vec!["1".to_string()], None).unwrap();
 
-        let updated = Bean::from_file(beans_dir.join("1.yaml")).unwrap();
+        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert_eq!(updated.status, Status::Closed);
         assert!(updated.closed_at.is_some());
     }
@@ -250,11 +259,12 @@ mod tests {
         bean.verify = Some("false".to_string());
         bean.attempts = 0;
         bean.max_attempts = 3;
-        bean.to_file(beans_dir.join("1.yaml")).unwrap();
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
 
         cmd_close(&beans_dir, vec!["1".to_string()], None).unwrap();
 
-        let updated = Bean::from_file(beans_dir.join("1.yaml")).unwrap();
+        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert_eq!(updated.status, Status::Open); // Not closed
         assert_eq!(updated.attempts, 1); // Incremented
         assert!(updated.closed_at.is_none());
@@ -267,23 +277,24 @@ mod tests {
         bean.verify = Some("false".to_string());
         bean.attempts = 0;
         bean.max_attempts = 3;
-        bean.to_file(beans_dir.join("1.yaml")).unwrap();
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
 
         // First attempt
         cmd_close(&beans_dir, vec!["1".to_string()], None).unwrap();
-        let updated = Bean::from_file(beans_dir.join("1.yaml")).unwrap();
+        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert_eq!(updated.attempts, 1);
         assert_eq!(updated.status, Status::Open);
 
         // Second attempt
         cmd_close(&beans_dir, vec!["1".to_string()], None).unwrap();
-        let updated = Bean::from_file(beans_dir.join("1.yaml")).unwrap();
+        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert_eq!(updated.attempts, 2);
         assert_eq!(updated.status, Status::Open);
 
         // Third attempt - should hit max
         cmd_close(&beans_dir, vec!["1".to_string()], None).unwrap();
-        let updated = Bean::from_file(beans_dir.join("1.yaml")).unwrap();
+        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert_eq!(updated.attempts, 3);
         assert_eq!(updated.status, Status::Open);
     }
@@ -295,12 +306,13 @@ mod tests {
         bean.verify = Some("false".to_string());
         bean.attempts = 3;
         bean.max_attempts = 3;
-        bean.to_file(beans_dir.join("1.yaml")).unwrap();
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
 
         // Should not run verify again, just print message
         cmd_close(&beans_dir, vec!["1".to_string()], None).unwrap();
 
-        let updated = Bean::from_file(beans_dir.join("1.yaml")).unwrap();
+        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert_eq!(updated.attempts, 3); // Not incremented
         assert_eq!(updated.status, Status::Open); // Still not closed
     }
@@ -310,11 +322,12 @@ mod tests {
         let (_dir, beans_dir) = setup_test_beans_dir();
         let bean = Bean::new("1", "Task without verify");
         // No verify command set
-        bean.to_file(beans_dir.join("1.yaml")).unwrap();
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
 
         cmd_close(&beans_dir, vec!["1".to_string()], None).unwrap();
 
-        let updated = Bean::from_file(beans_dir.join("1.yaml")).unwrap();
+        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert_eq!(updated.status, Status::Closed);
         assert!(updated.closed_at.is_some());
     }
@@ -326,14 +339,15 @@ mod tests {
         // Try to inject commands with shell metacharacters - should not execute
         // The escaped version should treat everything as a literal command name
         bean.verify = Some("echo test; rm -rf .".to_string());
-        bean.to_file(beans_dir.join("1.yaml")).unwrap();
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
 
         // This should fail because 'echo test; rm -rf .' is not a valid command
         // after escaping (it becomes a literal string)
         let _ = cmd_close(&beans_dir, vec!["1".to_string()], None);
 
         // Verify command should fail (not found), not execute the injected commands
-        let updated = Bean::from_file(beans_dir.join("1.yaml")).unwrap();
+        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert_eq!(updated.status, Status::Open); // Not closed due to verification failure
         assert_eq!(updated.attempts, 1); // Attempts incremented
     }
@@ -344,12 +358,13 @@ mod tests {
         let mut bean = Bean::new("1", "Task with pipe characters");
         // Try to pipe commands - should not execute
         bean.verify = Some("true | false".to_string());
-        bean.to_file(beans_dir.join("1.yaml")).unwrap();
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
 
         let _ = cmd_close(&beans_dir, vec!["1".to_string()], None);
 
         // The escaped command should fail because the full string is treated literally
-        let updated = Bean::from_file(beans_dir.join("1.yaml")).unwrap();
+        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert_eq!(updated.status, Status::Open); // Not closed
         assert_eq!(updated.attempts, 1); // Attempts incremented
     }

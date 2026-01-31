@@ -4,6 +4,7 @@ use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 
 use crate::bean::Bean;
+use crate::discovery::find_bean_file;
 use crate::index::Index;
 use crate::util::parse_status;
 
@@ -32,11 +33,9 @@ pub fn cmd_update(
         crate::bean::validate_priority(p)?;
     }
 
-    // Load the bean
-    let bean_path = beans_dir.join(format!("{}.yaml", id));
-    if !bean_path.exists() {
-        return Err(anyhow!("Bean not found: {}", id));
-    }
+    // Load the bean using find_bean_file
+    let bean_path = find_bean_file(beans_dir, id)
+        .with_context(|| format!("Bean not found: {}", id))?;
 
     let mut bean = Bean::from_file(&bean_path)
         .with_context(|| format!("Failed to load bean: {}", id))?;
@@ -94,7 +93,7 @@ pub fn cmd_update(
     // Update timestamp
     bean.updated_at = Utc::now();
 
-    // Write back
+    // Write back to the discovered path (preserves slug)
     bean.to_file(&bean_path)
         .with_context(|| format!("Failed to save bean: {}", id))?;
 
@@ -112,6 +111,7 @@ pub fn cmd_update(
 mod tests {
     use super::*;
     use crate::bean::Status;
+    use crate::util::title_to_slug;
     use tempfile::TempDir;
     use std::fs;
 
@@ -126,11 +126,12 @@ mod tests {
     fn test_update_title() {
         let (_dir, beans_dir) = setup_test_beans_dir();
         let bean = Bean::new("1", "Original title");
-        bean.to_file(beans_dir.join("1.yaml")).unwrap();
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
 
         cmd_update(&beans_dir, "1", Some("New title".to_string()), None, None, None, None, None, None, None, None, None).unwrap();
 
-        let updated = Bean::from_file(beans_dir.join("1.yaml")).unwrap();
+        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert_eq!(updated.title, "New title");
     }
 
@@ -139,11 +140,12 @@ mod tests {
         let (_dir, beans_dir) = setup_test_beans_dir();
         let mut bean = Bean::new("1", "Test");
         bean.notes = Some("First note".to_string());
-        bean.to_file(beans_dir.join("1.yaml")).unwrap();
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
 
         cmd_update(&beans_dir, "1", None, None, None, Some("Second note".to_string()), None, None, None, None, None, None).unwrap();
 
-        let updated = Bean::from_file(beans_dir.join("1.yaml")).unwrap();
+        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         let notes = updated.notes.unwrap();
         assert!(notes.contains("First note"));
         assert!(notes.contains("Second note"));
@@ -154,11 +156,12 @@ mod tests {
     fn test_update_notes_creates_with_timestamp() {
         let (_dir, beans_dir) = setup_test_beans_dir();
         let bean = Bean::new("1", "Test");
-        bean.to_file(beans_dir.join("1.yaml")).unwrap();
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
 
         cmd_update(&beans_dir, "1", None, None, None, Some("First note".to_string()), None, None, None, None, None, None).unwrap();
 
-        let updated = Bean::from_file(beans_dir.join("1.yaml")).unwrap();
+        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         let notes = updated.notes.unwrap();
         assert!(notes.contains("First note"));
         assert!(notes.contains("---"));
@@ -169,11 +172,12 @@ mod tests {
     fn test_update_status() {
         let (_dir, beans_dir) = setup_test_beans_dir();
         let bean = Bean::new("1", "Test");
-        bean.to_file(beans_dir.join("1.yaml")).unwrap();
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
 
         cmd_update(&beans_dir, "1", None, None, None, None, None, Some("in_progress".to_string()), None, None, None, None).unwrap();
 
-        let updated = Bean::from_file(beans_dir.join("1.yaml")).unwrap();
+        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert_eq!(updated.status, Status::InProgress);
     }
 
@@ -181,11 +185,12 @@ mod tests {
     fn test_update_priority() {
         let (_dir, beans_dir) = setup_test_beans_dir();
         let bean = Bean::new("1", "Test");
-        bean.to_file(beans_dir.join("1.yaml")).unwrap();
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
 
         cmd_update(&beans_dir, "1", None, None, None, None, None, None, Some(1), None, None, None).unwrap();
 
-        let updated = Bean::from_file(beans_dir.join("1.yaml")).unwrap();
+        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert_eq!(updated.priority, 1);
     }
 
@@ -193,11 +198,12 @@ mod tests {
     fn test_update_add_label() {
         let (_dir, beans_dir) = setup_test_beans_dir();
         let bean = Bean::new("1", "Test");
-        bean.to_file(beans_dir.join("1.yaml")).unwrap();
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
 
         cmd_update(&beans_dir, "1", None, None, None, None, None, None, None, None, Some("urgent".to_string()), None).unwrap();
 
-        let updated = Bean::from_file(beans_dir.join("1.yaml")).unwrap();
+        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert!(updated.labels.contains(&"urgent".to_string()));
     }
 
@@ -206,11 +212,12 @@ mod tests {
         let (_dir, beans_dir) = setup_test_beans_dir();
         let mut bean = Bean::new("1", "Test");
         bean.labels = vec!["urgent".to_string(), "bug".to_string()];
-        bean.to_file(beans_dir.join("1.yaml")).unwrap();
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
 
         cmd_update(&beans_dir, "1", None, None, None, None, None, None, None, None, None, Some("urgent".to_string())).unwrap();
 
-        let updated = Bean::from_file(beans_dir.join("1.yaml")).unwrap();
+        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert!(!updated.labels.contains(&"urgent".to_string()));
         assert!(updated.labels.contains(&"bug".to_string()));
     }
@@ -226,11 +233,12 @@ mod tests {
     fn test_update_multiple_fields() {
         let (_dir, beans_dir) = setup_test_beans_dir();
         let bean = Bean::new("1", "Original");
-        bean.to_file(beans_dir.join("1.yaml")).unwrap();
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
 
         cmd_update(&beans_dir, "1", Some("New title".to_string()), Some("New desc".to_string()), None, None, None, Some("closed".to_string()), Some(0), None, None, None).unwrap();
 
-        let updated = Bean::from_file(beans_dir.join("1.yaml")).unwrap();
+        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert_eq!(updated.title, "New title");
         assert_eq!(updated.description, Some("New desc".to_string()));
         assert_eq!(updated.status, Status::Closed);
@@ -241,7 +249,8 @@ mod tests {
     fn test_update_rebuilds_index() {
         let (_dir, beans_dir) = setup_test_beans_dir();
         let bean = Bean::new("1", "Original");
-        bean.to_file(beans_dir.join("1.yaml")).unwrap();
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
 
         // Index doesn't exist yet
         assert!(!beans_dir.join("index.yaml").exists());
@@ -260,7 +269,8 @@ mod tests {
     fn test_update_rejects_priority_too_high() {
         let (_dir, beans_dir) = setup_test_beans_dir();
         let bean = Bean::new("1", "Test");
-        bean.to_file(beans_dir.join("1.yaml")).unwrap();
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
 
         let result = cmd_update(&beans_dir, "1", None, None, None, None, None, None, Some(5), None, None, None);
         assert!(result.is_err(), "Should reject priority > 4");
@@ -273,12 +283,13 @@ mod tests {
         for priority in 0..=4 {
             let (_dir, beans_dir) = setup_test_beans_dir();
             let bean = Bean::new("1", "Test");
-            bean.to_file(beans_dir.join("1.yaml")).unwrap();
+            let slug = title_to_slug(&bean.title);
+            bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
 
             let result = cmd_update(&beans_dir, "1", None, None, None, None, None, None, Some(priority), None, None, None);
             assert!(result.is_ok(), "Priority {} should be valid", priority);
 
-            let updated = Bean::from_file(beans_dir.join("1.yaml")).unwrap();
+            let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
             assert_eq!(updated.priority, priority);
         }
     }

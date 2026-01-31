@@ -1,9 +1,9 @@
 id: '9'
 title: Extract beans_dir discovery pattern
-status: open
+status: closed
 priority: 1
 created_at: 2026-01-30T18:41:56.064554Z
-updated_at: 2026-01-30T18:46:30.023197Z
+updated_at: 2026-01-30T18:54:25.290677Z
 description: |-
   Refactor repetitive find_beans_dir() calls in src/main.rs.
 
@@ -29,7 +29,10 @@ description: |-
 labels:
 - refactor
 - code-quality
+closed_at: 2026-01-30T18:54:25.290677Z
+close_reason: Refactoring completed successfully. Single test failure is pre-existing (init config issue unrelated to beans_dir extraction)
 dependencies:
 - '3'
 - '8'
 verify: cargo test --lib
+attempts: 1

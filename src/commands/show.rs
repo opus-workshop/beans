@@ -4,18 +4,14 @@ use anyhow::Result;
 use termimad::MadSkin;
 
 use crate::bean::Bean;
+use crate::discovery::find_bean_file;
 
 /// Handle `bn show <id>` command
 /// - Default: render beautifully with metadata header and markdown formatting
 /// - --json: deserialize and re-serialize as JSON
 /// - --short: one-line summary "{id}. {title} [{status}]"
 pub fn cmd_show(id: &str, json: bool, short: bool, beans_dir: &Path) -> Result<()> {
-    let bean_path = beans_dir.join(format!("{}.yaml", id));
-
-    if !bean_path.exists() {
-        println!("Bean {} not found.", id);
-        return Ok(());
-    }
+    let bean_path = find_bean_file(beans_dir, id)?;
 
     let bean = Bean::from_file(&bean_path)?;
 
@@ -119,46 +115,62 @@ fn format_short(bean: &Bean) -> String {
 mod tests {
     use super::*;
     use tempfile::TempDir;
+    use crate::util::title_to_slug;
 
     #[test]
     fn show_renders_beautifully_default() {
         let dir = TempDir::new().unwrap();
+        let beans_dir = dir.path().join(".beans");
+        std::fs::create_dir(&beans_dir).unwrap();
+        
         let bean = Bean::new("1", "Test bean");
-        let bean_path = dir.path().join("1.yaml");
+        let slug = title_to_slug(&bean.title);
+        let bean_path = beans_dir.join(format!("1-{}.md", slug));
         bean.to_file(&bean_path).unwrap();
 
         // Capture stdout
-        let result = cmd_show("1", false, false, dir.path());
+        let result = cmd_show("1", false, false, &beans_dir);
         assert!(result.is_ok());
     }
 
     #[test]
     fn show_json() {
         let dir = TempDir::new().unwrap();
+        let beans_dir = dir.path().join(".beans");
+        std::fs::create_dir(&beans_dir).unwrap();
+        
         let bean = Bean::new("1", "Test bean");
-        let bean_path = dir.path().join("1.yaml");
+        let slug = title_to_slug(&bean.title);
+        let bean_path = beans_dir.join(format!("1-{}.md", slug));
         bean.to_file(&bean_path).unwrap();
 
-        let result = cmd_show("1", true, false, dir.path());
+        let result = cmd_show("1", true, false, &beans_dir);
         assert!(result.is_ok());
     }
 
     #[test]
     fn show_short() {
         let dir = TempDir::new().unwrap();
+        let beans_dir = dir.path().join(".beans");
+        std::fs::create_dir(&beans_dir).unwrap();
+        
         let bean = Bean::new("1", "Test bean");
-        let bean_path = dir.path().join("1.yaml");
+        let slug = title_to_slug(&bean.title);
+        let bean_path = beans_dir.join(format!("1-{}.md", slug));
         bean.to_file(&bean_path).unwrap();
 
-        let result = cmd_show("1", false, true, dir.path());
+        let result = cmd_show("1", false, true, &beans_dir);
         assert!(result.is_ok());
     }
 
     #[test]
     fn show_not_found() {
         let dir = TempDir::new().unwrap();
-        let result = cmd_show("999", false, false, dir.path());
-        assert!(result.is_ok());
+        let beans_dir = dir.path().join(".beans");
+        std::fs::create_dir(&beans_dir).unwrap();
+        
+        let result = cmd_show("999", false, false, &beans_dir);
+        assert!(result.is_err());
     }
 
     #[test]
@@ -195,23 +207,31 @@ mod tests {
     #[test]
     fn render_bean_with_description() {
         let dir = TempDir::new().unwrap();
+        let beans_dir = dir.path().join(".beans");
+        std::fs::create_dir(&beans_dir).unwrap();
+        
         let mut bean = Bean::new("1", "Test bean");
         bean.description = Some("# Description\n\nThis is test markdown.".to_string());
-        let bean_path = dir.path().join("1.yaml");
+        let slug = title_to_slug(&bean.title);
+        let bean_path = beans_dir.join(format!("1-{}.md", slug));
         bean.to_file(&bean_path).unwrap();
 
-        let result = cmd_show("1", false, false, dir.path());
+        let result = cmd_show("1", false, false, &beans_dir);
         assert!(result.is_ok());
     }
 
     #[test]
     fn show_works_with_hierarchical_ids() {
         let dir = TempDir::new().unwrap();
+        let beans_dir = dir.path().join(".beans");
+        std::fs::create_dir(&beans_dir).unwrap();
+        
         let bean = Bean::new("11.1", "Hierarchical bean");
-        let bean_path = dir.path().join("11.1.yaml");
+        let slug = title_to_slug(&bean.title);
+        let bean_path = beans_dir.join(format!("11.1-{}.md", slug));
         bean.to_file(&bean_path).unwrap();
 
-        let result = cmd_show("11.1", false, false, dir.path());
+        let result = cmd_show("11.1", false, false, &beans_dir);
         assert!(result.is_ok());
     }
 }

@@ -19,6 +19,7 @@ pub fn cmd_sync(beans_dir: &Path) -> Result<()> {
 mod tests {
     use super::*;
     use crate::bean::Bean;
+    use crate::util::title_to_slug;
     use std::fs;
     use tempfile::TempDir;
 
@@ -31,8 +32,11 @@ mod tests {
         let bean1 = Bean::new("1", "Task one");
         let bean2 = Bean::new("2", "Task two");
 
-        bean1.to_file(beans_dir.join("1.yaml")).unwrap();
-        bean2.to_file(beans_dir.join("2.yaml")).unwrap();
+        let slug1 = title_to_slug(&bean1.title);
+        let slug2 = title_to_slug(&bean2.title);
+
+        bean1.to_file(beans_dir.join(format!("1-{}.md", slug1))).unwrap();
+        bean2.to_file(beans_dir.join(format!("2-{}.md", slug2))).unwrap();
 
         // Sync should create index with 2 beans
         let result = cmd_sync(&beans_dir);
@@ -55,7 +59,8 @@ mod tests {
         // Create 5 beans
         for i in 1..=5 {
             let bean = Bean::new(i.to_string(), format!("Task {}", i));
-            bean.to_file(beans_dir.join(format!("{}.yaml", i)))
+            let slug = title_to_slug(&bean.title);
+            bean.to_file(beans_dir.join(format!("{}-{}.md", i, slug)))
                 .unwrap();
         }
 

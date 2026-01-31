@@ -175,6 +175,7 @@ mod tests {
     use super::*;
     use std::fs;
     use tempfile::TempDir;
+    use crate::util::title_to_slug;
 
     fn setup_test_beans() -> (TempDir, std::path::PathBuf) {
         let dir = TempDir::new().unwrap();
@@ -191,10 +192,15 @@ mod tests {
         let mut bean3_1 = crate::bean::Bean::new("3.1", "Subtask");
         bean3_1.parent = Some("3".to_string());
 
-        bean1.to_file(beans_dir.join("1.yaml")).unwrap();
-        bean2.to_file(beans_dir.join("2.yaml")).unwrap();
-        bean3.to_file(beans_dir.join("3.yaml")).unwrap();
-        bean3_1.to_file(beans_dir.join("3.1.yaml")).unwrap();
+        let slug1 = title_to_slug(&bean1.title);
+        let slug2 = title_to_slug(&bean2.title);
+        let slug3 = title_to_slug(&bean3.title);
+        let slug3_1 = title_to_slug(&bean3_1.title);
+
+        bean1.to_file(beans_dir.join(format!("1-{}.md", slug1))).unwrap();
+        bean2.to_file(beans_dir.join(format!("2-{}.md", slug2))).unwrap();
+        bean3.to_file(beans_dir.join(format!("3-{}.md", slug3))).unwrap();
+        bean3_1.to_file(beans_dir.join(format!("3.1-{}.md", slug3_1))).unwrap();
 
         // Create config
         fs::write(
