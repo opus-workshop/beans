@@ -1,268 +1,240 @@
 # beans
 
-A hierarchical task engine where every task is a YAML file.
+A hierarchical task engine for autonomous AI agent coordination, built on file-backed storage.
 
-No databases. No daemons. No background processes. Just files you can read, edit, grep, and git-diff.
+No databases. No daemons. Just Markdown files with YAML frontmatter—queryable with standard Unix tools and version-controlled with git.
 
-> **Status:** Fully implemented. Core CLI and commands working. Comprehensive audit complete with security and quality improvements applied. See [AUDIT.md](AUDIT.md) for detailed assessment and [`audit` skill documentation](https://github.com/anthropics/claude-code/wiki/Skills#audit) for more information.
+> **v0.1.0** — Production-ready task orchestration engine. See [Releases](https://github.com/opus-workshop/beans/releases) for downloads.
 
-## Origin
+## Overview
 
-Beans is inspired by Steve Yegge's [beads](https://github.com/steveyegge/beads) — a distributed, git-backed issue tracker built for AI coding agents. Beads proved that structured task management with dependency graphs and readiness checks is the right foundation for agent-driven development. If you haven't looked at it, you should.
+Beans is a task management system designed to coordinate work between multiple AI agents. It provides:
 
-We wanted a task engine for coding subagents and beads was the obvious starting point. But as we worked with it, we found ourselves wanting different tradeoffs — not because beads got something wrong, but because we wanted to build around a different center of gravity.
+- **Verify gates**: Tasks cannot close without proof of completion. The `verify` command must exit 0, or the task rolls back and a fresh agent retries.
+- **Atomic claiming**: Race-condition-free task assignment ensures no two agents work the same task.
+- **File-first design**: All data lives in `.beans/` as Markdown files with YAML frontmatter. No daemon, no database—just git-friendly files.
+- **Hierarchical dependencies**: Tasks form DAGs with parent-child relationships and dependency tracking. Ready/blocked status derived automatically.
+- **Stateless CLI**: Lookup by mtime. Index is a cache, never the source of truth.
 
-Beans takes beads' core idea and applies Unix philosophy: **everything is a file**. No database, no daemon, no CLI as the only interface. YAML files you can open in your editor, grep across, git-diff, and compose with standard tools. Parseable IDs, plain text, stateless operations. Beads is a closed system that does everything. Beans is a file format the Unix ecosystem can talk to.
+## Installation
 
-## Why
+```bash
+# Build from source
+cargo install --git https://github.com/opus-workshop/beans
 
-Beans is a tool for goal-driven development. You start with a goal, decompose it into smaller goals, and keep splitting until every leaf is an agent-executable unit of work with a verification command that proves it's done. The tool enforces this: `bn close` runs the bean's `verify` command and only closes if it passes. No force flag. If the test fails, the work isn't done.
-
-A bean is a unit of work with enough context to execute autonomously. Parent beans provide strategic context. Leaf beans are self-contained agent prompts — swarmable. The hierarchy lives in the filesystem: `3.2.yaml` is a child of `3.yaml`. You see the structure before opening a single file.
-
-Git is the sync layer. `git add .beans/ && git commit` is all there is.
-
-## Quick Start
-
-```
-bn init my-project
-bn create "Build authentication system"
-bn create "Design token schema"
-bn create --deps 2 "Implement token validation"
-bn ready
+# Or clone and build
+git clone https://github.com/opus-workshop/beans
+cd beans
+cargo build --release
+./target/release/bn init my-project
 ```
 
-## How It Works
+## Feature Comparison
 
-### The `.beans/` directory
+| Aspect | beans | [hmans/beans](https://github.com/hmans/beans) |
+|--------|-------|-------|
+| **Storage backend** | YAML/Markdown files | SQLite + JSONL + daemon |
+| **Verify gates** | ✓ Enforced | ✗ Not enforced |
+| **Atomic claiming** | ✓ Via file operations | ✗ No guarantee |
+| **Direct file access** | ✓ `cat .beans/1-*.md` | ✗ CLI-only |
+| **ID scheme** | Hierarchical (3.2 = child of 3) | Hash-based |
+| **Git compatibility** | ✓ Clean diffs, mergeable | ✗ Not git-friendly |
+| **Daemon required** | ✗ Stateless | ✓ Background service |
+| **Task scalability** | Hundreds (optimal) | Thousands+ (indexed) |
+| **Scope** | Agent coordination | Full issue tracking |
+
+## Design Rationale
+
+Beans enforces a critical constraint: **proof-of-work**. Every task has a `verify` field—a shell command that must exit 0 for the task to close. This prevents:
+
+- **Incomplete work**: Verification fails → task stays open
+- **Stuck agents**: Verification fails → changes undo → fresh agent retries with full context
+- **Silent failures**: Non-zero exit = explicit task failure, not "good enough"
+
+For multi-agent systems, this architecture provides:
+
+1. **Safety**: Atomic claiming prevents concurrent work on the same task
+2. **Observability**: Attempt tracking shows retry history; index shows ready/blocked state
+3. **Auditability**: Git log shows all task state changes; no hidden database state
+4. **Simplicity**: Unix philosophy—everything is a file. Parse with standard tools. Compose with shell scripts.
+
+## Architecture
+
+### File Format
+
+Beans use `{id}-{slug}.md` naming convention with YAML frontmatter:
 
 ```
 .beans/
-  config.yaml          # project settings
-  bean.yaml            # root goal — the strategic "what and why"
-  index.yaml           # auto-rebuilt cache (never edit manually)
-  1.yaml               # "Build authentication system"
-  2.yaml               # "Design token schema"
-  3.yaml               # "Implement CLI"
-  3.1.yaml             # "bn create command" (child of 3)
-  3.2.yaml             # "bn list/show commands" (child of 3)
+  config.yaml              # Project metadata
+  index.yaml               # Auto-built index (cache, never edit)
+  1-build-auth.md          # Task 1: "Build authentication"
+  3-refactor.md            # Task 3: "Refactor parser"
+  3.1-add-tests.md         # Task 3.1: "Add unit tests" (child of 3)
 ```
 
-Every numbered file is a bean. IDs are sequential integers with dot-notation for children. The index is a cache — YAML files are the source of truth.
-
-### A bean looks like this
+### Bean Structure
 
 ```yaml
-id: 3.2
-title: Implement bn list and bn show commands
+---
+id: 3.1
+title: Add comprehensive unit tests
 status: open
 priority: 2
 parent: 3
 dependencies:
   - 2
-labels:
-  - cli
-  - core
-created_at: 2026-01-26T15:00:00-08:00
-attempts: 1
+created_at: 2026-01-26T15:00:00Z
+updated_at: 2026-01-26T15:00:00Z
+attempts: 0
 max_attempts: 3
 description: |
-  Implement the `bn list` and `bn show` commands.
-
-  ## bn show <id>
-  - Read .beans/{id}.yaml and display all fields
-  - Support --json flag for machine-readable output
-
-  ## bn list [flags]
-  - Read from index.yaml (rebuild if stale)
-  - Filter by: --status, --priority, --parent, --label
-  - Default: tree-format output with status indicators
-
-  ## Files
-  - src/commands/show.rs
-  - src/commands/list.rs
-
+  Write unit tests for the parser module.
+  
+  **Files to test:**
+  - src/parser/lexer.rs
+  - src/parser/ast.rs
+  
+  **Coverage target:** 80%+ lines covered
+  
 acceptance: |
-  - `bn show 1` displays the YAML for bean 1
-  - `bn show 1 --json` outputs valid JSON
-  - `bn list` shows tree-format with status indicators
-  - `bn list --parent 3` shows only children of bean 3
+  - Unit tests compile and pass
+  - Coverage report shows ≥80% line coverage
+  - All edge cases from issue #42 covered
+  
+verify: cargo test --lib parser && cargo tarpaulin --out Stdout --minimum 80
+---
 
-verify: cargo test --lib commands::list commands::show
+# Implementation Notes
+
+Parser refactoring requires careful attention to backward compatibility.
+See issue #42 for detailed specification.
 ```
 
-The description is the agent prompt. Rich enough that an agent can pick it up cold and execute. The `verify` field is the machine-checkable gate — `bn close` runs it, closes the bean if it exits 0, or undoes all changes and retries with a fresh agent if it fails. Each attempt is tracked; after `max_attempts`, the bean needs human review.
+**Fields:**
+- `id`: Sequential integer with dot-notation for hierarchy
+- `title`: Single-line summary
+- `status`: `open` | `in_progress` | `closed`
+- `priority`: 0-4 (0 = highest)
+- `parent`: Parent task ID for hierarchy
+- `dependencies`: List of task IDs that must close before this starts
+- `attempts`: Number of close attempts
+- `max_attempts`: Maximum attempts before manual escalation
+- `description`: Agent prompt with context, file paths, acceptance criteria
+- `acceptance`: Testable completion criteria
+- `verify`: Shell command (must exit 0 to close)
+
+The Markdown body (after frontmatter) is optional—for additional context or handoff notes.
+
+### Index
+
+The `.beans/index.yaml` file is a flattened cache built from all bean files:
+
+```yaml
+beans:
+  - id: "1"
+    title: "Build authentication"
+    status: open
+    priority: 2
+    parent: null
+    dependencies: []
+    
+  - id: "3.1"
+    title: "Add unit tests"
+    status: open
+    priority: 2
+    parent: "3"
+    dependencies: ["2"]
+```
+
+Automatically rebuilt when any bean file's mtime exceeds the index mtime. Never edit manually.
 
 ## Commands
 
-### Core
+### Task Management
 
-| Command | Description |
-|---|---|
-| `bn init [name]` | Initialize `.beans/` in the current directory |
-| `bn create [title]` | Create a new bean [alias: `new`] |
-| `bn show <id>` | Display a bean (raw YAML, `--json`, or `--short`) [alias: `view`] |
-| `bn list` | List beans with filtering (`--status`, `--priority`, `--parent`, `--assignee`) [alias: `ls`] |
-| `bn update <id>` | Modify bean fields |
-| `bn claim <id>` | Atomically claim a bean (status: open → in_progress) |
-| `bn claim <id> --release` | Release a claimed bean (status: in_progress → open) |
-| `bn close <id>...` | Run verify, close if passes; undo and retry if fails |
-| `bn verify <id>` | Run verify command without closing |
-| `bn reopen <id>` | Reopen a closed bean |
-| `bn delete <id>` | Remove a bean and clean up references |
+```bash
+bn init [name]                          # Initialize .beans/ directory
+bn create --title="..." [--parent ID]   # Create new task
+bn show <id>                            # Display task (YAML)
+bn update <id> --title="..."            # Modify task fields
+bn delete <id>                          # Remove task
+```
+
+### Agent Coordination
+
+```bash
+bn claim <id>                           # Atomically claim task (status: open → in_progress)
+bn release <id>                         # Release claimed task (status: in_progress → open)
+bn close <id> [--reason "..."]          # Run verify, close if exits 0; undo if fails
+bn verify <id>                          # Test verify without closing
+bn reopen <id>                          # Reopen closed task
+```
+
+### Querying
+
+```bash
+bn ready                                # Show unblocked tasks sorted by priority
+bn blocked                              # Show tasks blocked by unresolved dependencies
+bn list [--status open] [--parent ID]   # List tasks with filters
+bn tree [id]                            # Show hierarchy tree with status
+bn graph [--format mermaid|dot]         # Dependency graph visualization
+bn stats                                # Task counts, priority breakdown, progress
+bn doctor                               # Health check—detect cycles, orphans
+```
 
 ### Dependencies
 
-| Command | Description |
-|---|---|
-| `bn dep add <id> <dep>` | Add a dependency (id waits for dep) |
-| `bn dep remove <id> <dep>` | Remove a dependency |
-| `bn dep list <id>` | Show dependencies and dependents |
-| `bn dep tree [id]` | Dependency tree with box-drawing characters |
-| `bn dep cycles` | Detect and report cycles in graph |
-
-### Views
-
-| Command | Description |
-|---|---|
-| `bn ready` | Beans with no blocking dependencies, sorted by priority |
-| `bn blocked` | Beans waiting on unresolved dependencies |
-| `bn tree [id]` | Hierarchical tree with status indicators |
-| `bn graph` | Dependency graph (`--format mermaid`, `dot` or `ascii`) |
-| `bn stats` | Counts, priority breakdown, completion progress |
-| `bn doctor` | Health check — orphans, cycles, index freshness |
-| `bn sync` | Force index rebuild from YAML files |
-
-### Example Output
-
-```
-bn list --tree
-
-[ ] 1. Project scaffolding
-[ ] 2. YAML data model
-[-] 3. Implement CLI
-  [x] 3.1 bn create command
-  [-] 3.2 bn list/show commands
-  [ ] 3.3 bn dep command
-[ ] 4. Implement auto-index
-
-Legend: [ ] open  [-] in_progress  [x] closed  [!] blocked
+```bash
+bn dep add <id> <depends-on>            # Add dependency edge
+bn dep remove <id> <depends-on>         # Remove dependency
+bn dep list <id>                        # Show task's dependencies and dependents
+bn dep tree [id]                        # Full dependency tree
+bn dep cycles                           # Detect and report cycles
 ```
 
+### Maintenance
+
+```bash
+bn sync                                 # Force index rebuild from files
 ```
-bn ready
-
-P0  1    Project scaffolding
-P0  2    YAML data model
-P2  3.3  bn dep command
-```
-
-## The Planning Workflow
-
-Beans is designed for progressive decomposition:
-
-1. **Create a goal** — `bn create "Build the thing"`
-2. **Decompose** — split into sub-beans until leaves are agent-executable
-3. **Check readiness** — each leaf should be self-contained, bounded, testable, unambiguous, and fit in context
-4. **Swarm** — dispatch leaf beans to agents in dependency-aware waves
-5. **Close** — agents write handoff notes, mark beans closed, dependents become ready
-
-A leaf bean is ready for autonomous execution when:
-
-- **Self-contained** — enough context to start without asking questions
-- **Bounded** — 1-5 functions to write, 2-10 to read
-- **Testable** — concrete acceptance criteria, not "works correctly"
-- **Unambiguous** — the "how" is clear, not just the "what"
-- **Fits in context** — estimated <64k tokens
-
-## Agent Workflow
-
-Beans is designed for agents first. Each bean becomes a ralph loop:
-
-1. **Agent claims work** — runs `bn claim <id>` on a ready bean. Atomic operation, only one agent wins. Status: open → in_progress
-2. **Agent works** — modifies files, writes code, iterates. Runs `bn verify <id>` as a sanity check mid-work
-3. **Agent closes** — runs `bn close <id>` when done
-4. **Verify runs** — bean's verify command must exit 0
-5. **Success** — bean closes, dependents become ready
-6. **Failure** — verify fails, all changes undo via `/ai-tools`, bean stays open, `attempts` increments, status: in_progress → open
-7. **Retry** — fresh agent runs `bn ready`, claims the same bean, can see `notes` and `design` from the previous attempt
-8. **Limits** — after `max_attempts`, bean needs human review
-
-The key insight: agents never debug their own code. Verify fails → undo → fresh agent with the same bean. No stuck loops, no token waste on debugging. Each attempt is a clean shot. `bn claim` prevents race conditions: only one agent claims each bean.
-
-## Beans vs Beads
-
-The two tools share the same core idea — dependency-aware task graphs for autonomous agents — but make different tradeoffs at every layer.
-
-### Where beans wins
-
-**Direct file access.** An agent can `cat .beans/3.2.yaml` and have everything it needs. No CLI dependency, no database query, no daemon running. The data is the interface. With beads, the CLI is a required intermediary between the agent and the task.
-
-**Parseable IDs.** An agent sees `3.2` and knows it's a child of `3` without a lookup. `ls .beans/` reveals the full hierarchy. Hash IDs require querying to understand relationships.
-
-**No hidden state.** One file = one source of truth. No JSONL + SQLite cache + daemon sync where things can diverge. An agent reads the file and it's guaranteed current.
-
-**Self-contained format.** A bean's description field is the agent prompt — same file that stores the metadata also carries the full execution context. No extraction step, no joining across records.
-
-**Universal tooling.** `grep -r "authentication" .beans/` searches every bean. `git diff .beans/` shows what changed. Any tool that works with files works with beans. No special CLI required.
-
-### Where beads wins
-
-**Merge-safe IDs.** Hash-based IDs never collide. Two agents creating beans on separate branches will produce duplicate sequential IDs. Beads handles distributed creation natively; beans currently requires coordination.
-
-**Query performance at scale.** SQLite handles thousands of issues with indexed queries. Beans rebuilds a flat YAML index by scanning files — fine for hundreds, potentially slow for thousands.
-
-**Automatic sync.** Beads' background daemon keeps the local cache fresh without explicit commands. Beans is stateless — faster to reason about, but you manage freshness yourself.
-
-### Summary
-
-Beads optimizes for distributed infrastructure at scale. Beans optimizes for directness — and directness matters to agents and humans equally. An agent that can read a file without booting a daemon, parse an ID without a lookup, and grep across tasks without a query language has fewer moving parts between it and the work.
-
-The tradeoff is real: beans currently lacks a story for multi-branch parallel creation without ID conflicts. That's a solvable problem (see [Future Work](#future-work)), not a fundamental limitation.
 
 ## Design Decisions
 
-**YAML files, not a database.** Each bean is a file you can open in your editor, browse in a file tree, grep across, and git-diff. The filesystem is the query interface.
+**File-based over database:**
+Human readability and git compatibility. Sacrifices query performance for operational simplicity.
 
-**Sequential IDs with dot-notation.** `ls .beans/` shows structure. `3.2.yaml` is obviously a child of `3.yaml`.
+**Sequential IDs with dot-notation:**
+Hierarchy visible in filenames. `3.2` is obviously a child of `3`. No metadata lookup required.
 
-**No fixed types.** Has children = container. No children = leaf. A "task" that gets decomposed becomes a "subgoal" implicitly. Types add ceremony without value.
+**Verify gates (mandatory):**
+Forces explicit proof of work. Prevents incomplete tasks from closing. Enables safe agent retries.
 
-**Stateless CLI.** Read files, write files, exit. No daemons, no lock files, no PID files. Index staleness is checked via mtime comparison. The index is a cache, not a source of truth — eliminates an entire class of sync bugs.
+**Atomic claiming:**
+File system rename operation ensures only one agent can claim a task. No locks, no contention.
 
-**Built from scratch, not forked.** Beads is built around JSONL + SQLite + a background daemon. Beans wants individual YAML files, sequential IDs, and a stateless CLI. That's not a refactor — it's a different architecture. Forking would mean gutting everything except the dependency graph logic. Starting fresh is cleaner when the overlap is conceptual rather than structural.
+**Stateless operations:**
+No daemon, no connection pooling, no background sync. Each command reads files, modifies them, exits. Index staleness checked via mtime.
 
-## Quality & Security
+## Use Cases
 
-**Audit Status:** ✅ Comprehensive code audit complete. Overall verdict: **Respectable** with **Compelling** code taste and architecture. See [AUDIT.md](AUDIT.md) for full assessment.
+- **Epic coordination**: Break features into tasks. Assign to agent swarms. Track readiness without manual polling.
+- **Hierarchical workflows**: Top-level goals → subgoals → agent-executable leaves. Parent beans document "why"; leaves document "what".
+- **Verification-driven development**: Every task must prove completion. Tests, builds, lint checks—all enforced.
+- **Multi-agent orchestration**: Atomic claiming prevents conflicts. Verify gates prevent incomplete work. Attempt tracking prevents infinite retries.
+- **Audit trails**: Full git history of task state. Who claimed it? When did it close? Why did it fail?
 
-**Recent Security Improvements:**
-- ✅ **Path traversal protection** — Bean IDs validated to prevent directory escape attacks (pattern: `^[a-zA-Z0-9._-]+$`)
-- ✅ **Shell injection prevention** — Verify commands properly escaped using `shell-escape` crate
-- ✅ **Code quality** — Duplicate utility functions consolidated, repeated patterns refactored
-- ✅ **Platform hygiene** — .gitignore expanded to properly exclude build artifacts and editor config
+## Testing
 
-**Test Coverage:**
-- 185 unit tests (all passing)
-- Security validation tests for path traversal and shell metacharacters
-- End-to-end tests for all major commands
-- Regression tests for dependency graph operations
-
-## Tech Stack
-
-- **Language:** Rust (edition 2021)
-- **CLI:** Clap 4 (derive macros)
-- **Serialization:** Serde + serde_yaml
-- **Error handling:** Anyhow
-- **Timestamps:** Chrono
-- **Security:** shell-escape (command safety)
-
-## Future Work
-
-**Branch-safe ID allocation.** Sequential IDs can collide when agents create beans on parallel branches. Possible approaches: ID reservation ranges per branch, a lightweight lock file, or a rebase-time renumbering pass. The goal is to solve this without giving up readable IDs or requiring a daemon.
-
-**Scaling the index.** The current design scans all YAML files to rebuild the index. For projects with thousands of beans, this could benefit from incremental indexing — updating only changed files rather than full rebuilds.
+```bash
+cargo test              # Run all tests (230+ passing)
+cargo test --lib       # Unit tests only
+```
 
 ## License
 
-MIT
+Apache 2.0. See [LICENSE](LICENSE).
+
+## Contributing
+
+Contributions welcome. Please open an issue for feature requests or bugs.
