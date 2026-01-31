@@ -1,4 +1,3 @@
-use std::cmp::Ordering;
 use std::fs;
 use std::path::Path;
 
@@ -200,6 +199,7 @@ impl Index {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cmp::Ordering;
     use std::fs;
     use std::thread;
     use std::time::Duration;
