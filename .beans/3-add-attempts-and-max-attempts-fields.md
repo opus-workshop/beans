@@ -7,7 +7,8 @@ created_at: |-
   2026-01-27T08:04:26.727807Z
 updated_at: |-
   2026-01-27T08:04:41.655698Z
-dependencies: - '1'
+dependencies:
+  - '1'
 ---
 
 Add attempts and max_attempts fields to Bean struct. Required for agent retry workflow.

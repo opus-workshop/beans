@@ -7,7 +7,8 @@ created_at: |-
   2026-01-27T08:04:29.994972Z
 updated_at: |-
   2026-01-27T08:04:42.107985Z
-dependencies: - '2'
+dependencies:
+  - '2'
 ---
 
 Add validation that bean IDs follow pattern (digits and dots only). Prevents crashes from invalid manually-edited YAML.

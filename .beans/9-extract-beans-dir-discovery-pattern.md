@@ -7,10 +7,12 @@ created_at: |-
   2026-01-30T18:41:56.064554Z
 updated_at: |-
   2026-01-30T18:46:30.023197Z
-labels: - refactor
-- code-quality
-dependencies: - '3'
-- '8'
+labels:
+  - refactor
+  - code-quality
+dependencies:
+  - '3'
+  - '8'
 verify: cargo test --lib
 ---
 

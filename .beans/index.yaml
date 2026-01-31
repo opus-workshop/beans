@@ -1,4 +1,33 @@
 beans:
+- id: '1'
+  title: Implement verify field and gate on close
+  status: open
+  priority: 2
+  updated_at: 2026-01-27T08:04:24.135954Z
+- id: '2'
+  title: Extract duplicate utility functions
+  status: open
+  priority: 2
+  updated_at: 2026-01-27T08:04:25.139443Z
+- id: '3'
+  title: Add attempts and max_attempts fields
+  status: open
+  priority: 2
+  dependencies:
+  - '1'
+  updated_at: 2026-01-27T08:04:41.655698Z
+- id: '4'
+  title: Refactor graph functions to accept Index
+  status: open
+  priority: 2
+  updated_at: 2026-01-27T08:04:28.350601Z
+- id: '5'
+  title: Validate bean ID format
+  status: open
+  priority: 2
+  dependencies:
+  - '2'
+  updated_at: 2026-01-27T08:04:42.107985Z
 - id: '6'
   title: Add path traversal protection for bean IDs
   status: closed
@@ -30,7 +59,7 @@ beans:
   updated_at: 2026-01-30T18:52:17.686266Z
 - id: '9'
   title: Extract beans_dir discovery pattern
-  status: closed
+  status: open
   priority: 1
   dependencies:
   - '3'
@@ -38,7 +67,7 @@ beans:
   labels:
   - refactor
   - code-quality
-  updated_at: 2026-01-30T18:54:25.290677Z
+  updated_at: 2026-01-30T18:46:30.023197Z
 - id: '10'
   title: Expand .gitignore with platform artifacts
   status: closed
@@ -47,3 +76,86 @@ beans:
   - hygiene
   - meta
   updated_at: 2026-01-30T18:51:07.517469Z
+- id: '11'
+  title: Migrate beans from YAML to Markdown + YAML Frontmatter
+  status: closed
+  priority: 1
+  updated_at: 2026-01-30T15:45:00Z
+- id: '11.1'
+  title: Update Bean parser to read .md + YAML frontmatter
+  status: closed
+  priority: 1
+  parent: '11'
+  updated_at: 2026-01-30T15:45:00Z
+- id: '11.2'
+  title: Write migration script to convert old YAML beans to .md
+  status: closed
+  priority: 1
+  parent: '11'
+  updated_at: 2026-01-30T15:45:00Z
+- id: '11.3'
+  title: Update `bn show` to render Markdown beautifully
+  status: closed
+  priority: 2
+  parent: '11'
+  updated_at: 2026-01-30T15:45:00Z
+- id: '12'
+  title: Implement bean archive system
+  status: open
+  priority: 2
+  updated_at: 2026-01-30T00:00:00Z
+- id: '12.1'
+  title: Implement `bn archive` and `bn unarchive` commands
+  status: open
+  priority: 2
+  parent: '12'
+  updated_at: 2026-01-30T00:00:00Z
+- id: '13'
+  title: Update bn to support {id}-{slug}.md naming convention
+  status: closed
+  priority: 1
+  updated_at: 2026-01-30T16:00:00Z
+- id: '13.1'
+  title: Add slug generation utility function
+  status: closed
+  priority: 1
+  parent: '13'
+  updated_at: 2026-01-30T16:00:00Z
+- id: '13.2'
+  title: Add slug field to Bean struct
+  status: closed
+  priority: 1
+  parent: '13'
+  dependencies:
+  - '13.1'
+  updated_at: 2026-01-30T16:00:00Z
+- id: '13.3'
+  title: Update file discovery to find beans by {id}-{slug}.md pattern
+  status: closed
+  priority: 1
+  parent: '13'
+  dependencies:
+  - '13.1'
+  - '13.2'
+  updated_at: 2026-01-30T16:00:00Z
+- id: '13.4'
+  title: Update create command to generate slug from title
+  status: closed
+  priority: 1
+  parent: '13'
+  dependencies:
+  - '13.1'
+  - '13.2'
+  - '13.3'
+  updated_at: 2026-01-30T16:00:00Z
+- id: '13.5'
+  title: Update all command file operations for {id}-{slug}.md naming
+  status: closed
+  priority: 1
+  parent: '13'
+  dependencies:
+  - '13.1'
+  - '13.2'
+  - '13.3'
+  - '13.4'
+  updated_at: 2026-01-30T16:00:00Z

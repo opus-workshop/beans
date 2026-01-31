@@ -7,8 +7,9 @@ created_at: |-
   2026-01-30T18:41:52.048039Z
 updated_at: |-
   2026-01-30T18:51:07.517469Z
-labels: - security
-- core
+labels:
+  - security
+  - core
 closed_at: |-
   2026-01-30T18:51:07.517469Z
 verify: |-

@@ -7,14 +7,16 @@ created_at: |-
   2026-01-30T18:41:55.008023Z
 updated_at: |-
   2026-01-30T18:52:17.686266Z
-labels: - code-quality
-- core
+labels:
+  - code-quality
+  - core
 closed_at: |-
   2026-01-30T18:52:17.686266Z
-dependencies: - '1'
-- '2'
-- '6'
-- '7'
+dependencies:
+  - '1'
+  - '2'
+  - '6'
+  - '7'
 verify: cargo test --lib index
 ---
 
