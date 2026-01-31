@@ -14,12 +14,14 @@ Beans is a task management system designed to coordinate work between multiple A
 - **Atomic claiming**: Race-condition-free task assignment ensures no two agents work the same task.
 - **File-first design**: All data lives in `.beans/` as Markdown files with YAML frontmatter. No daemon, no database—just git-friendly files.
 - **Hierarchical dependencies**: Tasks form DAGs with parent-child relationships and dependency tracking. Ready/blocked status derived automatically.
+- **Lifecycle hooks**: Pre/post hooks for create, update, and close operations. CI gatekeeping via pre-close hooks.
+- **Auto-archive**: Closed tasks move to `.beans/archive/YYYY/MM/` keeping the active directory clean.
 - **Stateless CLI**: Lookup by mtime. Index is a cache, never the source of truth.
 
 ## Installation
 
 ```bash
-# Build from source
+# Build from source (installs bn and bctx binaries)
 cargo install --git https://github.com/opus-workshop/beans
 
 # Or clone and build
@@ -27,6 +29,9 @@ git clone https://github.com/opus-workshop/beans
 cd beans
 cargo build --release
 ./target/release/bn init my-project
+
+# Optional: Install bpick fuzzy selector (requires fzf, jq)
+cp tools/bpick ~/.local/bin/
 ```
 
 ## Feature Comparison
@@ -68,9 +73,17 @@ Beans use `{id}-{slug}.md` naming convention with YAML frontmatter:
 .beans/
   config.yaml              # Project metadata
   index.yaml               # Auto-built index (cache, never edit)
+  .hooks-trusted           # Hook trust marker (created by bn trust)
+  hooks/                   # Lifecycle hook scripts
+    pre-create
+    post-create
+    pre-close
   1-build-auth.md          # Task 1: "Build authentication"
   3-refactor.md            # Task 3: "Refactor parser"
   3.1-add-tests.md         # Task 3.1: "Add unit tests" (child of 3)
+  archive/                 # Auto-archived closed tasks
+    2026/01/
+      2-old-task.md
 ```
 
 ### Bean Structure
@@ -156,7 +169,8 @@ Automatically rebuilt when any bean file's mtime exceeds the index mtime. Never 
 ```bash
 bn init [name]                          # Initialize .beans/ directory
 bn create --title="..." [--parent ID]   # Create new task
-bn show <id>                            # Display task (YAML)
+bn show <id>                            # Display task details
+bn edit <id>                            # Open task in $EDITOR
 bn update <id> --title="..."            # Modify task fields
 bn delete <id>                          # Remove task
 ```
@@ -165,10 +179,22 @@ bn delete <id>                          # Remove task
 
 ```bash
 bn claim <id>                           # Atomically claim task (status: open → in_progress)
-bn release <id>                         # Release claimed task (status: in_progress → open)
-bn close <id> [--reason "..."]          # Run verify, close if exits 0; undo if fails
+bn claim <id> --release                 # Release claimed task (status: in_progress → open)
+bn close <id> [--reason "..."]          # Run verify, close if exits 0; archive on success
 bn verify <id>                          # Test verify without closing
 bn reopen <id>                          # Reopen closed task
+bn unarchive <id>                       # Restore archived task to active beans
+```
+
+### Smart Selectors
+
+Use `@`-prefixed selectors instead of explicit IDs:
+
+```bash
+bn show @latest                         # Most recently updated task
+bn close @blocked                       # Close all blocked tasks
+bn show @parent                         # Parent of current task (context-aware)
+bn list @me                             # Tasks assigned to current user (BN_USER)
 ```
 
 ### Querying
@@ -191,6 +217,41 @@ bn dep remove <id> <depends-on>         # Remove dependency
 bn dep list <id>                        # Show task's dependencies and dependents
 bn dep tree [id]                        # Full dependency tree
 bn dep cycles                           # Detect and report cycles
+```
+
+### Hooks
+
+Beans supports lifecycle hooks—shell scripts that run before/after task operations:
+
+```bash
+bn trust                                # Enable hook execution (creates .beans/.hooks-trusted)
+bn trust --check                        # Check if hooks are enabled
+bn trust --revoke                       # Disable hooks
+```
+
+**Hook directory structure:**
+```
+.beans/hooks/
+  pre-create      # Validate before task creation (exit non-zero to reject)
+  post-create     # Notify after task creation
+  pre-update      # Validate before task update
+  post-update     # Notify after task update
+  pre-close       # CI gatekeeper—runs before verify (can block close)
+```
+
+Hooks receive JSON via stdin containing the full bean context. Pre-hooks can block operations by exiting non-zero.
+
+### Companion Tools
+
+```bash
+bctx <id>                               # Assemble context from task description (extracts file paths)
+bpick                                   # Interactive fuzzy selector (requires fzf, jq)
+```
+
+**Usage examples:**
+```bash
+bn close $(bpick)                       # Interactively select and close a task
+bctx 14 | llm "Implement this"          # Pipe task context to LLM
 ```
 
 ### Maintenance
@@ -227,8 +288,8 @@ No daemon, no connection pooling, no background sync. Each command reads files, 
 ## Testing
 
 ```bash
-cargo test              # Run all tests (230+ passing)
-cargo test --lib       # Unit tests only
+cargo test              # Run all tests (420+ passing)
+cargo test --lib        # Unit tests only
 ```
 
 ## License
