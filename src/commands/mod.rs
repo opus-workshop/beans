@@ -15,6 +15,8 @@ pub mod doctor;
 pub mod claim;
 pub mod sync;
 pub mod verify;
+pub mod edit;
+pub mod unarchive;
 
 pub use init::cmd_init;
 pub use create::cmd_create;
@@ -33,3 +35,5 @@ pub use doctor::cmd_doctor;
 pub use sync::cmd_sync;
 pub use verify::cmd_verify;
 pub use claim::{cmd_claim, cmd_release};
+pub use edit::{open_editor, load_backup};
+pub use unarchive::cmd_unarchive;
