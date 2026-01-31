@@ -128,16 +128,13 @@ fn is_false(v: &bool) -> bool {
 
 impl Bean {
     /// Create a new bean with sensible defaults.
-    /// Validates the ID to prevent path traversal attacks.
-    pub fn new(id: impl Into<String>, title: impl Into<String>) -> Self {
+    /// Returns an error if the ID is invalid.
+    pub fn try_new(id: impl Into<String>, title: impl Into<String>) -> Result<Self> {
         let id_str = id.into();
-        // Validate the ID format. We panic if invalid since this is a constructor precondition.
-        if let Err(e) = validate_bean_id(&id_str) {
-            panic!("Invalid bean ID: {}", e);
-        }
+        validate_bean_id(&id_str)?;
 
         let now = Utc::now();
-        Self {
+        Ok(Self {
             id: id_str,
             title: title.into(),
             slug: None,
@@ -161,7 +158,13 @@ impl Bean {
             claimed_by: None,
             claimed_at: None,
             is_archived: false,
-        }
+        })
+    }
+
+    /// Create a new bean with sensible defaults.
+    /// Panics if the ID is invalid. Prefer `try_new` for fallible construction.
+    pub fn new(id: impl Into<String>, title: impl Into<String>) -> Self {
+        Self::try_new(id, title).expect("Invalid bean ID")
     }
 
     /// Parse YAML frontmatter and markdown body.
@@ -189,29 +192,18 @@ impl Bean {
             &content[4..]
         };
 
-        let second_delimiter_pos = after_first_delimiter.find("---");
-        if second_delimiter_pos.is_none() {
-            return Err(anyhow::anyhow!(
-                "Markdown frontmatter is missing closing delimiter (---)"
-            ));
-        }
-
-        let second_delimiter_pos = second_delimiter_pos.unwrap();
+        let second_delimiter_pos = after_first_delimiter
+            .find("---")
+            .ok_or_else(|| anyhow::anyhow!("Markdown frontmatter is missing closing delimiter (---)"))?;
         let frontmatter = &after_first_delimiter[..second_delimiter_pos];
 
         // Skip the closing --- and any whitespace to get the body
         let body_start = second_delimiter_pos + 3;
         let body_raw = &after_first_delimiter[body_start..];
 
-        // Trim leading newlines/whitespace but preserve the rest
-        let body = body_raw
-            .trim_start_matches(|c| c == '\n' || c == '\r')
-            .to_string();
-        let body = if body.is_empty() {
-            None
-        } else {
-            Some(body)
-        };
+        // Trim leading newlines but preserve the rest
+        let body = body_raw.trim_start_matches(['\n', '\r']);
+        let body = (!body.is_empty()).then(|| body.to_string());
 
         Ok((frontmatter.to_string(), body))
     }

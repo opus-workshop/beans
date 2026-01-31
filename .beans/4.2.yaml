@@ -1,6 +1,6 @@
 id: '4.2'
 title: Implement hook trust mechanism (bn trust command)
-status: open
+status: closed
 priority: 2
 created_at: 2026-01-31T17:02:26.947708Z
 updated_at: 2026-01-31T17:02:26.947708Z

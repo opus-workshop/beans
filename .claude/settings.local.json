@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Skill(decompose)",
-      "Skill(swarm)"
+      "Skill(swarm)",
+      "Bash(bn sync:*)",
+      "Bash(bn show:*)"
     ]
   }
 }

@@ -1,6 +1,6 @@
 id: '5.2'
 title: Implement @parent and @me selector resolution
-status: open
+status: closed
 priority: 2
 created_at: 2026-01-31T17:02:58.546551Z
 updated_at: 2026-01-31T17:02:58.546551Z
