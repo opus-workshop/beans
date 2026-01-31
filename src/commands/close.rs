@@ -6,8 +6,9 @@ use chrono::Utc;
 use shell_escape::unix::escape;
 
 use crate::bean::Bean;
-use crate::discovery::find_bean_file;
+use crate::discovery::{archive_path_for_bean, find_bean_file};
 use crate::index::Index;
+use crate::util::title_to_slug;
 
 #[cfg(test)]
 use std::fs;
@@ -110,6 +111,27 @@ pub fn cmd_close(
         bean.to_file(&bean_path)
             .with_context(|| format!("Failed to save bean: {}", id))?;
 
+        // Archive the closed bean
+        let slug = bean.slug.clone()
+            .unwrap_or_else(|| title_to_slug(&bean.title));
+        let today = chrono::Local::now().naive_local().date();
+        let archive_path = archive_path_for_bean(beans_dir, id, &slug, today);
+
+        // Create archive directories if needed
+        if let Some(parent) = archive_path.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("Failed to create archive directories for bean {}", id))?;
+        }
+
+        // Move the bean file to archive
+        std::fs::rename(&bean_path, &archive_path)
+            .with_context(|| format!("Failed to move bean {} to archive", id))?;
+
+        // Update bean metadata to mark as archived
+        bean.is_archived = true;
+        bean.to_file(&archive_path)
+            .with_context(|| format!("Failed to save archived bean: {}", id))?;
+
         println!("Closed bean {}: {}", id, bean.title);
         any_closed = true;
     }
@@ -147,10 +169,13 @@ mod tests {
 
         cmd_close(&beans_dir, vec!["1".to_string()], None).unwrap();
 
-        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        // Bean should be archived, not in root beans dir
+        let archived = crate::discovery::find_archived_bean(&beans_dir, "1").unwrap();
+        let updated = Bean::from_file(&archived).unwrap();
         assert_eq!(updated.status, Status::Closed);
         assert!(updated.closed_at.is_some());
         assert!(updated.close_reason.is_none());
+        assert!(updated.is_archived);
     }
 
     #[test]
@@ -162,9 +187,12 @@ mod tests {
 
         cmd_close(&beans_dir, vec!["1".to_string()], Some("Fixed".to_string())).unwrap();
 
-        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        // Bean should be archived
+        let archived = crate::discovery::find_archived_bean(&beans_dir, "1").unwrap();
+        let updated = Bean::from_file(&archived).unwrap();
         assert_eq!(updated.status, Status::Closed);
         assert_eq!(updated.close_reason, Some("Fixed".to_string()));
+        assert!(updated.is_archived);
     }
 
     #[test]
@@ -183,9 +211,12 @@ mod tests {
         cmd_close(&beans_dir, vec!["1".to_string(), "2".to_string(), "3".to_string()], None).unwrap();
 
         for id in &["1", "2", "3"] {
-            let bean = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, id).unwrap()).unwrap();
+            // All beans should be archived
+            let archived = crate::discovery::find_archived_bean(&beans_dir, id).unwrap();
+            let bean = Bean::from_file(&archived).unwrap();
             assert_eq!(bean.status, Status::Closed);
             assert!(bean.closed_at.is_some());
+            assert!(bean.is_archived);
         }
     }
 
@@ -216,9 +247,15 @@ mod tests {
         cmd_close(&beans_dir, vec!["1".to_string()], None).unwrap();
 
         let index = Index::load(&beans_dir).unwrap();
-        assert_eq!(index.beans.len(), 2);
-        let entry1 = index.beans.iter().find(|e| e.id == "1").unwrap();
-        assert_eq!(entry1.status, Status::Closed);
+        // After closing, bean 1 is archived, so only bean 2 should be in the index
+        assert_eq!(index.beans.len(), 1);
+        let entry2 = index.beans.iter().find(|e| e.id == "2").unwrap();
+        assert_eq!(entry2.status, Status::Open);
+        
+        // Verify bean 1 was archived and still closed
+        let archived = crate::discovery::find_archived_bean(&beans_dir, "1").unwrap();
+        let bean1_archived = Bean::from_file(&archived).unwrap();
+        assert_eq!(bean1_archived.status, Status::Closed);
     }
 
     #[test]
@@ -233,7 +270,9 @@ mod tests {
 
         cmd_close(&beans_dir, vec!["1".to_string()], None).unwrap();
 
-        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        // Read from archive
+        let archived = crate::discovery::find_archived_bean(&beans_dir, "1").unwrap();
+        let updated = Bean::from_file(&archived).unwrap();
         assert!(updated.updated_at > original_updated_at);
     }
 
@@ -247,9 +286,12 @@ mod tests {
 
         cmd_close(&beans_dir, vec!["1".to_string()], None).unwrap();
 
-        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        // Verify bean is archived after passing verify
+        let archived = crate::discovery::find_archived_bean(&beans_dir, "1").unwrap();
+        let updated = Bean::from_file(&archived).unwrap();
         assert_eq!(updated.status, Status::Closed);
         assert!(updated.closed_at.is_some());
+        assert!(updated.is_archived);
     }
 
     #[test]
@@ -327,9 +369,12 @@ mod tests {
 
         cmd_close(&beans_dir, vec!["1".to_string()], None).unwrap();
 
-        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        // Verify bean is archived
+        let archived = crate::discovery::find_archived_bean(&beans_dir, "1").unwrap();
+        let updated = Bean::from_file(&archived).unwrap();
         assert_eq!(updated.status, Status::Closed);
         assert!(updated.closed_at.is_some());
+        assert!(updated.is_archived);
     }
 
     #[test]
