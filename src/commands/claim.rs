@@ -4,6 +4,7 @@ use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 
 use crate::bean::{Bean, Status};
+use crate::discovery::find_bean_file;
 use crate::index::Index;
 
 /// Claim a bean for work.
@@ -11,10 +12,8 @@ use crate::index::Index;
 /// Sets status to InProgress, records who claimed it and when.
 /// The bean must be in Open status to be claimed.
 pub fn cmd_claim(beans_dir: &Path, id: &str, by: Option<String>) -> Result<()> {
-    let bean_path = beans_dir.join(format!("{}.yaml", id));
-    if !bean_path.exists() {
-        return Err(anyhow!("Bean not found: {}", id));
-    }
+    let bean_path = find_bean_file(beans_dir, id)
+        .map_err(|_| anyhow!("Bean not found: {}", id))?;
 
     let mut bean = Bean::from_file(&bean_path)
         .with_context(|| format!("Failed to load bean: {}", id))?;
@@ -52,10 +51,8 @@ pub fn cmd_claim(beans_dir: &Path, id: &str, by: Option<String>) -> Result<()> {
 ///
 /// Clears claimed_by/claimed_at and sets status back to Open.
 pub fn cmd_release(beans_dir: &Path, id: &str) -> Result<()> {
-    let bean_path = beans_dir.join(format!("{}.yaml", id));
-    if !bean_path.exists() {
-        return Err(anyhow!("Bean not found: {}", id));
-    }
+    let bean_path = find_bean_file(beans_dir, id)
+        .map_err(|_| anyhow!("Bean not found: {}", id))?;
 
     let mut bean = Bean::from_file(&bean_path)
         .with_context(|| format!("Failed to load bean: {}", id))?;

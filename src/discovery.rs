@@ -18,20 +18,17 @@ pub fn find_beans_dir(start: &Path) -> Result<PathBuf> {
     }
 }
 
-/// Find a bean file by ID, supporting the new {id}-{slug}.md naming convention.
+/// Find a bean file by ID, supporting both new and legacy naming conventions.
 ///
-/// Given ID "11.1", searches for ".beans/11.1-*.md"
-/// Returns the full path if found, with the slug included in the filename.
+/// Searches for bean files in this order:
+/// 1. New format: `{id}-{slug}.md` (e.g., "1-my-task.md", "11.1-refactor-parser.md")
+/// 2. Legacy format: `{id}.yaml` (e.g., "1.yaml", "11.1.yaml")
 ///
-/// The function:
-/// 1. Validates the ID to prevent path traversal attacks
-/// 2. Globs for `.md` files matching the ID prefix
-/// 3. Returns the first match found (there should only be one per ID)
-/// 4. Returns an error if no bean is found
+/// Returns the full path if found.
 ///
 /// # Examples
-/// - `find_bean_file(beans_dir, "1")` → `.beans/1-my-task.md`
-/// - `find_bean_file(beans_dir, "11.1")` → `.beans/11.1-refactor-md-parser.md`
+/// - `find_bean_file(beans_dir, "1")` → `.beans/1-my-task.md` or `.beans/1.yaml`
+/// - `find_bean_file(beans_dir, "11.1")` → `.beans/11.1-refactor-parser.md` or `.beans/11.1.yaml`
 ///
 /// # Arguments
 /// * `beans_dir` - Path to the `.beans/` directory
@@ -45,11 +42,9 @@ pub fn find_bean_file(beans_dir: &Path, id: &str) -> Result<PathBuf> {
     // Validate ID to prevent path traversal attacks
     crate::util::validate_bean_id(id)?;
 
-    // Build glob pattern: {beans_dir}/{id}-*.md
-    let pattern = format!("{}/*{}-*.md", beans_dir.display(), id);
-
-    // Use glob to search for matching files
-    for entry in glob::glob(&pattern).context("glob pattern failed")? {
+    // First, try the new naming convention: {id}-{slug}.md
+    let md_pattern = format!("{}/*{}-*.md", beans_dir.display(), id);
+    for entry in glob::glob(&md_pattern).context("glob pattern failed")? {
         let path = entry?;
         if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
             // Check if filename matches {id}-*.md pattern exactly
@@ -57,6 +52,12 @@ pub fn find_bean_file(beans_dir: &Path, id: &str) -> Result<PathBuf> {
                 return Ok(path);
             }
         }
+    }
+
+    // Fallback to legacy naming convention: {id}.yaml
+    let yaml_path = beans_dir.join(format!("{}.yaml", id));
+    if yaml_path.exists() {
+        return Ok(yaml_path);
     }
 
     Err(anyhow::anyhow!("Bean {} not found", id))
@@ -341,17 +342,33 @@ mod tests {
     }
 
     #[test]
-    fn find_bean_file_ignores_yaml_files() {
+    fn find_bean_file_supports_legacy_yaml_files() {
         let dir = tempfile::tempdir().unwrap();
         let beans_dir = dir.path().join(".beans");
         fs::create_dir(&beans_dir).unwrap();
 
-        // Create a .yaml file (should be ignored)
+        // Create a .yaml file (legacy format - should be found as fallback)
         fs::write(beans_dir.join("7.yaml"), "old format").unwrap();
 
-        // Try to find the bean (should fail since we only look for .md)
+        // Should find the legacy .yaml file
         let result = find_bean_file(&beans_dir, "7");
-        assert!(result.is_err());
+        assert!(result.is_ok());
+        assert!(result.unwrap().ends_with("7.yaml"));
+    }
+
+    #[test]
+    fn find_bean_file_prefers_md_over_yaml() {
+        let dir = tempfile::tempdir().unwrap();
+        let beans_dir = dir.path().join(".beans");
+        fs::create_dir(&beans_dir).unwrap();
+
+        // Create both formats - .md should be preferred
+        fs::write(beans_dir.join("7-my-task.md"), "new format").unwrap();
+        fs::write(beans_dir.join("7.yaml"), "old format").unwrap();
+
+        let result = find_bean_file(&beans_dir, "7");
+        assert!(result.is_ok());
+        assert!(result.unwrap().ends_with("7-my-task.md"));
     }
 
     #[test]
