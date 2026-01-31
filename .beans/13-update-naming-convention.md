@@ -1,10 +1,11 @@
 ---
 id: 13
 title: Update bn to support {id}-{slug}.md naming convention
-status: open
+status: closed
 priority: 1
 created_at: 2026-01-30T00:00:00Z
-updated_at: 2026-01-30T00:00:00Z
+updated_at: 2026-01-30T16:00:00Z
+closed_at: 2026-01-30T16:00:00Z
 type: epic
 ---
 
