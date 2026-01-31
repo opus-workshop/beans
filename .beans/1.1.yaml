@@ -1,6 +1,6 @@
 id: '1.1'
 title: Extract file paths from bean descriptions using regex
-status: open
+status: closed
 priority: 2
 created_at: 2026-01-31T17:01:09.785698Z
 updated_at: 2026-01-31T17:01:09.785698Z

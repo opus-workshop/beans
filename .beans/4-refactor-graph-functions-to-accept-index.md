@@ -1,7 +1,7 @@
 ---
 id: 4
 title: Refactor graph functions to accept Index
-status: open
+status: closed
 priority: 2
 created_at: |-
   2026-01-27T08:04:28.350601Z

@@ -1,6 +1,6 @@
 id: '5'
 title: Implement smart selectors (@latest, @blocked, @parent, @me)
-status: open
+status: closed
 priority: 2
 created_at: 2026-01-31T16:51:48.920128Z
 updated_at: 2026-01-31T16:51:48.920128Z

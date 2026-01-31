@@ -1,7 +1,7 @@
 ---
 id: 9
 title: Extract beans_dir discovery pattern
-status: open
+status: closed
 priority: 1
 created_at: |-
   2026-01-30T18:41:56.064554Z

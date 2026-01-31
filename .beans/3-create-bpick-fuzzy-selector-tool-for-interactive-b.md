@@ -1,7 +1,7 @@
 id: '3'
 title: Create bpick fuzzy selector tool for interactive bean selection
 slug: create-bpick-fuzzy-selector-tool-for-interactive-b
-status: open
+status: closed
 priority: 1
 created_at: 2026-01-31T16:51:32.872900Z
 updated_at: 2026-01-31T16:51:32.872900Z

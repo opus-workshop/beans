@@ -2,6 +2,14 @@ use regex::Regex;
 use std::path::Path;
 use std::fs;
 use std::io;
+use std::sync::LazyLock;
+
+// Compiled once, reused across all calls
+static PATH_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    // Match file paths with supported extensions (tsx and yml added)
+    Regex::new(r"([a-zA-Z0-9_.][a-zA-Z0-9_./\-]*\.(rs|tsx?|py|md|json|toml|ya?ml|sh|go|java))\b")
+        .expect("Invalid regex pattern")
+});
 
 /// Extracts file paths from a bean description using regex pattern matching.
 ///
@@ -19,45 +27,34 @@ use std::io;
 /// # Returns
 /// A Vec of deduplicated file paths in order of appearance
 pub fn extract_paths(description: &str) -> Vec<String> {
-    // Simple pattern: match file paths with supported extensions
-    // Start with alphanumeric, underscore, or dot (NOT /)
-    // Can contain slashes, hyphens, dots, underscores
-    // Must end with a supported extension
-    let pattern = r"([a-zA-Z0-9_.][a-zA-Z0-9_./\-]*\.(rs|ts|py|md|json|toml|yaml|sh|go|java))\b";
+    let mut result = Vec::new();
+    let mut seen = std::collections::HashSet::new();
 
-    if let Ok(regex) = Regex::new(pattern) {
-        let mut result = Vec::new();
-        let mut seen = std::collections::HashSet::new();
+    for cap in PATH_REGEX.captures_iter(description) {
+        if let Some(path) = cap.get(1) {
+            let path_str = path.as_str();
+            let path_start = path.start();
 
-        for cap in regex.captures_iter(description) {
-            if let Some(path) = cap.get(1) {
-                let path_str = path.as_str();
-                let path_start = path.start();
+            // Filter out absolute paths: if preceded directly by /
+            // Use byte access (O(1)) since '/' is ASCII
+            if path_start > 0 && description.as_bytes()[path_start - 1] == b'/' {
+                continue;
+            }
 
-                // Filter out absolute paths: if preceded directly by /
-                if path_start > 0 && description.chars().nth(path_start - 1) == Some('/') {
-                    continue;
-                }
+            // Filter out URLs (check if preceded by :// in the description)
+            let before = &description[path_start.saturating_sub(3)..path_start];
+            if before.ends_with("://") {
+                continue;
+            }
 
-                // Filter out URLs (check if preceded by :// in the description)
-                if path_start >= 3 {
-                    let before = &description[path_start.saturating_sub(3)..path_start];
-                    if before.ends_with("://") {
-                        continue;
-                    }
-                }
-
-                // Deduplicate and add to result
-                if seen.insert(path_str.to_string()) {
-                    result.push(path_str.to_string());
-                }
+            // Deduplicate and add to result
+            if seen.insert(path_str.to_string()) {
+                result.push(path_str.to_string());
             }
         }
-
-        result
-    } else {
-        Vec::new()
     }
+
+    result
 }
 
 /// Reads a file from disk and returns its contents as a string.
@@ -118,7 +115,7 @@ fn detect_language(path: &str) -> &str {
 /// A markdown-formatted string with the file header and code fence
 ///
 /// # Format
-/// ```
+/// ```text
 /// ## File: {path}
 /// ```{lang}
 /// {content}
@@ -264,6 +261,18 @@ mod tests {
     fn test_go_and_java_extensions() {
         let result = extract_paths("Implement src/main.go and src/Main.java");
         assert_eq!(result, vec!["src/main.go", "src/Main.java"]);
+    }
+
+    #[test]
+    fn test_tsx_extension() {
+        let result = extract_paths("Update components/Button.tsx and pages/Home.tsx");
+        assert_eq!(result, vec!["components/Button.tsx", "pages/Home.tsx"]);
+    }
+
+    #[test]
+    fn test_yml_extension() {
+        let result = extract_paths("Edit .github/workflows/ci.yml and docker-compose.yml");
+        assert_eq!(result, vec![".github/workflows/ci.yml", "docker-compose.yml"]);
     }
 
     #[test]

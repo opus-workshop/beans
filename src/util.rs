@@ -150,13 +150,13 @@ pub fn title_to_slug(title: &str) -> String {
     // Step 6: Remove leading/trailing hyphens
     let slug = slug.trim_matches('-').to_string();
     
-    // Step 7: Truncate to 50 characters
+    // Step 7: Truncate to 50 characters and re-trim hyphens
     let slug = if slug.len() > 50 {
-        slug.chars().take(50).collect::<String>()
+        slug.chars().take(50).collect::<String>().trim_end_matches('-').to_string()
     } else {
         slug
     };
-    
+
     // Step 8: Return "unnamed" if empty
     if slug.is_empty() {
         "unnamed".to_string()

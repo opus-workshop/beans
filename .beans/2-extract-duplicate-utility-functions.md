@@ -1,7 +1,7 @@
 ---
 id: 2
 title: Extract duplicate utility functions
-status: open
+status: closed
 priority: 2
 created_at: |-
   2026-01-27T08:04:25.139443Z

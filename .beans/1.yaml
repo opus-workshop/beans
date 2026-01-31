@@ -1,6 +1,6 @@
 id: '1'
 title: Implement bctx context assembler for agent prompts
-status: open
+status: closed
 priority: 2
 created_at: 2026-01-31T16:51:17.831446Z
 updated_at: 2026-01-31T16:51:17.831446Z

@@ -1,7 +1,7 @@
 ---
 id: 1
 title: Implement verify field and gate on close
-status: open
+status: closed
 priority: 2
 created_at: |-
   2026-01-27T08:04:24.135954Z

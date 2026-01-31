@@ -1,7 +1,7 @@
 beans:
 - id: '1'
   title: Implement bctx context assembler for agent prompts
-  status: open
+  status: closed
   priority: 2
   labels:
   - feature
@@ -10,12 +10,12 @@ beans:
   updated_at: 2026-01-31T16:51:17.831446Z
 - id: '1'
   title: Implement verify field and gate on close
-  status: open
+  status: closed
   priority: 2
   updated_at: 2026-01-27T08:04:24.135954Z
 - id: '1.1'
   title: Extract file paths from bean descriptions using regex
-  status: open
+  status: closed
   priority: 2
   parent: '1'
   updated_at: 2026-01-31T17:01:09.785698Z
@@ -29,7 +29,7 @@ beans:
   updated_at: 2026-01-31T17:01:44.350895Z
 - id: '1.3'
   title: Create bctx binary and CLI integration
-  status: open
+  status: closed
   priority: 2
   parent: '1'
   dependencies:
@@ -37,12 +37,12 @@ beans:
   updated_at: 2026-01-31T17:01:52.292820Z
 - id: '2'
   title: Extract duplicate utility functions
-  status: open
+  status: closed
   priority: 2
   updated_at: 2026-01-27T08:04:25.139443Z
 - id: '2'
   title: Implement bn edit command
-  status: open
+  status: closed
   priority: 2
   labels:
   - feature
@@ -51,7 +51,7 @@ beans:
   updated_at: 2026-01-31T16:51:27.886904Z
 - id: '2.1'
   title: Implement editor subprocess and file operations for bn edit
-  status: open
+  status: closed
   priority: 2
   parent: '2'
   updated_at: 2026-01-31T17:01:58.391797Z
@@ -65,7 +65,7 @@ beans:
   updated_at: 2026-01-31T17:02:04.960309Z
 - id: '2.3'
   title: Integrate bn edit into CLI command dispatcher
-  status: open
+  status: closed
   priority: 2
   parent: '2'
   dependencies:
@@ -73,7 +73,7 @@ beans:
   updated_at: 2026-01-31T17:02:12.004481Z
 - id: '3'
   title: Create bpick fuzzy selector tool for interactive bean selection
-  status: open
+  status: closed
   priority: 1
   labels:
   - feature
@@ -82,14 +82,14 @@ beans:
   updated_at: 2026-01-31T16:51:32.872900Z
 - id: '3'
   title: Add attempts and max_attempts fields
-  status: open
+  status: closed
   priority: 2
   dependencies:
   - '1'
   updated_at: 2026-01-27T08:04:41.655698Z
 - id: '4'
   title: Refactor graph functions to accept Index
-  status: open
+  status: closed
   priority: 2
   updated_at: 2026-01-27T08:04:28.350601Z
 - id: '4'
@@ -137,19 +137,19 @@ beans:
   updated_at: 2026-01-31T17:02:44.316787Z
 - id: '5'
   title: Validate bean ID format
-  status: open
+  status: closed
   priority: 2
   dependencies:
   - '2'
   updated_at: 2026-01-27T08:04:42.107985Z
 - id: '5'
   title: Implement smart selectors (@latest, @blocked, @parent, @me)
-  status: open
+  status: closed
   priority: 2
   updated_at: 2026-01-31T16:51:48.920128Z
 - id: '5.1'
   title: Implement selector parsing and @latest/@blocked resolution
-  status: open
+  status: closed
   priority: 2
   parent: '5'
   updated_at: 2026-01-31T17:02:51.688461Z
@@ -163,7 +163,7 @@ beans:
   updated_at: 2026-01-31T17:02:58.546551Z
 - id: '5.3'
   title: Integrate selectors into all bean ID arguments across CLI
-  status: open
+  status: closed
   priority: 2
   parent: '5'
   dependencies:
@@ -179,7 +179,7 @@ beans:
   updated_at: 2026-01-30T18:51:07.517469Z
 - id: '6'
   title: Create bpick fuzzy selector tool
-  status: open
+  status: closed
   priority: 2
   updated_at: 2026-01-31T16:54:29.962383Z
 - id: '7'
@@ -205,7 +205,7 @@ beans:
   updated_at: 2026-01-30T18:52:17.686266Z
 - id: '9'
   title: Extract beans_dir discovery pattern
-  status: open
+  status: closed
   priority: 1
   dependencies:
   - '3'

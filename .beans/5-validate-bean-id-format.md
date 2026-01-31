@@ -1,7 +1,7 @@
 ---
 id: 5
 title: Validate bean ID format
-status: open
+status: closed
 priority: 2
 created_at: |-
   2026-01-27T08:04:29.994972Z

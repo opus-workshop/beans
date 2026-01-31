@@ -1,6 +1,6 @@
 id: '2.1'
 title: Implement editor subprocess and file operations for bn edit
-status: open
+status: closed
 priority: 2
 created_at: 2026-01-31T17:01:58.391797Z
 updated_at: 2026-01-31T17:01:58.391797Z

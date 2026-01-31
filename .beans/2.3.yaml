@@ -1,6 +1,6 @@
 id: '2.3'
 title: Integrate bn edit into CLI command dispatcher
-status: open
+status: closed
 priority: 2
 created_at: 2026-01-31T17:02:12.004481Z
 updated_at: 2026-01-31T17:02:12.004481Z
