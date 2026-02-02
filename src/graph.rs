@@ -193,11 +193,14 @@ pub fn find_all_cycles(index: &Index) -> Result<Vec<Vec<String>>> {
         .map(|e| (e.id.clone(), e.dependencies.clone()))
         .collect();
 
+    let mut visited = HashSet::new();
+
     // For each node, check if there's a cycle starting from it
     for start_id in graph.keys() {
-        let mut visited = HashSet::new();
-        let mut path = vec![start_id.clone()];
-        find_cycle_dfs(&graph, start_id, &mut visited, &mut path, &mut cycles);
+        if !visited.contains(start_id) {
+            let mut path = Vec::new();
+            find_cycle_dfs(&graph, start_id, &mut visited, &mut path, &mut cycles);
+        }
     }
 
     Ok(cycles)
@@ -209,31 +212,31 @@ fn find_cycle_dfs(
     visited: &mut HashSet<String>,
     path: &mut Vec<String>,
     cycles: &mut Vec<Vec<String>>,
-) -> bool {
-    if visited.contains(current) {
-        // Check if it's in the current path
-        if let Some(pos) = path.iter().position(|id| id == current) {
-            // Found a cycle
-            let cycle = path[pos..].to_vec();
-            if !cycles.contains(&cycle) {
-                cycles.push(cycle);
-            }
-            return true;
+) {
+    // Check if current is already on the DFS path (back edge = cycle)
+    if let Some(pos) = path.iter().position(|id| id == current) {
+        let cycle = path[pos..].to_vec();
+        if !cycles.contains(&cycle) {
+            cycles.push(cycle);
         }
-        return false;
+        return;
     }
 
-    visited.insert(current.to_string());
+    // Skip if already fully explored
+    if visited.contains(current) {
+        return;
+    }
+
+    path.push(current.to_string());
 
     if let Some(deps) = graph.get(current) {
         for dep in deps {
-            path.push(dep.clone());
             find_cycle_dfs(graph, dep, visited, path, cycles);
-            path.pop();
         }
     }
 
-    false
+    path.pop();
+    visited.insert(current.to_string());
 }
 
 #[cfg(test)]

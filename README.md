@@ -327,9 +327,13 @@ No daemon, no connection pooling, no background sync. Each command reads files, 
 ## Testing
 
 ```bash
-cargo test              # Run all tests (420+ passing)
+cargo test              # Run all tests
 cargo test --lib        # Unit tests only
 ```
+
+## Documentation
+
+- [Best Practices](docs/BEST_PRACTICES.md) — Guide for creating and managing beans effectively
 
 ## License
 
