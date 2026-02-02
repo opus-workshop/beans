@@ -30,6 +30,8 @@ pub fn cmd_show(id: &str, json: bool, short: bool, beans_dir: &Path) -> Result<(
 
 /// Render a bean beautifully with metadata header and formatted markdown body
 fn render_bean(bean: &Bean) -> Result<()> {
+    let skin = MadSkin::default();
+
     // Print metadata header
     println!("{}", render_metadata_header(bean));
 
@@ -38,8 +40,36 @@ fn render_bean(bean: &Bean) -> Result<()> {
 
     // Print description with markdown formatting if it exists
     if let Some(description) = &bean.description {
-        let skin = MadSkin::default();
         let formatted = skin.term_text(description);
+        println!("{}", formatted);
+    }
+
+    // Print acceptance criteria
+    if let Some(acceptance) = &bean.acceptance {
+        println!("\n**Acceptance Criteria**");
+        let formatted = skin.term_text(acceptance);
+        println!("{}", formatted);
+    }
+
+    // Print verify command
+    if let Some(verify) = &bean.verify {
+        println!("\n**Verify Command**");
+        println!("```");
+        println!("{}", verify);
+        println!("```");
+    }
+
+    // Print design notes
+    if let Some(design) = &bean.design {
+        println!("\n**Design**");
+        let formatted = skin.term_text(design);
+        println!("{}", formatted);
+    }
+
+    // Print notes
+    if let Some(notes) = &bean.notes {
+        println!("\n**Notes**");
+        let formatted = skin.term_text(notes);
         println!("{}", formatted);
     }
 
@@ -89,6 +119,15 @@ fn render_metadata_header(bean: &Bean) -> String {
 
     if let Some(reason) = &bean.close_reason {
         details.push(format!("Close reason: {}", reason));
+    }
+
+    // Show claim information
+    if let Some(claimed_by) = &bean.claimed_by {
+        details.push(format!("Claimed by: {}", claimed_by));
+    }
+    if let Some(claimed_at) = bean.claimed_at {
+        let claimed = claimed_at.format("%Y-%m-%d %H:%M:%S UTC");
+        details.push(format!("Claimed at: {}", claimed));
     }
 
     let mut output = String::new();
