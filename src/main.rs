@@ -10,7 +10,7 @@ use bn::commands::{
     cmd_claim, cmd_close, cmd_create, cmd_delete, cmd_dep_add, cmd_dep_cycles,
     cmd_dep_list, cmd_dep_remove, cmd_dep_tree, cmd_doctor, cmd_edit, cmd_graph, cmd_init,
     cmd_list, cmd_ready, cmd_blocked, cmd_release, cmd_reopen, cmd_show, cmd_stats,
-    cmd_sync, cmd_tree, cmd_trust, cmd_unarchive, cmd_update, cmd_verify,
+    cmd_status, cmd_sync, cmd_tree, cmd_trust, cmd_unarchive, cmd_update, cmd_verify,
 };
 use bn::commands::create::CreateArgs;
 use bn::discovery::find_beans_dir;
@@ -203,6 +203,7 @@ fn main() -> Result<()> {
 
         Command::Ready => cmd_ready(&beans_dir),
         Command::Blocked => cmd_blocked(&beans_dir),
+        Command::Status => cmd_status(&beans_dir),
 
         Command::Tree { id } => {
             if let Some(ref id_val) = id {

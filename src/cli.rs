@@ -210,6 +210,9 @@ pub enum Command {
     /// Show beans blocked by unresolved dependencies
     Blocked,
 
+    /// Show project status: claimed, ready, and blocked beans
+    Status,
+
     /// Show hierarchical tree of beans
     Tree {
         /// Root bean ID (shows full tree if omitted)
