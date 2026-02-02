@@ -203,7 +203,6 @@ fn main() -> Result<()> {
 
         Command::Ready => cmd_ready(&beans_dir),
         Command::Blocked => cmd_blocked(&beans_dir),
-        Command::Status => cmd_status(&beans_dir),
 
         Command::Tree { id } => {
             if let Some(ref id_val) = id {
@@ -211,7 +210,6 @@ fn main() -> Result<()> {
             }
             cmd_tree(&beans_dir, id.as_deref())
         }
-
         Command::Graph { format } => cmd_graph(&beans_dir, &format),
         Command::Sync => cmd_sync(&beans_dir),
         Command::Stats => cmd_stats(&beans_dir),

@@ -182,14 +182,6 @@ beans:
   status: closed
   priority: 2
   updated_at: 2026-01-31T16:54:29.962383Z
-- id: '7'
-  title: Escape shell commands in verify gate
-  status: closed
-  priority: 0
-  labels:
-  - security
-  - core
-  updated_at: 2026-01-30T18:51:07.517469Z
 - id: '8'
   title: Remove duplicate utility functions
   status: closed
@@ -198,7 +190,6 @@ beans:
   - '1'
   - '2'
   - '6'
-  - '7'
   labels:
   - code-quality
   - core
@@ -209,7 +200,6 @@ beans:
   priority: 1
   dependencies:
   - '3'
-  - '8'
   labels:
   - refactor
   - code-quality

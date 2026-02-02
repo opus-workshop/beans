@@ -203,7 +203,6 @@ pub enum Command {
         #[command(subcommand)]
         command: DepCommand,
     },
-
     /// Show beans ready to work on (no blocking dependencies)
     Ready,
 
@@ -211,7 +210,6 @@ pub enum Command {
     Blocked,
 
     /// Show project status: claimed, ready, and blocked beans
-    Status,
 
     /// Show hierarchical tree of beans
     Tree {
