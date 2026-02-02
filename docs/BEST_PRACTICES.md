@@ -487,17 +487,14 @@ When executing beans, agents have access to a powerful toolkit from `~/.claude/s
 ### Context Gathering (Do This First)
 
 ```bash
-# Structural overview of imports, types, function signatures
-beads-context scan src/ --task "Implement token refresh"
-
-# Targeted context for specific files
-beads-context build src/routes/auth.rs src/auth/mod.rs
+# Get all files referenced in a bean's description
+bctx <bean-id>
 
 # Check project specs for constraints
 spec context "token refresh implementation"
 ```
 
-Use `beads-context scan` before reading full files. Only read complete code when you need implementation details beyond signatures.
+Use `bctx` to get files referenced in bean descriptions. This solves the "cold start" problem—instead of exploring, you get all relevant files immediately.
 
 ### Safety & Rollback
 
@@ -523,13 +520,13 @@ verify
 
 ```bash
 # Check if this error has a known solution
-error_db match "{error message}"
+error-db match "{error message}"
 
 # Iterate until tests pass
 loop start "{fix task}" --promise "{test cmd}"
 
 # Record new error pattern for future agents
-error_db add --pattern "{regex}" --solution "{fix}"
+error-db add --pattern "{regex}" --solution "{fix}"
 ```
 
 ### Handoff Notes
@@ -552,11 +549,8 @@ This is how agents use beans in practice.
 Before claiming, agents gather context with the toolkit:
 
 ```bash
-# Structural overview (fast)
-beads-context scan src/ --task "Implement user registration"
-
-# Targeted context for key files
-beads-context build src/routes/auth.rs src/auth/mod.rs
+# Get files referenced in bean description
+bctx <bean-id>
 
 # Check project specs
 spec context "user authentication"
@@ -667,7 +661,7 @@ Verify fails (exit code non-zero):
 Agent 1 claimed 1.1, worked, failed verify, released.
 Agent 2 runs `bn ready`, sees 1.1 again.
 Agent 2 claims 1.1, reads `.beans/1.1.yaml` and notes from Agent 1.
-Agent 2 gathers fresh context with toolkit (beads-context, spec context).
+Agent 2 gathers fresh context with toolkit (bctx, spec context).
 Agent 2 knows what Agent 1 tried and avoids the same mistake.
 
 #### Middle Path: Release Without Closing
@@ -1322,7 +1316,7 @@ Verify passes. Bean closes.
 
 All work in the project follows a standard workflow:
 
-1. **Understand** — `beads-context scan` + `spec context` before touching code
+1. **Understand** — `bctx <bean-id>` + `spec context` before touching code
 2. **Plan** — Single task: just do it. Multi-step: break into beans with `bn create`
 3. **Implement** — Single bean: implement directly. Epic: `/swarm` for parallel agents
 4. **Verify** — `verify` before committing (lint, types, build, test)
@@ -1396,7 +1390,7 @@ Already available:
 - Hook system — Pre-close hooks for CI gatekeeper patterns
 - Archive system — Auto-archiving closed beans to dated directories
 - Multi-format support — YAML and Markdown
-- Agent toolkit — beads-context, undo checkpoints, error_db, loop integration
+- Agent toolkit — bctx, undo checkpoints, error-db, loop integration
 
 ---
 
@@ -1410,7 +1404,7 @@ Already available:
 4. **Acceptance criteria must be testable.** Verify command proves it.
 5. **Use hierarchy for decomposition** (parent/child), **dependencies for blocking** (A waits for B).
 6. **Parents provide context.** Leaves are executable.
-7. **Agents use the toolkit** (beads-context, undo, verify, error_db) instead of exploring blindly.
+7. **Agents use the toolkit** (bctx, undo, verify, error-db) instead of exploring blindly.
 8. **Agents claim atomically.** Only one agent per bean.
 9. **Verify gates closing.** No force-close. If verify fails, retry with a fresh agent.
 10. **Notes are the execution log.** Timestamp automatically, visible to next agent.
@@ -1435,7 +1429,7 @@ Already available:
 
 #### Before Agent Execution
 - [ ] **Bean is in ready state** — `bn ready` shows it
-- [ ] **Agent has toolkit installed** — beads-context, undo, verify, error_db
+- [ ] **Agent has toolkit installed** — bctx, undo, verify, error-db
 - [ ] **Acceptance criteria are complete** — No ambiguity
 - [ ] **Verify command is tested** — You've run it locally
 
@@ -1452,7 +1446,7 @@ If all checked, the bean is ready for an agent to claim.
 - [TODO.md](./TODO.md) — Strategic vision and roadmap
 
 **Agent Resources:**
-- [Agent Toolkit Instructions](../.claude/skills/agent-prompt-template.md) — Toolkit for spawned agents (beads-context, undo, verify, error_db)
+- [Agent Toolkit Instructions](../.claude/skills/agent-prompt-template.md) — Toolkit for spawned agents (bctx, undo, verify, error-db)
 - Agent prompt template includes: context gathering, safety, verification, error recovery, handoff
 
 **Command Reference:**

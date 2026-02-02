@@ -8,6 +8,20 @@ use serde::{Deserialize, Serialize};
 pub struct Config {
     pub project: String,
     pub next_id: u32,
+    /// Auto-close parent beans when all children are closed/archived (default: true)
+    #[serde(default = "default_auto_close_parent")]
+    pub auto_close_parent: bool,
+    /// Maximum tokens for bean context (default: 30000)
+    #[serde(default = "default_max_tokens")]
+    pub max_tokens: u32,
+}
+
+fn default_auto_close_parent() -> bool {
+    true
+}
+
+fn default_max_tokens() -> u32 {
+    30000
 }
 
 impl Config {
@@ -50,6 +64,8 @@ mod tests {
         let config = Config {
             project: "test-project".to_string(),
             next_id: 42,
+            auto_close_parent: true,
+            max_tokens: 30000,
         };
 
         config.save(dir.path()).unwrap();
@@ -63,6 +79,8 @@ mod tests {
         let mut config = Config {
             project: "test".to_string(),
             next_id: 1,
+            auto_close_parent: true,
+            max_tokens: 30000,
         };
 
         assert_eq!(config.increment_id(), 1);
@@ -92,11 +110,71 @@ mod tests {
         let config = Config {
             project: "my-project".to_string(),
             next_id: 100,
+            auto_close_parent: true,
+            max_tokens: 30000,
         };
         config.save(dir.path()).unwrap();
 
         let contents = fs::read_to_string(dir.path().join("config.yaml")).unwrap();
         assert!(contents.contains("project: my-project"));
         assert!(contents.contains("next_id: 100"));
+    }
+
+    #[test]
+    fn auto_close_parent_defaults_to_true() {
+        let dir = tempfile::tempdir().unwrap();
+        // Write a config WITHOUT auto_close_parent field
+        fs::write(
+            dir.path().join("config.yaml"),
+            "project: test\nnext_id: 1\n",
+        )
+        .unwrap();
+
+        let loaded = Config::load(dir.path()).unwrap();
+        assert_eq!(loaded.auto_close_parent, true);
+    }
+
+    #[test]
+    fn auto_close_parent_can_be_disabled() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = Config {
+            project: "test".to_string(),
+            next_id: 1,
+            auto_close_parent: false,
+            max_tokens: 30000,
+        };
+        config.save(dir.path()).unwrap();
+
+        let loaded = Config::load(dir.path()).unwrap();
+        assert_eq!(loaded.auto_close_parent, false);
+    }
+
+    #[test]
+    fn max_tokens_defaults_to_30000() {
+        let dir = tempfile::tempdir().unwrap();
+        // Write a config WITHOUT max_tokens field
+        fs::write(
+            dir.path().join("config.yaml"),
+            "project: test\nnext_id: 1\n",
+        )
+        .unwrap();
+
+        let loaded = Config::load(dir.path()).unwrap();
+        assert_eq!(loaded.max_tokens, 30000);
+    }
+
+    #[test]
+    fn max_tokens_can_be_customized() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = Config {
+            project: "test".to_string(),
+            next_id: 1,
+            auto_close_parent: true,
+            max_tokens: 50000,
+        };
+        config.save(dir.path()).unwrap();
+
+        let loaded = Config::load(dir.path()).unwrap();
+        assert_eq!(loaded.max_tokens, 50000);
     }
 }

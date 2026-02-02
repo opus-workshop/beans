@@ -1,7 +1,8 @@
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -27,6 +28,12 @@ pub struct IndexEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub assignee: Option<String>,
     pub updated_at: DateTime<Utc>,
+    /// Artifacts this bean produces (for smart dependency inference)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub produces: Vec<String>,
+    /// Artifacts this bean requires (for smart dependency inference)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub requires: Vec<String>,
 }
 
 impl From<&Bean> for IndexEntry {
@@ -41,6 +48,8 @@ impl From<&Bean> for IndexEntry {
             labels: bean.labels.clone(),
             assignee: bean.assignee.clone(),
             updated_at: bean.updated_at,
+            produces: bean.produces.clone(),
+            requires: bean.requires.clone(),
         }
     }
 }
@@ -70,13 +79,49 @@ fn is_bean_filename(filename: &str) -> bool {
     }
 }
 
+/// Count bean files by format in the beans directory.
+/// Returns (md_count, yaml_count) tuple.
+pub fn count_bean_formats(beans_dir: &Path) -> Result<(usize, usize)> {
+    let mut md_count = 0;
+    let mut yaml_count = 0;
+
+    let dir_entries = fs::read_dir(beans_dir)
+        .with_context(|| format!("Failed to read directory: {}", beans_dir.display()))?;
+
+    for entry in dir_entries {
+        let entry = entry?;
+        let path = entry.path();
+
+        let filename = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default();
+
+        if !is_bean_filename(filename) {
+            continue;
+        }
+
+        let ext = path.extension().and_then(|e| e.to_str());
+        match ext {
+            Some("md") => md_count += 1,
+            Some("yaml") => yaml_count += 1,
+            _ => {}
+        }
+    }
+
+    Ok((md_count, yaml_count))
+}
+
 impl Index {
     /// Build the index by reading all bean files from the beans directory.
     /// Supports both new format ({id}-{slug}.md) and legacy format ({id}.yaml).
     /// Excludes config.yaml, index.yaml, and bean.yaml.
     /// Sorts entries by ID using natural ordering.
+    /// Returns an error if duplicate bean IDs are detected.
     pub fn build(beans_dir: &Path) -> Result<Self> {
         let mut entries = Vec::new();
+        // Track which files define each ID to detect duplicates
+        let mut id_to_files: HashMap<String, Vec<String>> = HashMap::new();
 
         let dir_entries = fs::read_dir(beans_dir)
             .with_context(|| format!("Failed to read directory: {}", beans_dir.display()))?;
@@ -96,7 +141,28 @@ impl Index {
 
             let bean = Bean::from_file(&path)
                 .with_context(|| format!("Failed to parse bean: {}", path.display()))?;
+            
+            // Track this ID's file for duplicate detection
+            id_to_files
+                .entry(bean.id.clone())
+                .or_default()
+                .push(filename.to_string());
+            
             entries.push(IndexEntry::from(&bean));
+        }
+
+        // Check for duplicate IDs
+        let duplicates: Vec<_> = id_to_files
+            .iter()
+            .filter(|(_, files)| files.len() > 1)
+            .collect();
+
+        if !duplicates.is_empty() {
+            let mut msg = String::from("Duplicate bean IDs detected:\n");
+            for (id, files) in duplicates {
+                msg.push_str(&format!("  ID '{}' defined in: {}\n", id, files.join(", ")));
+            }
+            return Err(anyhow!(msg));
         }
 
         entries.sort_by(|a, b| natural_cmp(&a.id, &b.id));
@@ -178,6 +244,53 @@ impl Index {
             .with_context(|| "Failed to serialize index")?;
         fs::write(&index_path, yaml)
             .with_context(|| format!("Failed to write {}", index_path.display()))?;
+        Ok(())
+    }
+
+    /// Collect all archived beans from .beans/archive/ directory.
+    /// Walks through year/month subdirectories and loads all bean files.
+    /// Returns IndexEntry items for archived beans.
+    pub fn collect_archived(beans_dir: &Path) -> Result<Vec<IndexEntry>> {
+        let mut entries = Vec::new();
+        let archive_dir = beans_dir.join("archive");
+
+        if !archive_dir.is_dir() {
+            return Ok(entries);
+        }
+
+        // Walk through archive directory recursively
+        Self::walk_archive_dir(&archive_dir, &mut entries)?;
+
+        Ok(entries)
+    }
+
+    /// Recursively walk archive directory and collect bean entries
+    fn walk_archive_dir(dir: &Path, entries: &mut Vec<IndexEntry>) -> Result<()> {
+        use crate::bean::Bean;
+        
+        if !dir.is_dir() {
+            return Ok(());
+        }
+
+        for entry in fs::read_dir(dir)? {
+            let entry = entry?;
+            let path = entry.path();
+
+            if path.is_dir() {
+                // Recurse into subdirectories (year/month)
+                Self::walk_archive_dir(&path, entries)?;
+            } else if path.is_file() {
+                // Check if it's a bean file
+                if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
+                    if is_bean_filename(filename) {
+                        if let Ok(bean) = Bean::from_file(&path) {
+                            entries.push(IndexEntry::from(&bean));
+                        }
+                    }
+                }
+            }
+        }
+
         Ok(())
     }
 }
@@ -293,6 +406,49 @@ mod tests {
         assert!(!index.beans.iter().any(|e| e.id == "template"));
     }
 
+    #[test]
+    fn build_detects_duplicate_ids() {
+        let dir = TempDir::new().unwrap();
+        let beans_dir = dir.path().join(".beans");
+        fs::create_dir(&beans_dir).unwrap();
+
+        // Create two beans with the same ID in different files
+        let bean_a = Bean::new("99", "Bean A");
+        let bean_b = Bean::new("99", "Bean B");
+
+        bean_a.to_file(beans_dir.join("99-a.md")).unwrap();
+        bean_b.to_file(beans_dir.join("99-b.md")).unwrap();
+
+        let result = Index::build(&beans_dir);
+        assert!(result.is_err());
+
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("Duplicate bean IDs detected"));
+        assert!(err.contains("99"));
+        assert!(err.contains("99-a.md"));
+        assert!(err.contains("99-b.md"));
+    }
+
+    #[test]
+    fn build_detects_multiple_duplicate_ids() {
+        let dir = TempDir::new().unwrap();
+        let beans_dir = dir.path().join(".beans");
+        fs::create_dir(&beans_dir).unwrap();
+
+        // Create duplicates for two different IDs
+        Bean::new("1", "First A").to_file(beans_dir.join("1-a.md")).unwrap();
+        Bean::new("1", "First B").to_file(beans_dir.join("1-b.md")).unwrap();
+        Bean::new("2", "Second A").to_file(beans_dir.join("2-a.md")).unwrap();
+        Bean::new("2", "Second B").to_file(beans_dir.join("2-b.md")).unwrap();
+
+        let result = Index::build(&beans_dir);
+        assert!(result.is_err());
+
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("ID '1'"));
+        assert!(err.contains("ID '2'"));
+    }
+
     // -- is_stale tests --
 
     #[test]
@@ -398,5 +554,131 @@ mod tests {
 
         // Should NOT be stale — non-yaml files don't count
         assert!(!Index::is_stale(&beans_dir).unwrap());
+    }
+}
+
+#[cfg(test)]
+mod archive_tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn collect_archived_finds_beans() {
+        let dir = TempDir::new().unwrap();
+        let beans_dir = dir.path().join(".beans");
+        fs::create_dir(&beans_dir).unwrap();
+        
+        // Create archive structure
+        let archive_dir = beans_dir.join("archive").join("2026").join("02");
+        fs::create_dir_all(&archive_dir).unwrap();
+        
+        // Create an archived bean
+        let mut bean = crate::bean::Bean::new("1", "Archived task");
+        bean.status = crate::bean::Status::Closed;
+        bean.to_file(archive_dir.join("1-archived-task.md")).unwrap();
+        
+        let archived = Index::collect_archived(&beans_dir).unwrap();
+        assert_eq!(archived.len(), 1);
+        assert_eq!(archived[0].id, "1");
+        assert_eq!(archived[0].status, crate::bean::Status::Closed);
+    }
+    
+    #[test]
+    fn collect_archived_empty_when_no_archive() {
+        let dir = TempDir::new().unwrap();
+        let beans_dir = dir.path().join(".beans");
+        fs::create_dir(&beans_dir).unwrap();
+        
+        let archived = Index::collect_archived(&beans_dir).unwrap();
+        assert!(archived.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod format_count_tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn count_bean_formats_only_yaml() {
+        let dir = TempDir::new().unwrap();
+        let beans_dir = dir.path().join(".beans");
+        fs::create_dir(&beans_dir).unwrap();
+
+        // Create only yaml files
+        let bean1 = crate::bean::Bean::new("1", "Task 1");
+        let bean2 = crate::bean::Bean::new("2", "Task 2");
+        bean1.to_file(beans_dir.join("1.yaml")).unwrap();
+        bean2.to_file(beans_dir.join("2.yaml")).unwrap();
+
+        let (md_count, yaml_count) = count_bean_formats(&beans_dir).unwrap();
+        assert_eq!(md_count, 0);
+        assert_eq!(yaml_count, 2);
+    }
+
+    #[test]
+    fn count_bean_formats_only_md() {
+        let dir = TempDir::new().unwrap();
+        let beans_dir = dir.path().join(".beans");
+        fs::create_dir(&beans_dir).unwrap();
+
+        // Create only md files
+        let bean1 = crate::bean::Bean::new("1", "Task 1");
+        let bean2 = crate::bean::Bean::new("2", "Task 2");
+        bean1.to_file(beans_dir.join("1-task-1.md")).unwrap();
+        bean2.to_file(beans_dir.join("2-task-2.md")).unwrap();
+
+        let (md_count, yaml_count) = count_bean_formats(&beans_dir).unwrap();
+        assert_eq!(md_count, 2);
+        assert_eq!(yaml_count, 0);
+    }
+
+    #[test]
+    fn count_bean_formats_mixed() {
+        let dir = TempDir::new().unwrap();
+        let beans_dir = dir.path().join(".beans");
+        fs::create_dir(&beans_dir).unwrap();
+
+        // Create mixed formats
+        let bean1 = crate::bean::Bean::new("1", "Task 1");
+        let bean2 = crate::bean::Bean::new("2", "Task 2");
+        let bean3 = crate::bean::Bean::new("3", "Task 3");
+        bean1.to_file(beans_dir.join("1.yaml")).unwrap();
+        bean2.to_file(beans_dir.join("2-task-2.md")).unwrap();
+        bean3.to_file(beans_dir.join("3-task-3.md")).unwrap();
+
+        let (md_count, yaml_count) = count_bean_formats(&beans_dir).unwrap();
+        assert_eq!(md_count, 2);
+        assert_eq!(yaml_count, 1);
+    }
+
+    #[test]
+    fn count_bean_formats_excludes_config_files() {
+        let dir = TempDir::new().unwrap();
+        let beans_dir = dir.path().join(".beans");
+        fs::create_dir(&beans_dir).unwrap();
+
+        // Create excluded yaml files (config.yaml, index.yaml)
+        fs::write(beans_dir.join("config.yaml"), "project: test").unwrap();
+        fs::write(beans_dir.join("index.yaml"), "beans: []").unwrap();
+
+        // Create one actual bean
+        let bean1 = crate::bean::Bean::new("1", "Task 1");
+        bean1.to_file(beans_dir.join("1-task-1.md")).unwrap();
+
+        let (md_count, yaml_count) = count_bean_formats(&beans_dir).unwrap();
+        assert_eq!(md_count, 1);
+        assert_eq!(yaml_count, 0);  // config.yaml and index.yaml are excluded
+    }
+
+    #[test]
+    fn count_bean_formats_empty_dir() {
+        let dir = TempDir::new().unwrap();
+        let beans_dir = dir.path().join(".beans");
+        fs::create_dir(&beans_dir).unwrap();
+
+        let (md_count, yaml_count) = count_bean_formats(&beans_dir).unwrap();
+        assert_eq!(md_count, 0);
+        assert_eq!(yaml_count, 0);
     }
 }

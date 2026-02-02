@@ -2,15 +2,30 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use crate::index::Index;
+use crate::index::{Index, count_bean_formats};
 
 /// Force rebuild index unconditionally from YAML files
 pub fn cmd_sync(beans_dir: &Path) -> Result<()> {
+    // Check for mixed formats before building
+    let (md_count, yaml_count) = count_bean_formats(beans_dir)?;
+    
     let index = Index::build(beans_dir)?;
     let count = index.beans.len();
     index.save(beans_dir)?;
 
     println!("Index rebuilt: {} beans indexed.", count);
+
+    // Warn about mixed formats
+    if md_count > 0 && yaml_count > 0 {
+        eprintln!();
+        eprintln!("Warning: Mixed bean formats detected!");
+        eprintln!("  {} .md files (current format)", md_count);
+        eprintln!("  {} .yaml files (legacy format)", yaml_count);
+        eprintln!();
+        eprintln!("This can cause confusion. Consider migrating legacy files:");
+        eprintln!("  - Remove or archive .yaml files: mkdir -p .beans/legacy && mv .beans/*.yaml .beans/legacy/");
+        eprintln!("  - Or run 'bn doctor' for more details");
+    }
 
     Ok(())
 }

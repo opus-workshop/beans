@@ -130,6 +130,11 @@ fn render_metadata_header(bean: &Bean) -> String {
         details.push(format!("Claimed at: {}", claimed));
     }
 
+    // Show token count if available
+    if let Some(tokens) = bean.tokens {
+        details.push(format!("tokens: {}", tokens));
+    }
+
     let mut output = String::new();
     output.push_str(&separator);
     output.push('\n');

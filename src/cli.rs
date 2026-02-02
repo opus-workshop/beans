@@ -68,6 +68,18 @@ pub enum Command {
         /// Comma-separated dependency IDs
         #[arg(long)]
         deps: Option<String>,
+
+        /// Comma-separated artifacts this bean produces
+        #[arg(long)]
+        produces: Option<String>,
+
+        /// Comma-separated artifacts this bean requires
+        #[arg(long)]
+        requires: Option<String>,
+
+        /// Require verify to fail first (enforced TDD - proves test is real)
+        #[arg(long)]
+        fail_first: bool,
     },
 
     /// Display full bean details
@@ -178,6 +190,10 @@ pub enum Command {
         /// Close reason
         #[arg(long)]
         reason: Option<String>,
+
+        /// Skip verify command (force close)
+        #[arg(long)]
+        force: bool,
     },
 
     /// Run a bean's verify command without closing
@@ -204,13 +220,25 @@ pub enum Command {
         command: DepCommand,
     },
     /// Show beans ready to work on (no blocking dependencies)
-    Ready,
+    Ready {
+        /// JSON output
+        #[arg(long)]
+        json: bool,
+    },
 
     /// Show beans blocked by unresolved dependencies
-    Blocked,
+    Blocked {
+        /// JSON output
+        #[arg(long)]
+        json: bool,
+    },
 
     /// Show project status: claimed, ready, and blocked beans
-    Status,
+    Status {
+        /// JSON output
+        #[arg(long)]
+        json: bool,
+    },
 
     /// Output context for a bean (files referenced in description)
     Context {
@@ -252,7 +280,11 @@ pub enum Command {
     },
 
     /// Health check -- orphans, cycles, index freshness
-    Doctor,
+    Doctor {
+        /// Automatically fix detected issues
+        #[arg(long)]
+        fix: bool,
+    },
 
     /// Manage hook trust (enable/disable hook execution)
     Trust {
@@ -300,6 +332,46 @@ pub enum Command {
         /// Who is claiming (agent name or user)
         #[arg(long)]
         by: Option<String>,
+
+        /// Comma-separated artifacts this bean produces
+        #[arg(long)]
+        produces: Option<String>,
+
+        /// Comma-separated artifacts this bean requires
+        #[arg(long)]
+        requires: Option<String>,
+
+        /// Require verify to fail first (enforced TDD - proves test is real)
+        #[arg(long)]
+        fail_first: bool,
+    },
+
+    /// Adopt existing beans as children of a parent
+    Adopt {
+        /// Parent bean ID
+        parent: String,
+
+        /// Bean IDs to adopt as children
+        #[arg(required = true)]
+        children: Vec<String>,
+    },
+
+    /// Resolve a field conflict on a bean
+    Resolve {
+        /// Bean ID
+        id: String,
+
+        /// Field name with conflict
+        field: String,
+
+        /// Version choice (0, 1, ...)
+        choice: usize,
+    },
+
+    /// Manage project configuration
+    Config {
+        #[command(subcommand)]
+        command: ConfigCommand,
     },
 }
 
@@ -337,4 +409,22 @@ pub enum DepCommand {
 
     /// Detect dependency cycles in the graph
     Cycles,
+}
+
+#[derive(Subcommand)]
+pub enum ConfigCommand {
+    /// Get a configuration value
+    Get {
+        /// Config key (e.g., max_tokens, auto_close_parent)
+        key: String,
+    },
+
+    /// Set a configuration value
+    Set {
+        /// Config key (e.g., max_tokens, auto_close_parent)
+        key: String,
+
+        /// New value
+        value: String,
+    },
 }

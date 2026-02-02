@@ -1,2 +1,4 @@
-project: test-project
-next_id: 11
+project: beans
+next_id: 22
+auto_close_parent: true
+max_tokens: 30000

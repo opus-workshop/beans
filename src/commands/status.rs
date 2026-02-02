@@ -1,13 +1,22 @@
 use std::path::Path;
 
 use anyhow::Result;
+use serde::Serialize;
 
 use crate::bean::Status;
 use crate::index::{Index, IndexEntry};
 use crate::util::natural_cmp;
 
+/// JSON output structure for status command
+#[derive(Serialize)]
+struct StatusOutput {
+    claimed: Vec<IndexEntry>,
+    ready: Vec<IndexEntry>,
+    blocked: Vec<IndexEntry>,
+}
+
 /// Show complete work picture: claimed, ready, and blocked beans
-pub fn cmd_status(beans_dir: &Path) -> Result<()> {
+pub fn cmd_status(json: bool, beans_dir: &Path) -> Result<()> {
     let index = Index::load_or_rebuild(beans_dir)?;
 
     // Separate beans into categories
@@ -35,32 +44,42 @@ pub fn cmd_status(beans_dir: &Path) -> Result<()> {
     sort_beans(&mut ready);
     sort_beans(&mut blocked);
 
-    println!("## Claimed ({})", claimed.len());
-    if claimed.is_empty() {
-        println!("  (none)");
+    if json {
+        let output = StatusOutput {
+            claimed: claimed.into_iter().cloned().collect(),
+            ready: ready.into_iter().cloned().collect(),
+            blocked: blocked.into_iter().cloned().collect(),
+        };
+        let json_str = serde_json::to_string_pretty(&output)?;
+        println!("{}", json_str);
     } else {
-        for entry in claimed {
-            println!("  {} [-] {}", entry.id, entry.title);
+        println!("## Claimed ({})", claimed.len());
+        if claimed.is_empty() {
+            println!("  (none)");
+        } else {
+            for entry in claimed {
+                println!("  {} [-] {}", entry.id, entry.title);
+            }
         }
-    }
-    println!();
+        println!();
 
-    println!("## Ready ({})", ready.len());
-    if ready.is_empty() {
-        println!("  (none)");
-    } else {
-        for entry in ready {
-            println!("  {} [ ] {}", entry.id, entry.title);
+        println!("## Ready ({})", ready.len());
+        if ready.is_empty() {
+            println!("  (none)");
+        } else {
+            for entry in ready {
+                println!("  {} [ ] {}", entry.id, entry.title);
+            }
         }
-    }
-    println!();
+        println!();
 
-    println!("## Blocked ({})", blocked.len());
-    if blocked.is_empty() {
-        println!("  (none)");
-    } else {
-        for entry in blocked {
-            println!("  {} [!] {}", entry.id, entry.title);
+        println!("## Blocked ({})", blocked.len());
+        if blocked.is_empty() {
+            println!("  (none)");
+        } else {
+            for entry in blocked {
+                println!("  {} [!] {}", entry.id, entry.title);
+            }
         }
     }
 
