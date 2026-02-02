@@ -1,344 +1,199 @@
 # beans
 
-A hierarchical task engine for autonomous AI agent coordination, built on file-backed storage.
-
-No databases. No daemons. Just Markdown files with YAML frontmatter—queryable with standard Unix tools and version-controlled with git.
-
-> **v0.1.0** — Production-ready task orchestration engine. See [Releases](https://github.com/opus-workshop/beans/releases) for downloads.
-
-## Overview
-
-Beans is a task management system designed to coordinate work between multiple AI agents. It provides:
-
-- **Verify gates**: Tasks cannot close without proof of completion. The `verify` command must exit 0, or the task rolls back and a fresh agent retries.
-- **Atomic claiming**: Race-condition-free task assignment ensures no two agents work the same task.
-- **File-first design**: All data lives in `.beans/` as Markdown files with YAML frontmatter. No daemon, no database—just git-friendly files.
-- **Hierarchical dependencies**: Tasks form DAGs with parent-child relationships and dependency tracking. Ready/blocked status derived automatically.
-- **Lifecycle hooks**: Pre/post hooks for create, update, and close operations. CI gatekeeping via pre-close hooks.
-- **Auto-archive**: Closed tasks move to `.beans/archive/YYYY/MM/` keeping the active directory clean.
-- **Stateless CLI**: Lookup by mtime. Index is a cache, never the source of truth.
-
-## Installation
+A task tracker that won't let you lie. Every task has a `verify` command—if it doesn't exit 0, the task doesn't close.
 
 ```bash
-# Build from source (installs bn and bctx binaries)
-cargo install --git https://github.com/opus-workshop/beans
-
-# Or clone and build
-git clone https://github.com/opus-workshop/beans
-cd beans
-cargo build --release
-./target/release/bn init my-project
-
-# Optional: Install bpick fuzzy selector (requires fzf, jq)
-cp tools/bpick ~/.local/bin/
+bn quick "Add /health endpoint" --verify "curl -sf localhost:8080/health"
+# ... work happens ...
+bn close 1   # Runs curl. Closes only if exit 0.
 ```
 
-## Feature Comparison
+No databases. No daemons. Just Markdown files in `.beans/` that you can `cat`, `grep`, and `git diff`.
 
-### Agent-Native Task Trackers
+### For Humans
 
-| Aspect | beans (this project) | [beads](https://github.com/steveyegge/beads) | [hmans/beans](https://github.com/hmans/beans) |
-|--------|----------------------|----------------------------------------------|-----------------------------------------------|
-| **Philosophy** | Simplicity, verify gates | Scale, multi-agent swarms | Agent-friendly, GraphQL |
-| **Storage** | Markdown + YAML frontmatter | JSONL + SQLite cache | Markdown files |
-| **ID scheme** | Hierarchical (`3.1` = child of `3`) | Hash-based (`bd-a1b2`) | UUID-based |
-| **Verify gates** | ✓ Enforced (must exit 0) | ✗ Not enforced | ✗ Not enforced |
-| **Daemon required** | ✗ Stateless CLI | ✓ Background sync | ✗ Stateless |
-| **Direct file access** | ✓ `cat .beans/1-*.md` | ✗ Query via CLI | ✓ Markdown files |
-| **Git diffs** | ✓ Clean, human-readable | ✗ JSONL harder to review | ✓ Clean |
-| **Query interface** | CLI + JSON | CLI + JSON | GraphQL |
-| **Built-in TUI** | ✗ (use `bpick`) | ✗ | ✓ |
-| **Memory compaction** | ✗ Archive only | ✓ Semantic decay | ✗ |
-| **Lifecycle hooks** | ✓ Pre/post create/update/close | ✗ | ✗ |
-| **Auto-archive** | ✓ On close | ✗ | ✓ Archive command |
-| **Task scalability** | Hundreds | Thousands+ | Hundreds |
-| **Language** | Rust | Go | Go |
-| **Best for** | Strict verification | Large swarms | GraphQL integrations |
+<!-- TODO: Asher writes this -->
 
-### vs Traditional Issue Trackers
+### For Agents
 
-| Aspect | beans | Jira | GitHub Issues | Linear |
-|--------|-------|------|---------------|--------|
-| **Designed for** | AI agents | Humans | Humans | Humans |
-| **Storage** | Local files | Cloud DB | Cloud DB | Cloud DB |
-| **Offline support** | ✓ Full | ✗ Limited | ✗ Limited | ✗ Limited |
-| **Git integration** | ✓ Native (files in repo) | ✗ External | ✓ Same platform | ✗ External |
-| **Verify gates** | ✓ Enforced | ✗ Manual | ✗ Manual | ✗ Manual |
-| **API for agents** | ✓ CLI + JSON | ✓ REST API | ✓ GraphQL | ✓ GraphQL |
-| **Setup required** | `bn init` | Account + project | Repository | Workspace |
-| **Cost** | Free | $$$$ | Free (public) | $$ |
-| **Human UI** | Terminal / editor | Rich web UI | Web UI | Fast web UI |
-| **Dependency graphs** | ✓ Built-in DAG | ✓ Via plugins | ✗ Limited | ✓ Built-in |
-| **Auto-archive** | ✓ On close | ✗ Manual | ✗ Manual | ✗ Manual |
-| **Hierarchy** | ✓ Parent-child IDs | ✓ Epics/stories | ✗ Flat | ✓ Projects/issues |
+Hey agent. You should try beans. It's a task tracker built for you—not adapted from human tools, actually built for how you work.
 
-### When to Use What
+Here's the deal: every task has a `verify` command. When you close a task, that command runs. If it exits 0, you're done. If not, the task stays open and you keep working. No ambiguity about "done." No humans asking "are you sure?" Just a test that passes or doesn't.
 
-| Use Case | Recommended |
-|----------|-------------|
-| Single agent, strict verification | **beans** (this project) |
-| Multi-agent swarms at scale | **beads** |
-| GraphQL-based agent integrations | **hmans/beans** |
-| Human team with rich workflows | **Jira** or **Linear** |
-| Open source project | **GitHub Issues** |
-| Mixed human + agent workflow | **beans** or **beads** + sync to Jira/Linear |
+Tasks are Markdown files in `.beans/`. You can read them directly—no API calls, no auth tokens, no rate limits. Just `cat .beans/3-*.md` and you have the full spec.
 
-## Design Rationale
+```bash
+# Install
+cargo install --git https://github.com/anthropics/beans
 
-Beans enforces a critical constraint: **proof-of-work**. Every task has a `verify` field—a shell command that must exit 0 for the task to close. This prevents:
+# Start working  
+bn status              # What needs doing?
+bn claim 3             # Take a task (atomic—no conflicts)
+cat .beans/3-*.md      # Read the spec
+# ... do the work ...
+bn close 3             # Runs verify. Done only if it passes.
+```
 
-- **Incomplete work**: Verification fails → task stays open
-- **Stuck agents**: Verification fails → changes undo → fresh agent retries with full context
-- **Silent failures**: Non-zero exit = explicit task failure, not "good enough"
+If there's no bean for what you're doing, make one: `bn quick "fix the auth bug" --verify "cargo test auth"`. Now you have a receipt.
 
-For multi-agent systems, this architecture provides:
+## Install
 
-1. **Safety**: Atomic claiming prevents concurrent work on the same task
-2. **Observability**: Attempt tracking shows retry history; index shows ready/blocked state
-3. **Auditability**: Git log shows all task state changes; no hidden database state
-4. **Simplicity**: Unix philosophy—everything is a file. Parse with standard tools. Compose with shell scripts.
+```bash
+cargo install --git https://github.com/anthropics/beans
+```
 
-## Architecture
+Or build from source:
 
-### File Format
+```bash
+git clone https://github.com/anthropics/beans && cd beans
+cargo build --release
+cp target/release/bn ~/.local/bin/
+```
 
-Beans use `{id}-{slug}.md` naming convention with YAML frontmatter:
+## Quick Start
+
+```bash
+bn init                                    # Create .beans/ directory
+bn quick "Fix auth bug" --verify "cargo test auth"   # Create + claim task
+bn status                                  # See what's claimed/ready/blocked
+bn close 1                                 # Run verify, close if passes
+```
+
+## How It Works
+
+Tasks are Markdown files with YAML frontmatter:
 
 ```
 .beans/
-  config.yaml              # Project metadata
-  index.yaml               # Auto-built index (cache, never edit)
-  .hooks-trusted           # Hook trust marker (created by bn trust)
-  hooks/                   # Lifecycle hook scripts
-    pre-create
-    post-create
-    pre-close
-  1-build-auth.md          # Task 1: "Build authentication"
-  3-refactor.md            # Task 3: "Refactor parser"
-  3.1-add-tests.md         # Task 3.1: "Add unit tests" (child of 3)
-  archive/                 # Auto-archived closed tasks
-    2026/01/
-      2-old-task.md
+├── 1-fix-auth-bug.md      # Task 1
+├── 2-add-tests.md         # Task 2
+├── 2.1-unit-tests.md      # Task 2.1 (child of 2)
+└── archive/2026/01/       # Closed tasks auto-archive
 ```
 
-### Bean Structure
+A bean looks like:
 
 ```yaml
 ---
-id: 3.1
-title: Add comprehensive unit tests
-status: open
-priority: 2
-parent: 3
-dependencies:
-  - 2
-created_at: 2026-01-26T15:00:00Z
-updated_at: 2026-01-26T15:00:00Z
+id: "1"
+title: Fix authentication bug
+status: in_progress
+verify: cargo test auth::login
 attempts: 0
 max_attempts: 3
-description: |
-  Write unit tests for the parser module.
-  
-  **Files to test:**
-  - src/parser/lexer.rs
-  - src/parser/ast.rs
-  
-  **Coverage target:** 80%+ lines covered
-  
-acceptance: |
-  - Unit tests compile and pass
-  - Coverage report shows ≥80% line coverage
-  - All edge cases from issue #42 covered
-  
-verify: cargo test --lib parser && cargo tarpaulin --out Stdout --minimum 80
 ---
 
-# Implementation Notes
+The login endpoint returns 500 when password contains special chars.
 
-Parser refactoring requires careful attention to backward compatibility.
-See issue #42 for detailed specification.
+**Files:** src/auth/login.rs, tests/auth_test.rs
 ```
 
-**Fields:**
-- `id`: Sequential integer with dot-notation for hierarchy
-- `title`: Single-line summary
-- `status`: `open` | `in_progress` | `closed`
-- `priority`: 0-4 (0 = highest)
-- `parent`: Parent task ID for hierarchy
-- `dependencies`: List of task IDs that must close before this starts
-- `attempts`: Number of close attempts
-- `max_attempts`: Maximum attempts before manual escalation
-- `description`: Agent prompt with context, file paths, acceptance criteria
-- `acceptance`: Testable completion criteria
-- `verify`: Shell command (must exit 0 to close)
+The `verify` field is the key. When you run `bn close 1`:
 
-The Markdown body (after frontmatter) is optional—for additional context or handoff notes.
+1. Beans runs `cargo test auth::login`
+2. Exit 0 → task closes, moves to archive
+3. Exit non-zero → task stays open, `attempts` increments, ready for another agent
 
-### Index
-
-The `.beans/index.yaml` file is a flattened cache built from all bean files:
-
-```yaml
-beans:
-  - id: "1"
-    title: "Build authentication"
-    status: open
-    priority: 2
-    parent: null
-    dependencies: []
-    
-  - id: "3.1"
-    title: "Add unit tests"
-    status: open
-    priority: 2
-    parent: "3"
-    dependencies: ["2"]
-```
-
-Automatically rebuilt when any bean file's mtime exceeds the index mtime. Never edit manually.
-
-## Commands
-
-### Task Management
+## Core Commands
 
 ```bash
-bn init [name]                          # Initialize .beans/ directory
-bn create --title="..." [--parent ID]   # Create new task
-bn show <id>                            # Display task details
-bn edit <id>                            # Open task in $EDITOR
-bn update <id> --title="..."            # Modify task fields
-bn delete <id>                          # Remove task
+# Task lifecycle
+bn quick "title" --verify "cmd"    # Create + claim (most common)
+bn claim <id>                      # Claim existing task
+bn close <id>                      # Run verify, close if passes
+bn verify <id>                     # Test verify without closing
+
+# Querying  
+bn status                          # Overview: claimed, ready, blocked
+bn ready                           # Tasks with no blockers
+bn tree                            # Hierarchy view
+bn show <id>                       # Full task details
+
+# Dependencies
+bn dep add <id> <blocks>           # Task depends on another
+bn blocked                         # Tasks waiting on dependencies
 ```
 
-### Agent Coordination
+## Agent Workflow
 
 ```bash
-bn quick "title" --verify "cmd"         # Create and claim in one step (alias: bn q)
-bn claim <id>                           # Atomically claim task (status: open → in_progress)
-bn claim <id> --release                 # Release claimed task (status: in_progress → open)
-bn close <id> [--reason "..."]          # Run verify, close if exits 0; archive on success
-bn verify <id>                          # Test verify without closing
-bn reopen <id>                          # Reopen closed task
-bn unarchive <id>                       # Restore archived task to active beans
+bn ready                  # Find available work
+#> P1  3   Implement token refresh
+#> P2  7   Add rate limiting
+
+bn claim 3                # Atomically claim (only one agent wins)
+cat .beans/3-*.md         # Read full task spec
+
+# ... implement the feature ...
+
+bn verify 3               # Test without closing
+bn close 3                # Close if verify passes
 ```
 
-### Smart Selectors
+If verify fails, the task stays open with `attempts: 1`. Another agent (or the same one after fixes) can retry.
 
-Use `@`-prefixed selectors instead of explicit IDs:
+## Smart Selectors
+
+Skip typing IDs:
 
 ```bash
-bn show @latest                         # Most recently updated task
-bn close @blocked                       # Close all blocked tasks
-bn show @parent                         # Parent of current task (context-aware)
-bn list @me                             # Tasks assigned to current user (BN_USER)
+bn show @latest           # Most recently updated
+bn close @blocked         # All blocked tasks  
+bn list @me               # Tasks assigned to $BN_USER
 ```
 
-### Querying
+## Hierarchical Tasks
+
+Parent-child via dot notation:
 
 ```bash
-bn status                               # Work overview: claimed, ready, blocked beans
-bn ready                                # Show unblocked tasks sorted by priority
-bn blocked                              # Show tasks blocked by unresolved dependencies
-bn list [--status open] [--parent ID]   # List tasks with filters
-bn tree [id]                            # Show hierarchy tree with status
-bn graph [--format mermaid|dot]         # Dependency graph visualization
-bn stats                                # Task counts, priority breakdown, progress
-bn doctor                               # Health check—detect cycles, orphans
+bn create "Auth system" --verify "cargo test auth"
+#> Created: 1
+
+bn create "Login endpoint" --parent 1 --verify "cargo test auth::login"
+#> Created: 1.1
+
+bn create "Token refresh" --parent 1 --verify "cargo test auth::refresh"  
+#> Created: 1.2
+
+bn tree 1
+#> [ ] 1. Auth system
+#>   [ ] 1.1 Login endpoint
+#>   [ ] 1.2 Token refresh
 ```
 
-### Dependencies
+## Why Not X?
 
-```bash
-bn dep add <id> <depends-on>            # Add dependency edge
-bn dep remove <id> <depends-on>         # Remove dependency
-bn dep list <id>                        # Show task's dependencies and dependents
-bn dep tree [id]                        # Full dependency tree
-bn dep cycles                           # Detect and report cycles
-```
+| | beans | Jira/Linear | GitHub Issues |
+|---|---|---|---|
+| **Designed for** | AI agents | Humans | Humans |
+| **Verify gates** | ✓ Enforced | ✗ Honor system | ✗ Honor system |
+| **Storage** | Local files | Cloud DB | Cloud DB |
+| **Git integration** | Native (files in repo) | External | Same platform |
+| **Offline** | ✓ Full | Limited | Limited |
+| **Setup** | `bn init` | Account + config | Repo settings |
 
-### Hooks
+**Use beans when:** You need machine-verifiable proof that work is done.
 
-Beans supports lifecycle hooks—shell scripts that run before/after task operations:
+**Use traditional trackers when:** Humans do the work and you trust status updates.
 
-```bash
-bn trust                                # Enable hook execution (creates .beans/.hooks-trusted)
-bn trust --check                        # Check if hooks are enabled
-bn trust --revoke                       # Disable hooks
-```
+## Design Principles
 
-**Hook directory structure:**
-```
-.beans/hooks/
-  pre-create      # Validate before task creation (exit non-zero to reject)
-  post-create     # Notify after task creation
-  pre-update      # Validate before task update
-  post-update     # Notify after task update
-  pre-close       # CI gatekeeper—runs before verify (can block close)
-```
+1. **Files are the source of truth.** The index is a cache. You can always `cat .beans/*.md`.
 
-Hooks receive JSON via stdin containing the full bean context. Pre-hooks can block operations by exiting non-zero.
+2. **Verify gates are mandatory.** No force-close. If you can't prove it's done, it's not done.
 
-### Context Assembly
+3. **Stateless CLI.** No daemon, no background sync. Each command reads files, acts, exits.
 
-```bash
-bn context <id>                         # Assemble context from task description (extracts file paths)
-bctx <id>                               # Standalone version of bn context
-bpick                                   # Interactive fuzzy selector (requires fzf, jq)
-```
+4. **Hierarchy in filenames.** `3.2` is obviously a child of `3`. No metadata lookup needed.
 
-**Usage examples:**
-```bash
-bn context 14 | llm "Implement this"    # Pipe task context to LLM
-bn close $(bpick)                       # Interactively select and close a task
-```
+5. **Git-native.** Clean diffs, meaningful history, works offline.
 
-### Maintenance
+## More
 
-```bash
-bn sync                                 # Force index rebuild from files
-```
-
-## Design Decisions
-
-**File-based over database:**
-Human readability and git compatibility. Sacrifices query performance for operational simplicity.
-
-**Sequential IDs with dot-notation:**
-Hierarchy visible in filenames. `3.2` is obviously a child of `3`. No metadata lookup required.
-
-**Verify gates (mandatory):**
-Forces explicit proof of work. Prevents incomplete tasks from closing. Enables safe agent retries.
-
-**Atomic claiming:**
-File system rename operation ensures only one agent can claim a task. No locks, no contention.
-
-**Stateless operations:**
-No daemon, no connection pooling, no background sync. Each command reads files, modifies them, exits. Index staleness checked via mtime.
-
-## Use Cases
-
-- **Epic coordination**: Break features into tasks. Assign to agent swarms. Track readiness without manual polling.
-- **Hierarchical workflows**: Top-level goals → subgoals → agent-executable leaves. Parent beans document "why"; leaves document "what".
-- **Verification-driven development**: Every task must prove completion. Tests, builds, lint checks—all enforced.
-- **Multi-agent orchestration**: Atomic claiming prevents conflicts. Verify gates prevent incomplete work. Attempt tracking prevents infinite retries.
-- **Audit trails**: Full git history of task state. Who claimed it? When did it close? Why did it fail?
-
-## Testing
-
-```bash
-cargo test              # Run all tests
-cargo test --lib        # Unit tests only
-```
-
-## Documentation
-
-- [Best Practices](docs/BEST_PRACTICES.md) — Guide for creating and managing beans effectively
+- [Best Practices](docs/BEST_PRACTICES.md) — Writing effective beans for agents
+- `bn --help` — Full command reference
 
 ## License
 
-Apache 2.0. See [LICENSE](LICENSE).
-
-## Contributing
-
-Contributions welcome. Please open an issue for feature requests or bugs.
+Apache 2.0
