@@ -9,10 +9,11 @@ use cli::{Cli, Command, DepCommand};
 use bn::commands::{
     cmd_claim, cmd_close, cmd_create, cmd_delete, cmd_dep_add, cmd_dep_cycles,
     cmd_dep_list, cmd_dep_remove, cmd_dep_tree, cmd_doctor, cmd_edit, cmd_graph, cmd_init,
-    cmd_list, cmd_ready, cmd_blocked, cmd_release, cmd_reopen, cmd_show, cmd_stats,
-    cmd_status, cmd_sync, cmd_tree, cmd_trust, cmd_unarchive, cmd_update, cmd_verify,
+    cmd_list, cmd_quick, cmd_ready, cmd_blocked, cmd_release, cmd_reopen, cmd_show, cmd_stats,
+    cmd_sync, cmd_tree, cmd_trust, cmd_unarchive, cmd_update, cmd_verify,
 };
 use bn::commands::create::CreateArgs;
+use bn::commands::quick::QuickArgs;
 use bn::discovery::find_beans_dir;
 use bn::index::Index;
 use bn::selector::{SelectionContext, resolve_selector_string};
@@ -220,6 +221,18 @@ fn main() -> Result<()> {
             validate_bean_id(&id)?;
             let resolved_id = resolve_bean_id(&id, &beans_dir)?;
             cmd_unarchive(&beans_dir, &resolved_id)
+        }
+
+        Command::Quick { title, description, acceptance, notes, verify, priority, by } => {
+            cmd_quick(&beans_dir, QuickArgs {
+                title,
+                description,
+                acceptance,
+                notes,
+                verify,
+                priority,
+                by,
+            })
         }
     }
 }

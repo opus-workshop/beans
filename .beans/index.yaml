@@ -205,6 +205,11 @@ beans:
   - code-quality
   updated_at: 2026-01-30T18:46:30.023197Z
 - id: '10'
+  title: Test quick bean
+  status: in_progress
+  priority: 2
+  updated_at: 2026-02-02T01:22:21.761533Z
+- id: '10'
   title: Expand .gitignore with platform artifacts
   status: closed
   priority: 2

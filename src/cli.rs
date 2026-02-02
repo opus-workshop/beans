@@ -263,6 +263,37 @@ pub enum Command {
         /// Bean ID to unarchive
         id: String,
     },
+
+    /// Quick-create: create a bean and immediately claim it
+    #[command(visible_alias = "q")]
+    Quick {
+        /// Bean title
+        title: String,
+
+        /// Full description / agent context
+        #[arg(long)]
+        description: Option<String>,
+
+        /// Acceptance criteria
+        #[arg(long)]
+        acceptance: Option<String>,
+
+        /// Additional notes
+        #[arg(long)]
+        notes: Option<String>,
+
+        /// Shell command that must exit 0 to close
+        #[arg(long)]
+        verify: Option<String>,
+
+        /// Priority P0-P4 (default: P2)
+        #[arg(long)]
+        priority: Option<u8>,
+
+        /// Who is claiming (agent name or user)
+        #[arg(long)]
+        by: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
