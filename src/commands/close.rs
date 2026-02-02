@@ -3,7 +3,6 @@ use std::process::Command as ShellCommand;
 
 use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
-use shell_escape::unix::escape;
 
 use crate::bean::Bean;
 use crate::discovery::{archive_path_for_bean, find_bean_file};
@@ -19,7 +18,6 @@ use crate::bean::Status;
 /// Run a verify command for a bean.
 ///
 /// Returns `Ok(true)` if the command exits 0, `Ok(false)` if non-zero.
-/// The verify command is shell-escaped to prevent injection attacks.
 fn run_verify(beans_dir: &Path, verify_cmd: &str) -> Result<bool> {
     // Run in the project root (parent of .beans/)
     let project_root = beans_dir
@@ -28,12 +26,8 @@ fn run_verify(beans_dir: &Path, verify_cmd: &str) -> Result<bool> {
 
     println!("Running verify: {}", verify_cmd);
 
-    // Escape the verify command to prevent shell injection by treating it as a single argument
-    let escaped = escape(verify_cmd.into());
-
     let status = ShellCommand::new("sh")
-        .arg("-c")
-        .arg(escaped.as_ref())
+        .args(["-c", verify_cmd])
         .current_dir(project_root)
         .status()
         .with_context(|| format!("Failed to execute verify command: {}", verify_cmd))?;
@@ -419,37 +413,35 @@ mod tests {
     }
 
     #[test]
-    fn test_close_with_shell_metacharacters_safely_escaped() {
+    fn test_close_with_shell_operators_work() {
         let (_dir, beans_dir) = setup_test_beans_dir();
-        let mut bean = Bean::new("1", "Task with shell metacharacters");
-        // Try to inject commands with shell metacharacters - should not execute
-        // The escaped version should treat everything as a literal command name
-        bean.verify = Some("echo test; rm -rf .".to_string());
+        let mut bean = Bean::new("1", "Task with shell operators");
+        // Shell operators like && should work in verify commands
+        bean.verify = Some("true && true".to_string());
         let slug = title_to_slug(&bean.title);
         bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
 
-        // This should fail because 'echo test; rm -rf .' is not a valid command
-        // after escaping (it becomes a literal string)
-        let _ = cmd_close(&beans_dir, vec!["1".to_string()], None);
+        cmd_close(&beans_dir, vec!["1".to_string()], None).unwrap();
 
-        // Verify command should fail (not found), not execute the injected commands
-        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
-        assert_eq!(updated.status, Status::Open); // Not closed due to verification failure
-        assert_eq!(updated.attempts, 1); // Attempts incremented
+        // Bean should be archived after passing verify
+        let archived = crate::discovery::find_archived_bean(&beans_dir, "1").unwrap();
+        let updated = Bean::from_file(&archived).unwrap();
+        assert_eq!(updated.status, Status::Closed);
+        assert!(updated.is_archived);
     }
 
     #[test]
-    fn test_close_with_pipe_metacharacters_safely_escaped() {
+    fn test_close_with_pipe_propagates_exit_code() {
         let (_dir, beans_dir) = setup_test_beans_dir();
-        let mut bean = Bean::new("1", "Task with pipe characters");
-        // Try to pipe commands - should not execute
+        let mut bean = Bean::new("1", "Task with pipe");
+        // Pipe exit code is determined by last command: false returns 1
         bean.verify = Some("true | false".to_string());
         let slug = title_to_slug(&bean.title);
         bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
 
         let _ = cmd_close(&beans_dir, vec!["1".to_string()], None);
 
-        // The escaped command should fail because the full string is treated literally
+        // Verify fails because `false` returns exit code 1
         let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert_eq!(updated.status, Status::Open); // Not closed
         assert_eq!(updated.attempts, 1); // Attempts incremented
