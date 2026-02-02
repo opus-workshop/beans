@@ -6,6 +6,7 @@ pub mod ctx_assembler;
 pub mod discovery;
 pub mod index;
 pub mod graph;
+pub mod project;
 pub mod selector;
 pub mod util;
 pub mod hooks;

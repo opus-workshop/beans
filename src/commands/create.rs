@@ -7,6 +7,7 @@ use crate::bean::{Bean, validate_priority};
 use crate::config::Config;
 use crate::hooks::{execute_hook, HookEvent};
 use crate::index::Index;
+use crate::project::suggest_verify_command;
 use crate::util::title_to_slug;
 
 /// Create arguments structure for organizing all the parameters passed to create.
@@ -106,6 +107,9 @@ pub fn cmd_create(beans_dir: &Path, args: CreateArgs) -> Result<()> {
     // Generate slug from title
     let slug = title_to_slug(&args.title);
 
+    // Track if verify was provided for suggestion later
+    let has_verify = args.verify.is_some();
+
     // Create the bean
     let mut bean = Bean::new(&bean_id, &args.title);
     bean.slug = Some(slug.clone());
@@ -173,6 +177,13 @@ pub fn cmd_create(beans_dir: &Path, args: CreateArgs) -> Result<()> {
     index.save(beans_dir)?;
 
     println!("Created bean {}: {}", bean_id, args.title);
+
+    // Suggest verify command if none was provided
+    if !has_verify {
+        if let Some(suggested) = suggest_verify_command(project_dir) {
+            println!("Tip: Consider adding a verify command: --verify \"{}\"", suggested);
+        }
+    }
 
     // Call post-create hook (non-blocking - log warning if it fails)
     if let Err(e) = execute_hook(HookEvent::PostCreate, &bean, project_dir, None) {

@@ -7,6 +7,7 @@ use crate::bean::{Bean, Status, validate_priority};
 use crate::config::Config;
 use crate::hooks::{execute_hook, HookEvent};
 use crate::index::Index;
+use crate::project::suggest_verify_command;
 use crate::util::title_to_slug;
 
 /// Arguments for quick-create command.
@@ -44,6 +45,9 @@ pub fn cmd_quick(beans_dir: &Path, args: QuickArgs) -> Result<()> {
 
     // Generate slug from title
     let slug = title_to_slug(&args.title);
+
+    // Track if verify was provided for suggestion later
+    let has_verify = args.verify.is_some();
 
     // Create the bean with InProgress status (already claimed)
     let now = Utc::now();
@@ -92,6 +96,13 @@ pub fn cmd_quick(beans_dir: &Path, args: QuickArgs) -> Result<()> {
 
     let claimer = args.by.as_deref().unwrap_or("anonymous");
     println!("Created and claimed bean {}: {} (by {})", bean_id, args.title, claimer);
+
+    // Suggest verify command if none was provided
+    if !has_verify {
+        if let Some(suggested) = suggest_verify_command(project_dir) {
+            println!("Tip: Consider adding a verify command: --verify \"{}\"", suggested);
+        }
+    }
 
     // Call post-create hook (non-blocking - log warning if it fails)
     if let Err(e) = execute_hook(HookEvent::PostCreate, &bean, project_dir, None) {
