@@ -214,6 +214,7 @@ bn delete <id>                          # Remove task
 ### Agent Coordination
 
 ```bash
+bn quick "title" --verify "cmd"         # Create and claim in one step (alias: bn q)
 bn claim <id>                           # Atomically claim task (status: open → in_progress)
 bn claim <id> --release                 # Release claimed task (status: in_progress → open)
 bn close <id> [--reason "..."]          # Run verify, close if exits 0; archive on success
@@ -236,6 +237,7 @@ bn list @me                             # Tasks assigned to current user (BN_USE
 ### Querying
 
 ```bash
+bn status                               # Work overview: claimed, ready, blocked beans
 bn ready                                # Show unblocked tasks sorted by priority
 bn blocked                              # Show tasks blocked by unresolved dependencies
 bn list [--status open] [--parent ID]   # List tasks with filters
@@ -277,17 +279,18 @@ bn trust --revoke                       # Disable hooks
 
 Hooks receive JSON via stdin containing the full bean context. Pre-hooks can block operations by exiting non-zero.
 
-### Companion Tools
+### Context Assembly
 
 ```bash
-bctx <id>                               # Assemble context from task description (extracts file paths)
+bn context <id>                         # Assemble context from task description (extracts file paths)
+bctx <id>                               # Standalone version of bn context
 bpick                                   # Interactive fuzzy selector (requires fzf, jq)
 ```
 
 **Usage examples:**
 ```bash
+bn context 14 | llm "Implement this"    # Pipe task context to LLM
 bn close $(bpick)                       # Interactively select and close a task
-bctx 14 | llm "Implement this"          # Pipe task context to LLM
 ```
 
 ### Maintenance
