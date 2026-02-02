@@ -212,6 +212,12 @@ pub enum Command {
     /// Show project status: claimed, ready, and blocked beans
     Status,
 
+    /// Output context for a bean (files referenced in description)
+    Context {
+        /// Bean ID
+        id: String,
+    },
+
     /// Show hierarchical tree of beans
     Tree {
         /// Root bean ID (shows full tree if omitted)

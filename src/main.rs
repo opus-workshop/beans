@@ -7,7 +7,7 @@ mod cli;
 
 use cli::{Cli, Command, DepCommand};
 use bn::commands::{
-    cmd_claim, cmd_close, cmd_create, cmd_delete, cmd_dep_add, cmd_dep_cycles,
+    cmd_claim, cmd_close, cmd_context, cmd_create, cmd_delete, cmd_dep_add, cmd_dep_cycles,
     cmd_dep_list, cmd_dep_remove, cmd_dep_tree, cmd_doctor, cmd_edit, cmd_graph, cmd_init,
     cmd_list, cmd_quick, cmd_ready, cmd_blocked, cmd_release, cmd_reopen, cmd_show, cmd_stats,
     cmd_status, cmd_sync, cmd_tree, cmd_trust, cmd_unarchive, cmd_update, cmd_verify,
@@ -205,6 +205,12 @@ fn main() -> Result<()> {
         Command::Ready => cmd_ready(&beans_dir),
         Command::Blocked => cmd_blocked(&beans_dir),
         Command::Status => cmd_status(&beans_dir),
+
+        Command::Context { id } => {
+            validate_bean_id(&id)?;
+            let resolved_id = resolve_bean_id(&id, &beans_dir)?;
+            cmd_context(&beans_dir, &resolved_id)
+        }
 
         Command::Tree { id } => {
             if let Some(ref id_val) = id {

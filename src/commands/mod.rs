@@ -1,5 +1,6 @@
 pub mod claim;
 pub mod close;
+pub mod context;
 pub mod create;
 pub mod delete;
 pub mod dep;
@@ -23,6 +24,7 @@ pub mod verify;
 
 pub use claim::{cmd_claim, cmd_release};
 pub use close::cmd_close;
+pub use context::cmd_context;
 pub use create::cmd_create;
 pub use delete::cmd_delete;
 pub use dep::{cmd_dep_add, cmd_dep_cycles, cmd_dep_list, cmd_dep_remove, cmd_dep_tree};
