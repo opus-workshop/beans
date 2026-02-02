@@ -15,10 +15,17 @@ use std::fs;
 #[cfg(test)]
 use crate::bean::Status;
 
+/// Result of running a verify command
+struct VerifyResult {
+    success: bool,
+    exit_code: Option<i32>,
+    output: String,
+}
+
 /// Run a verify command for a bean.
 ///
-/// Returns `Ok(true)` if the command exits 0, `Ok(false)` if non-zero.
-fn run_verify(beans_dir: &Path, verify_cmd: &str) -> Result<bool> {
+/// Returns VerifyResult with success status, exit code, and combined stdout/stderr.
+fn run_verify(beans_dir: &Path, verify_cmd: &str) -> Result<VerifyResult> {
     // Run in the project root (parent of .beans/)
     let project_root = beans_dir
         .parent()
@@ -26,13 +33,23 @@ fn run_verify(beans_dir: &Path, verify_cmd: &str) -> Result<bool> {
 
     println!("Running verify: {}", verify_cmd);
 
-    let status = ShellCommand::new("sh")
+    let output = ShellCommand::new("sh")
         .args(["-c", verify_cmd])
         .current_dir(project_root)
-        .status()
+        .output()
         .with_context(|| format!("Failed to execute verify command: {}", verify_cmd))?;
 
-    Ok(status.success())
+    let combined_output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    ).trim().to_string();
+
+    Ok(VerifyResult {
+        success: output.status.success(),
+        exit_code: output.status.code(),
+        output: combined_output,
+    })
 }
 
 /// Close one or more beans.
@@ -99,26 +116,32 @@ pub fn cmd_close(
             }
 
             // Run the verify command
-            let passed = run_verify(beans_dir, verify_cmd)?;
+            let verify_result = run_verify(beans_dir, verify_cmd)?;
 
-            if !passed {
+            if !verify_result.success {
                 // Increment attempts and save
                 bean.attempts += 1;
                 bean.updated_at = Utc::now();
                 bean.to_file(&bean_path)
                     .with_context(|| format!("Failed to save bean: {}", id))?;
 
-                if bean.attempts >= bean.max_attempts {
-                    println!(
-                        "Verify failed for bean {} ({}/{}), exceeded max attempts, needs human review",
-                        id, bean.attempts, bean.max_attempts
-                    );
-                } else {
-                    println!(
-                        "Verify failed for bean {} ({}/{} attempts)",
-                        id, bean.attempts, bean.max_attempts
-                    );
+                // Display detailed failure feedback
+                println!("✗ Verify failed for bean {}", id);
+                println!();
+                println!("Command: {}", verify_cmd);
+                if let Some(code) = verify_result.exit_code {
+                    println!("Exit code: {}", code);
                 }
+                if !verify_result.output.is_empty() {
+                    println!("Output:");
+                    for line in verify_result.output.lines() {
+                        println!("  {}", line);
+                    }
+                }
+                println!();
+                println!("Attempt {} of {}. Bean remains open.", bean.attempts, bean.max_attempts);
+                println!("Tip: Run `bn verify {}` to test without closing.", id);
+
                 continue;
             }
 
