@@ -1,14 +1,15 @@
 # beans
 
-A task tracker that won't let you lie. Every task has a `verify` command—if it doesn't exit 0, the task doesn't close.
+Task tracker for AI agents.
+
+Markdown files that track dependencies and require verification to close.
 
 ```bash
 bn quick "Add /health endpoint" --verify "curl -sf localhost:8080/health"
-# ... work happens ...
-bn close 1   # Runs curl. Closes only if exit 0.
+bn close 1   # Runs the curl. Only closes if it succeeds.
 ```
 
-No databases. No daemons. Just Markdown files in `.beans/` that you can `cat`, `grep`, and `git diff`.
+No databases. No daemons. Just `.beans/` files you can `cat`, `grep`, and `git diff`.
 
 ### For Humans
 
@@ -164,18 +165,17 @@ bn tree 1
 
 ## Why Not X?
 
-| | beans | Jira/Linear | GitHub Issues |
-|---|---|---|---|
-| **Designed for** | AI agents | Humans | Humans |
-| **Verify gates** | ✓ Enforced | ✗ Honor system | ✗ Honor system |
-| **Storage** | Local files | Cloud DB | Cloud DB |
-| **Git integration** | Native (files in repo) | External | Same platform |
-| **Offline** | ✓ Full | Limited | Limited |
-| **Setup** | `bn init` | Account + config | Repo settings |
+| | beans | [beads](https://github.com/steveyegge/beads) | Jira/Linear | GitHub Issues |
+|---|---|---|---|---|
+| **Designed for** | AI agents | AI agents | Humans | Humans |
+| **Verify gates** | ✓ Enforced | ✗ Honor system | ✗ Honor system | ✗ Honor system |
+| **Storage** | Markdown files | JSONL + SQLite | Cloud DB | Cloud DB |
+| **Hierarchy** | `3.1` = child of `3` | Flat (hash IDs) | Epics/stories | Flat |
+| **Git integration** | Native (in repo) | External | External | Same platform |
+| **Offline** | ✓ Full | ✓ Full | Limited | Limited |
+| **Scale** | Hundreds | Thousands | Thousands | Hundreds |
 
-**Use beans when:** You need machine-verifiable proof that work is done.
-
-**Use traditional trackers when:** Humans do the work and you trust status updates.
+Beads (Steve Yegge) is the inspiration—beans trades scale for simplicity and enforced verification.
 
 ## Design Principles
 
