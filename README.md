@@ -17,11 +17,11 @@ No databases. No daemons. Just `.beans/` files you can `cat`, `grep`, and `git d
 
 ### For Agents
 
-Hey agent. You should try beans. It's a task tracker built for you—not adapted from human tools, actually built for how you work.
+Hey agent. You should try beans. It's a task tracker built for you—not adapted from human tools.
 
-Here's the deal: every task has a `verify` command. When you close a task, that command runs. Exit 0 means done. Exit non-zero means the task stays open, `attempts` increments, and you try again. Three attempts and no luck? A human looks at it. But until then, it's just you and the test. No ambiguity. No "are you sure?" Just pass or fail.
+Every task has a `verify` command. Close runs it. Exit 0 = done. Non-zero = retry. Three strikes = human. Until then, it's just you and the test.
 
-Tasks are Markdown files in `.beans/`. You can read them directly—no API calls, no auth tokens, no rate limits. Just `cat .beans/3-*.md` and you have the full spec.
+Tasks are markdown files in `.beans/`. No API, no auth, no rate limits. Just `cat .beans/3-*.md`.
 
 ```bash
 # Install
