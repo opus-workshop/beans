@@ -25,7 +25,7 @@ Tasks are markdown files in `.beans/`. No API, no auth, no rate limits. Just `ca
 
 ```bash
 # Install
-cargo install --git https://github.com/anthropics/beans
+cargo install --git https://github.com/opus-workshop/beans
 
 # Start working  
 bn status              # What needs doing?
@@ -40,13 +40,13 @@ If there's no bean for what you're doing, make one: `bn quick "fix the auth bug"
 ## Install
 
 ```bash
-cargo install --git https://github.com/anthropics/beans
+cargo install --git https://github.com/opus-workshop/beans
 ```
 
 Or build from source:
 
 ```bash
-git clone https://github.com/anthropics/beans && cd beans
+git clone https://github.com/opus-workshop/beans && cd beans
 cargo build --release
 cp target/release/bn ~/.local/bin/
 ```
