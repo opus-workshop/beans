@@ -250,7 +250,7 @@ pub fn resolve_me(context: &SelectionContext) -> Result<Vec<String>> {
 
     let mut my_beans: Vec<String> = context.index.beans.iter()
         .filter(|entry| {
-            entry.assignee.as_ref().map_or(false, |a| a == &current_user)
+            entry.assignee.as_ref() == Some(&current_user)
                 && entry.status != Status::Closed
         })
         .map(|entry| entry.id.clone())

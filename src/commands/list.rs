@@ -103,7 +103,7 @@ fn render_tree(entries: &[IndexEntry], index: &Index) -> String {
     for entry in entries {
         children_map
             .entry(entry.parent.clone())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(entry);
     }
 

@@ -23,6 +23,8 @@ pub struct CreateArgs {
     pub assignee: Option<String>,
     pub deps: Option<String>,
     pub parent: Option<String>,
+    pub produces: Option<String>,
+    pub requires: Option<String>,
 }
 
 /// Assign a child ID for a parent bean.
@@ -45,9 +47,8 @@ fn assign_child_id(beans_dir: &Path, parent_id: &str) -> Result<String> {
         // Look for files matching "{parent_id}.{N}-*.md" (new format)
         if let Some(name_without_ext) = filename.strip_suffix(".md") {
             if let Some(name_without_parent) = name_without_ext.strip_prefix(parent_id) {
-                if name_without_parent.starts_with('.') {
+                if let Some(after_dot) = name_without_parent.strip_prefix('.') {
                     // Extract the number part before the hyphen
-                    let after_dot = &name_without_parent[1..];
                     let num_part = after_dot.split('-').next().unwrap_or_default();
                     if let Ok(child_num) = num_part.parse::<u32>() {
                         if child_num > max_child {
@@ -61,8 +62,8 @@ fn assign_child_id(beans_dir: &Path, parent_id: &str) -> Result<String> {
         // Also support legacy format for backward compatibility: {parent_id}.{N}.yaml
         if let Some(name_without_ext) = filename.strip_suffix(".yaml") {
             if let Some(name_without_parent) = name_without_ext.strip_prefix(parent_id) {
-                if name_without_parent.starts_with('.') {
-                    if let Ok(child_num) = name_without_parent[1..].parse::<u32>() {
+                if let Some(after_dot) = name_without_parent.strip_prefix('.') {
+                    if let Ok(child_num) = after_dot.parse::<u32>() {
                         if child_num > max_child {
                             max_child = child_num;
                         }
@@ -155,6 +156,22 @@ pub fn cmd_create(beans_dir: &Path, args: CreateArgs) -> Result<()> {
             .collect();
     }
 
+    // Parse produces
+    if let Some(produces_str) = args.produces {
+        bean.produces = produces_str
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .collect();
+    }
+
+    // Parse requires
+    if let Some(requires_str) = args.requires {
+        bean.requires = requires_str
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .collect();
+    }
+
     // Get the project directory (parent of beans_dir which is .beans)
     let project_dir = beans_dir
         .parent()
@@ -228,6 +245,8 @@ mod tests {
             assignee: None,
             deps: None,
             parent: None,
+            produces: None,
+            requires: None,
         };
 
         cmd_create(&beans_dir, args).unwrap();
@@ -259,6 +278,8 @@ mod tests {
             assignee: None,
             deps: None,
             parent: None,
+            produces: None,
+            requires: None,
         };
 
         let result = cmd_create(&beans_dir, args);
@@ -284,6 +305,8 @@ mod tests {
             assignee: None,
             deps: None,
             parent: None,
+            produces: None,
+            requires: None,
         };
         cmd_create(&beans_dir, args1).unwrap();
 
@@ -300,6 +323,8 @@ mod tests {
             assignee: None,
             deps: None,
             parent: None,
+            produces: None,
+            requires: None,
         };
         cmd_create(&beans_dir, args2).unwrap();
 
@@ -327,6 +352,8 @@ mod tests {
             assignee: None,
             deps: None,
             parent: None,
+            produces: None,
+            requires: None,
         };
         cmd_create(&beans_dir, parent_args).unwrap();
 
@@ -343,6 +370,8 @@ mod tests {
             assignee: None,
             deps: None,
             parent: Some("1".to_string()),
+            produces: None,
+            requires: None,
         };
         cmd_create(&beans_dir, child_args).unwrap();
 
@@ -369,6 +398,8 @@ mod tests {
             assignee: None,
             deps: None,
             parent: None,
+            produces: None,
+            requires: None,
         };
         cmd_create(&beans_dir, parent_args).unwrap();
 
@@ -386,6 +417,8 @@ mod tests {
                 assignee: None,
                 deps: None,
                 parent: Some("1".to_string()),
+            produces: None,
+            requires: None,
             };
             cmd_create(&beans_dir, child_args).unwrap();
         }
@@ -418,6 +451,8 @@ mod tests {
             assignee: Some("alice".to_string()),
             deps: Some("2,3".to_string()),
             parent: None,
+            produces: None,
+            requires: None,
         };
 
         cmd_create(&beans_dir, args).unwrap();
@@ -450,6 +485,8 @@ mod tests {
             assignee: None,
             deps: None,
             parent: None,
+            produces: None,
+            requires: None,
         };
 
         cmd_create(&beans_dir, args).unwrap();
@@ -506,6 +543,8 @@ mod tests {
             assignee: None,
             deps: None,
             parent: None,
+            produces: None,
+            requires: None,
         };
 
         let result = cmd_create(&beans_dir, args);
@@ -531,6 +570,8 @@ mod tests {
                 assignee: None,
                 deps: None,
                 parent: None,
+            produces: None,
+            requires: None,
             };
 
             let result = cmd_create(&beans_dir, args);
@@ -571,6 +612,8 @@ mod tests {
             assignee: None,
             deps: None,
             parent: None,
+            produces: None,
+            requires: None,
         };
 
         // Bean should be created
@@ -611,6 +654,8 @@ mod tests {
             assignee: None,
             deps: None,
             parent: None,
+            produces: None,
+            requires: None,
         };
 
         // Bean creation should fail
@@ -666,6 +711,8 @@ mod tests {
             assignee: None,
             deps: None,
             parent: None,
+            produces: None,
+            requires: None,
         };
 
         // Create bean
@@ -709,6 +756,8 @@ mod tests {
             assignee: None,
             deps: None,
             parent: None,
+            produces: None,
+            requires: None,
         };
 
         // Bean creation should STILL succeed (post-create failures are non-blocking)
@@ -747,6 +796,8 @@ mod tests {
             assignee: None,
             deps: None,
             parent: None,
+            produces: None,
+            requires: None,
         };
 
         // Bean creation should succeed (untrusted hooks are skipped)

@@ -89,7 +89,7 @@ pub fn read_file(path: &Path) -> io::Result<String> {
 ///
 /// Supports: rs, ts, tsx, py, go, java, json, yaml, toml, sh, md
 fn detect_language(path: &str) -> &str {
-    match path.split('.').last() {
+    match path.split('.').next_back() {
         Some("rs") => "rust",
         Some("ts") => "typescript",
         Some("tsx") => "typescript",

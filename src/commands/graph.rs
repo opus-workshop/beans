@@ -17,7 +17,7 @@ pub fn cmd_graph(beans_dir: &Path, format: &str) -> Result<()> {
     match format {
         "mermaid" => output_mermaid_graph(&index)?,
         "dot" => output_dot_graph(&index)?,
-        "ascii" | _ => output_ascii_graph(&index)?,
+        _ => output_ascii_graph(&index)?,
     }
 
     Ok(())
@@ -58,14 +58,13 @@ fn output_mermaid_graph(index: &Index) -> Result<()> {
                 .beans
                 .iter()
                 .any(|e| e.dependencies.contains(&entry.id))
+            && !nodes.contains(&entry.id)
         {
-            if !nodes.contains(&entry.id) {
-                println!(
-                    "    {}[{}]",
-                    format_node_id(&entry.id),
-                    escape_for_mermaid(&entry.title)
-                );
-            }
+            println!(
+                "    {}[{}]",
+                format_node_id(&entry.id),
+                escape_for_mermaid(&entry.title)
+            );
         }
     }
 

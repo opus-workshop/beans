@@ -127,9 +127,7 @@ pub fn title_to_slug(title: &str) -> String {
     for c in lowercased.chars() {
         if c.is_ascii_alphanumeric() {
             slug.push(c);
-        } else if c.is_whitespace() {
-            slug.push('-');
-        } else if c == '-' {
+        } else if c.is_whitespace() || c == '-' {
             slug.push('-');
         }
         // Skip all other characters (special chars, punctuation, etc.)

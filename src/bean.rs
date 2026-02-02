@@ -104,6 +104,16 @@ pub struct Bean {
     /// Whether this bean has been moved to the archive.
     #[serde(default, skip_serializing_if = "is_false")]
     pub is_archived: bool,
+
+    /// Artifacts this bean produces (types, functions, files).
+    /// Used by decompose skill for dependency inference.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub produces: Vec<String>,
+
+    /// Artifacts this bean requires from other beans.
+    /// Maps to dependencies via sibling produces.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub requires: Vec<String>,
 }
 
 fn default_priority() -> u8 {
@@ -158,6 +168,8 @@ impl Bean {
             claimed_by: None,
             claimed_at: None,
             is_archived: false,
+            produces: Vec::new(),
+            requires: Vec::new(),
         })
     }
 
@@ -186,10 +198,12 @@ impl Bean {
         }
 
         // Find the second --- delimiter
-        let after_first_delimiter = if content.starts_with("---\r\n") {
-            &content[5..]
+        let after_first_delimiter = if let Some(stripped) = content.strip_prefix("---\r\n") {
+            stripped
+        } else if let Some(stripped) = content.strip_prefix("---\n") {
+            stripped
         } else {
-            &content[4..]
+            return Err(anyhow::anyhow!("Not markdown frontmatter format"));
         };
 
         let second_delimiter_pos = after_first_delimiter
@@ -296,6 +310,8 @@ mod tests {
             claimed_by: Some("agent-7".to_string()),
             claimed_at: Some(now),
             is_archived: false,
+            produces: vec!["Parser".to_string()],
+            requires: vec!["Lexer".to_string()],
         };
 
         let yaml = serde_yaml::to_string(&bean).unwrap();
