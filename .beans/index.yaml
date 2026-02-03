@@ -66,7 +66,7 @@ beans:
   status: in_progress
   priority: 2
   parent: '12.3'
-  updated_at: 2026-02-03T07:36:26.841614Z
+  updated_at: 2026-02-03T07:37:25.545502Z
 - id: '13'
   title: Bean merge conflict resolution (3-way merge)
   status: open
@@ -79,4 +79,4 @@ beans:
   status: in_progress
   priority: 1
   parent: '13'
-  updated_at: 2026-02-03T07:36:53.020044Z
+  updated_at: 2026-02-03T07:37:27.477757Z

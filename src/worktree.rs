@@ -4,7 +4,7 @@
 //! a git worktree, and to merge changes back to the main branch.
 
 use anyhow::{anyhow, Result};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
 /// Result of a merge operation.
