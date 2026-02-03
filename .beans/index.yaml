@@ -1,187 +1,4 @@
 beans:
-- id: '1'
-  title: Implement bctx context assembler for agent prompts
-  status: closed
-  priority: 2
-  labels:
-  - feature
-  - context
-  - agent
-  updated_at: 2026-01-31T16:51:17.831446Z
-- id: '1'
-  title: Implement verify field and gate on close
-  status: closed
-  priority: 2
-  updated_at: 2026-01-27T08:04:24.135954Z
-- id: '1.1'
-  title: Extract file paths from bean descriptions using regex
-  status: closed
-  priority: 2
-  parent: '1'
-  updated_at: 2026-01-31T17:01:09.785698Z
-- id: '1.2'
-  title: Read files and format as markdown for bctx output
-  status: closed
-  priority: 2
-  parent: '1'
-  dependencies:
-  - '1.1'
-  updated_at: 2026-01-31T17:01:44.350895Z
-- id: '1.3'
-  title: Create bctx binary and CLI integration
-  status: closed
-  priority: 2
-  parent: '1'
-  dependencies:
-  - '1.2'
-  updated_at: 2026-01-31T17:01:52.292820Z
-- id: '2'
-  title: Extract duplicate utility functions
-  status: closed
-  priority: 2
-  updated_at: 2026-01-27T08:04:25.139443Z
-- id: '2'
-  title: Implement bn edit command
-  status: closed
-  priority: 2
-  labels:
-  - feature
-  - editing
-  - cli
-  updated_at: 2026-01-31T16:51:27.886904Z
-- id: '2.1'
-  title: Implement editor subprocess and file operations for bn edit
-  status: closed
-  priority: 2
-  parent: '2'
-  updated_at: 2026-01-31T17:01:58.391797Z
-- id: '2.2'
-  title: Implement schema validation and file saving for bn edit
-  status: closed
-  priority: 2
-  parent: '2'
-  dependencies:
-  - '2.1'
-  updated_at: 2026-01-31T17:02:04.960309Z
-- id: '2.3'
-  title: Integrate bn edit into CLI command dispatcher
-  status: closed
-  priority: 2
-  parent: '2'
-  dependencies:
-  - '2.2'
-  updated_at: 2026-01-31T17:02:12.004481Z
-- id: '3'
-  title: Create bpick fuzzy selector tool for interactive bean selection
-  status: closed
-  priority: 1
-  labels:
-  - feature
-  - tools
-  - shell
-  updated_at: 2026-01-31T16:51:32.872900Z
-- id: '3'
-  title: Add attempts and max_attempts fields
-  status: closed
-  priority: 2
-  dependencies:
-  - '1'
-  updated_at: 2026-01-27T08:04:41.655698Z
-- id: '4'
-  title: Refactor graph functions to accept Index
-  status: closed
-  priority: 2
-  updated_at: 2026-01-27T08:04:28.350601Z
-- id: '4'
-  title: Implement bean hook system (pre/post create/update/close)
-  status: closed
-  priority: 2
-  updated_at: 2026-01-31T16:51:42.401832Z
-- id: '4.1'
-  title: Implement hook execution engine with timeout handling
-  status: closed
-  priority: 2
-  parent: '4'
-  updated_at: 2026-01-31T17:02:19.724120Z
-- id: '4.2'
-  title: Implement hook trust mechanism (bn trust command)
-  status: closed
-  priority: 2
-  parent: '4'
-  dependencies:
-  - '4.1'
-  updated_at: 2026-01-31T17:02:26.947708Z
-- id: '4.3'
-  title: Integrate pre-create and post-create hooks into cmd_create
-  status: closed
-  priority: 2
-  parent: '4'
-  dependencies:
-  - '4.2'
-  updated_at: 2026-01-31T17:02:33.696998Z
-- id: '4.4'
-  title: Integrate pre-update and post-update hooks into cmd_update
-  status: closed
-  priority: 2
-  parent: '4'
-  dependencies:
-  - '4.2'
-  updated_at: 2026-01-31T17:02:38.222967Z
-- id: '4.5'
-  title: Integrate pre-close hook as CI gatekeeper into cmd_close
-  status: closed
-  priority: 2
-  parent: '4'
-  dependencies:
-  - '4.2'
-  updated_at: 2026-01-31T17:02:44.316787Z
-- id: '5'
-  title: Validate bean ID format
-  status: closed
-  priority: 2
-  dependencies:
-  - '2'
-  updated_at: 2026-01-27T08:04:42.107985Z
-- id: '5'
-  title: Implement smart selectors (@latest, @blocked, @parent, @me)
-  status: closed
-  priority: 2
-  updated_at: 2026-01-31T16:51:48.920128Z
-- id: '5.1'
-  title: Implement selector parsing and @latest/@blocked resolution
-  status: closed
-  priority: 2
-  parent: '5'
-  updated_at: 2026-01-31T17:02:51.688461Z
-- id: '5.2'
-  title: Implement @parent and @me selector resolution
-  status: closed
-  priority: 2
-  parent: '5'
-  dependencies:
-  - '5.1'
-  updated_at: 2026-01-31T17:02:58.546551Z
-- id: '5.3'
-  title: Integrate selectors into all bean ID arguments across CLI
-  status: closed
-  priority: 2
-  parent: '5'
-  dependencies:
-  - '5.2'
-  updated_at: 2026-01-31T17:03:08.747769Z
-- id: '6'
-  title: Add path traversal protection for bean IDs
-  status: closed
-  priority: 0
-  labels:
-  - security
-  - core
-  updated_at: 2026-01-30T18:51:07.517469Z
-- id: '6'
-  title: Create bpick fuzzy selector tool
-  status: closed
-  priority: 2
-  updated_at: 2026-01-31T16:54:29.962383Z
 - id: '8'
   title: Remove duplicate utility functions
   status: closed
@@ -213,74 +30,53 @@ beans:
   - meta
   updated_at: 2026-01-30T18:51:07.517469Z
 - id: '11'
-  title: Migrate beans from YAML to Markdown + YAML Frontmatter
-  status: closed
-  priority: 1
-  updated_at: 2026-01-30T15:45:00Z
-- id: '11.1'
-  title: Update Bean parser to read .md + YAML frontmatter
-  status: closed
-  priority: 1
-  parent: '11'
-  updated_at: 2026-01-30T15:45:00Z
-- id: '11.2'
-  title: Write migration script to convert old YAML beans to .md
-  status: closed
-  priority: 1
-  parent: '11'
-  updated_at: 2026-01-30T15:45:00Z
-- id: '11.3'
-  title: Update `bn show` to render Markdown beautifully
-  status: closed
+  title: 'Verify-on-claim: run verify before granting claim'
+  status: in_progress
   priority: 2
-  parent: '11'
-  updated_at: 2026-01-30T15:45:00Z
+  updated_at: 2026-02-03T05:10:47.689160Z
+- id: '12'
+  title: 'Spro sandboxing: git worktrees for parallel agents'
+  status: open
+  priority: 2
+  dependencies:
+  - '11'
+  updated_at: 2026-02-03T03:21:51.875721Z
+- id: '12.1'
+  title: Implement git worktree isolation in spro spawn
+  status: in_progress
+  priority: 2
+  parent: '12'
+  updated_at: 2026-02-03T05:02:37.164217Z
+- id: '12.3'
+  title: Add worktree merge to bn close
+  status: open
+  priority: 2
+  parent: '12'
+  dependencies:
+  - '11'
+  updated_at: 2026-02-03T07:27:36.906627Z
+- id: 12.3.2
+  title: Implement worktree merge logic
+  status: in_progress
+  priority: 2
+  parent: '12.3'
+  updated_at: 2026-02-03T07:36:20.439093Z
+- id: 12.3.3
+  title: Integrate worktree merge into bn close
+  status: in_progress
+  priority: 2
+  parent: '12.3'
+  updated_at: 2026-02-03T07:36:26.841614Z
 - id: '13'
-  title: Update bn to support {id}-{slug}.md naming convention
-  status: closed
-  priority: 1
-  updated_at: 2026-01-30T16:00:00Z
+  title: Bean merge conflict resolution (3-way merge)
+  status: open
+  priority: 2
+  dependencies:
+  - '12'
+  updated_at: 2026-02-03T07:22:46.633886Z
 - id: '13.1'
-  title: Add slug generation utility function
-  status: closed
+  title: Add conflict types and hash tracking to Bean
+  status: in_progress
   priority: 1
   parent: '13'
-  updated_at: 2026-01-30T16:00:00Z
-- id: '13.2'
-  title: Add slug field to Bean struct
-  status: closed
-  priority: 1
-  parent: '13'
-  dependencies:
-  - '13.1'
-  updated_at: 2026-01-30T16:00:00Z
-- id: '13.3'
-  title: Update file discovery to find beans by {id}-{slug}.md pattern
-  status: closed
-  priority: 1
-  parent: '13'
-  dependencies:
-  - '13.1'
-  - '13.2'
-  updated_at: 2026-01-30T16:00:00Z
-- id: '13.4'
-  title: Update create command to generate slug from title
-  status: closed
-  priority: 1
-  parent: '13'
-  dependencies:
-  - '13.1'
-  - '13.2'
-  - '13.3'
-  updated_at: 2026-01-30T16:00:00Z
-- id: '13.5'
-  title: Update all command file operations for {id}-{slug}.md naming
-  status: closed
-  priority: 1
-  parent: '13'
-  dependencies:
-  - '13.1'
-  - '13.2'
-  - '13.3'
-  - '13.4'
-  updated_at: 2026-01-30T16:00:00Z
+  updated_at: 2026-02-03T07:36:53.020044Z

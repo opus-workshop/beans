@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::process::Command as ShellCommand;
 
 use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
@@ -19,6 +20,10 @@ pub struct QuickArgs {
     pub verify: Option<String>,
     pub priority: Option<u8>,
     pub by: Option<String>,
+    pub produces: Option<String>,
+    pub requires: Option<String>,
+    /// Require verify to fail first (enforced TDD)
+    pub fail_first: bool,
 }
 
 /// Quick-create: create a bean and immediately claim it.
@@ -36,6 +41,37 @@ pub fn cmd_quick(beans_dir: &Path, args: QuickArgs) -> Result<()> {
         anyhow::bail!(
             "Bean must have validation criteria: provide --acceptance or --verify (or both)"
         );
+    }
+
+    // Fail-first check: verify command must FAIL before bean can be created
+    // This prevents "cheating tests" like `assert True` that always pass
+    if args.fail_first {
+        let verify_cmd = args.verify.as_ref()
+            .ok_or_else(|| anyhow!("--fail-first requires --verify"))?;
+        
+        let project_root = beans_dir.parent()
+            .ok_or_else(|| anyhow!("Cannot determine project root"))?;
+        
+        println!("Running verify (must fail): {}", verify_cmd);
+        
+        let status = ShellCommand::new("sh")
+            .args(["-c", verify_cmd])
+            .current_dir(project_root)
+            .status()
+            .with_context(|| format!("Failed to execute verify command: {}", verify_cmd))?;
+        
+        if status.success() {
+            anyhow::bail!(
+                "Cannot create bean: verify command already passes!\n\n\
+                 The test must FAIL on current code to prove it tests something real.\n\
+                 Either:\n\
+                 - The test doesn't actually test the new behavior\n\
+                 - The feature is already implemented\n\
+                 - The test is a no-op (assert True)"
+            );
+        }
+        
+        println!("✓ Verify failed as expected - test is real");
     }
 
     // Load config and get next ID
@@ -69,8 +105,27 @@ pub fn cmd_quick(beans_dir: &Path, args: QuickArgs) -> Result<()> {
     if let Some(verify) = args.verify {
         bean.verify = Some(verify);
     }
+    if args.fail_first {
+        bean.fail_first = true;
+    }
     if let Some(priority) = args.priority {
         bean.priority = priority;
+    }
+
+    // Parse produces
+    if let Some(produces_str) = args.produces {
+        bean.produces = produces_str
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .collect();
+    }
+
+    // Parse requires
+    if let Some(requires_str) = args.requires {
+        bean.requires = requires_str
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .collect();
     }
 
     // Get the project directory (parent of beans_dir which is .beans)
@@ -126,6 +181,7 @@ mod tests {
         let config = Config {
             project: "test".to_string(),
             next_id: 1,
+            auto_close_parent: true,
         };
         config.save(&beans_dir).unwrap();
 
@@ -144,6 +200,9 @@ mod tests {
             verify: None,
             priority: None,
             by: Some("agent-1".to_string()),
+            produces: None,
+            requires: None,
+            fail_first: false,
         };
 
         cmd_quick(&beans_dir, args).unwrap();
@@ -173,6 +232,9 @@ mod tests {
             verify: Some("cargo test".to_string()),
             priority: None,
             by: None,
+            produces: None,
+            requires: None,
+            fail_first: false,
         };
 
         cmd_quick(&beans_dir, args).unwrap();
@@ -196,6 +258,9 @@ mod tests {
             verify: None,
             priority: None,
             by: None,
+            produces: None,
+            requires: None,
+            fail_first: false,
         };
 
         let result = cmd_quick(&beans_dir, args);
@@ -217,6 +282,9 @@ mod tests {
             verify: None,
             priority: None,
             by: None,
+            produces: None,
+            requires: None,
+            fail_first: false,
         };
         cmd_quick(&beans_dir, args1).unwrap();
 
@@ -229,6 +297,9 @@ mod tests {
             verify: Some("true".to_string()),
             priority: None,
             by: None,
+            produces: None,
+            requires: None,
+            fail_first: false,
         };
         cmd_quick(&beans_dir, args2).unwrap();
 
@@ -251,6 +322,9 @@ mod tests {
             verify: None,
             priority: None,
             by: Some("tester".to_string()),
+            produces: None,
+            requires: None,
+            fail_first: false,
         };
 
         cmd_quick(&beans_dir, args).unwrap();
@@ -275,6 +349,9 @@ mod tests {
             verify: Some("cargo test".to_string()),
             priority: Some(1),
             by: Some("agent-x".to_string()),
+            produces: Some("FooStruct,bar_function".to_string()),
+            requires: Some("BazTrait".to_string()),
+            fail_first: false,
         };
 
         cmd_quick(&beans_dir, args).unwrap();
@@ -288,5 +365,76 @@ mod tests {
         assert_eq!(bean.priority, 1);
         assert_eq!(bean.status, Status::InProgress);
         assert_eq!(bean.claimed_by, Some("agent-x".to_string()));
+    }
+
+    #[test]
+    fn fail_first_rejects_passing_verify() {
+        let (_dir, beans_dir) = setup_beans_dir_with_config();
+
+        let args = QuickArgs {
+            title: "Cheating test".to_string(),
+            description: None,
+            acceptance: None,
+            notes: None,
+            verify: Some("true".to_string()), // always passes
+            priority: None,
+            by: None,
+            produces: None,
+            requires: None,
+            fail_first: true,
+        };
+
+        let result = cmd_quick(&beans_dir, args);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("verify command already passes"));
+    }
+
+    #[test]
+    fn fail_first_accepts_failing_verify() {
+        let (_dir, beans_dir) = setup_beans_dir_with_config();
+
+        let args = QuickArgs {
+            title: "Real test".to_string(),
+            description: None,
+            acceptance: None,
+            notes: None,
+            verify: Some("false".to_string()), // always fails
+            priority: None,
+            by: None,
+            produces: None,
+            requires: None,
+            fail_first: true,
+        };
+
+        let result = cmd_quick(&beans_dir, args);
+        assert!(result.is_ok());
+
+        // Bean should be created
+        let bean_path = beans_dir.join("1-real-test.md");
+        assert!(bean_path.exists());
+    }
+
+    #[test]
+    fn fail_first_requires_verify() {
+        let (_dir, beans_dir) = setup_beans_dir_with_config();
+
+        let args = QuickArgs {
+            title: "No verify".to_string(),
+            description: None,
+            acceptance: Some("Done".to_string()),
+            notes: None,
+            verify: None, // no verify command
+            priority: None,
+            by: None,
+            produces: None,
+            requires: None,
+            fail_first: true,
+        };
+
+        let result = cmd_quick(&beans_dir, args);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("--fail-first requires --verify"));
     }
 }

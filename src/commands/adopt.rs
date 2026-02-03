@@ -221,6 +221,7 @@ mod tests {
         let config = Config {
             project: "test".to_string(),
             next_id: 10,
+            auto_close_parent: true,
         };
         config.save(&beans_dir).unwrap();
 

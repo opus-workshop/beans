@@ -17,6 +17,8 @@ use crate::util::{natural_cmp, parse_status};
 /// - --all: include closed beans (default excludes closed)
 /// - --json: JSON array output
 /// - Shows [!] for blocked beans
+///
+/// When --status closed is specified, also searches archived beans.
 pub fn cmd_list(
     status_filter: Option<&str>,
     priority_filter: Option<u8>,
@@ -32,13 +34,22 @@ pub fn cmd_list(
     // Parse status filter
     let status_filter = status_filter.and_then(parse_status);
 
-    // Filter entries
+    // Start with beans from the main index
     let mut filtered = index.beans.clone();
+    
+    // Include archived beans when querying for closed status or using --all
+    let include_archived = status_filter == Some(Status::Closed) || all;
+    if include_archived {
+        if let Ok(archived) = Index::collect_archived(beans_dir) {
+            filtered.extend(archived);
+        }
+    }
 
     // Apply filters
     filtered.retain(|entry| {
         // Status filter
-        if !all && entry.status == Status::Closed {
+        // By default, exclude closed beans (unless --all or --status closed)
+        if !all && status_filter != Some(Status::Closed) && entry.status == Status::Closed {
             return false;
         }
         if let Some(status) = status_filter {
@@ -82,8 +93,19 @@ pub fn cmd_list(
         let json_str = serde_json::to_string_pretty(&filtered)?;
         println!("{}", json_str);
     } else {
+        // Build combined index for tree rendering (includes archived if needed)
+        let combined_index = if include_archived {
+            let mut all_beans = index.beans.clone();
+            if let Ok(archived) = Index::collect_archived(beans_dir) {
+                all_beans.extend(archived);
+            }
+            Index { beans: all_beans }
+        } else {
+            index.clone()
+        };
+        
         // Tree format with status indicators
-        let tree = render_tree(&filtered, &index);
+        let tree = render_tree(&filtered, &combined_index);
         println!("{}", tree);
         println!("Legend: [ ] open  [-] in_progress  [x] closed  [!] blocked");
     }
@@ -252,6 +274,8 @@ mod tests {
             labels: Vec::new(),
             assignee: None,
             updated_at: chrono::Utc::now(),
+            produces: Vec::new(),
+            requires: Vec::new(),
         };
         let index = Index {
             beans: vec![entry.clone()],
@@ -271,6 +295,8 @@ mod tests {
             labels: Vec::new(),
             assignee: None,
             updated_at: chrono::Utc::now(),
+            produces: Vec::new(),
+            requires: Vec::new(),
         };
         let index = Index {
             beans: vec![entry.clone()],
@@ -290,6 +316,8 @@ mod tests {
             labels: Vec::new(),
             assignee: None,
             updated_at: chrono::Utc::now(),
+            produces: Vec::new(),
+            requires: Vec::new(),
         };
         let index = Index {
             beans: vec![entry.clone()],

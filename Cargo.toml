@@ -2,7 +2,7 @@
 name = "bn"
 version = "0.1.0"
 edition = "2021"
-description = "A hierarchical task engine where every task is a YAML file"
+description = "A hierarchical task engine where every task is a md file with native verification"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }

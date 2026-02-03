@@ -29,6 +29,44 @@ impl std::fmt::Display for Status {
 }
 
 // ---------------------------------------------------------------------------
+// Conflict Types (for 3-way merge)
+// ---------------------------------------------------------------------------
+
+/// Resolution state for a field conflict
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConflictResolution {
+    /// Conflict has not been resolved yet
+    Pending,
+    /// Conflict was resolved (value chosen)
+    Resolved,
+    /// Conflict was discarded (ignored)
+    Discarded,
+}
+
+/// A competing value in a merge conflict
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConflictVersion {
+    /// JSON-serialized value
+    pub value: String,
+    /// Agent/source that produced this version
+    pub agent: String,
+    /// When this version was created
+    pub timestamp: DateTime<Utc>,
+}
+
+/// A conflict on a single field during merge
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FieldConflict {
+    /// Name of the conflicting field
+    pub field: String,
+    /// The competing versions
+    pub versions: Vec<ConflictVersion>,
+    /// Current resolution state
+    pub resolution: ConflictResolution,
+}
+
+// ---------------------------------------------------------------------------
 // Priority Validation
 // ---------------------------------------------------------------------------
 
@@ -88,6 +126,10 @@ pub struct Bean {
     /// Shell command that must exit 0 to close the bean.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub verify: Option<String>,
+    /// Whether this bean was created with --fail-first (enforced TDD).
+    /// Records that the verify command was proven to fail before creation.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub fail_first: bool,
     /// How many times the verify command has been run.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub attempts: u32,
@@ -114,6 +156,11 @@ pub struct Bean {
     /// Maps to dependencies via sibling produces.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub requires: Vec<String>,
+
+    /// Field conflicts from merge operations (3-way merge).
+    /// Non-empty when merge detected conflicting changes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conflicts: Vec<FieldConflict>,
 }
 
 fn default_priority() -> u8 {
@@ -163,6 +210,7 @@ impl Bean {
             parent: None,
             dependencies: Vec::new(),
             verify: None,
+            fail_first: false,
             attempts: 0,
             max_attempts: 3,
             claimed_by: None,
@@ -170,6 +218,7 @@ impl Bean {
             is_archived: false,
             produces: Vec::new(),
             requires: Vec::new(),
+            conflicts: Vec::new(),
         })
     }
 
@@ -259,6 +308,42 @@ impl Bean {
         std::fs::write(path.as_ref(), yaml)?;
         Ok(())
     }
+
+    /// Apply a JSON-serialized value to a field by name.
+    ///
+    /// Used by conflict resolution to set a field to a chosen value.
+    /// The value should be JSON-serialized (e.g., `"\"hello\""` for a string).
+    ///
+    /// # Arguments
+    /// * `field` - The field name to update
+    /// * `json_value` - JSON-serialized value to apply
+    ///
+    /// # Returns
+    /// * `Ok(())` on success
+    /// * `Err` if field is unknown or value cannot be deserialized
+    pub fn apply_value(&mut self, field: &str, json_value: &str) -> Result<()> {
+        match field {
+            "title" => self.title = serde_json::from_str(json_value)?,
+            "status" => self.status = serde_json::from_str(json_value)?,
+            "priority" => self.priority = serde_json::from_str(json_value)?,
+            "description" => self.description = serde_json::from_str(json_value)?,
+            "acceptance" => self.acceptance = serde_json::from_str(json_value)?,
+            "notes" => self.notes = serde_json::from_str(json_value)?,
+            "design" => self.design = serde_json::from_str(json_value)?,
+            "assignee" => self.assignee = serde_json::from_str(json_value)?,
+            "labels" => self.labels = serde_json::from_str(json_value)?,
+            "dependencies" => self.dependencies = serde_json::from_str(json_value)?,
+            "parent" => self.parent = serde_json::from_str(json_value)?,
+            "verify" => self.verify = serde_json::from_str(json_value)?,
+            "produces" => self.produces = serde_json::from_str(json_value)?,
+            "requires" => self.requires = serde_json::from_str(json_value)?,
+            "claimed_by" => self.claimed_by = serde_json::from_str(json_value)?,
+            "close_reason" => self.close_reason = serde_json::from_str(json_value)?,
+            _ => return Err(anyhow::anyhow!("Unknown field: {}", field)),
+        }
+        self.updated_at = Utc::now();
+        Ok(())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -305,6 +390,7 @@ mod tests {
             parent: Some("3.2".to_string()),
             dependencies: vec!["3.1".to_string()],
             verify: Some("cargo test".to_string()),
+            fail_first: false,
             attempts: 1,
             max_attempts: 5,
             claimed_by: Some("agent-7".to_string()),
@@ -312,6 +398,7 @@ mod tests {
             is_archived: false,
             produces: vec!["Parser".to_string()],
             requires: vec!["Lexer".to_string()],
+            conflicts: Vec::new(),
         };
 
         let yaml = serde_yaml::to_string(&bean).unwrap();

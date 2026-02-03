@@ -41,6 +41,7 @@ pub fn cmd_init(path: Option<&Path>, project_name: Option<String>) -> Result<()>
     let config = Config {
         project: project.clone(),
         next_id: 1,
+        auto_close_parent: true,
     };
 
     config.save(&beans_dir)?;

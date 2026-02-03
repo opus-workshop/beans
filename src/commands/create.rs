@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::Path;
+use std::process::Command as ShellCommand;
 
 use anyhow::{anyhow, Context, Result};
 
@@ -25,6 +26,8 @@ pub struct CreateArgs {
     pub parent: Option<String>,
     pub produces: Option<String>,
     pub requires: Option<String>,
+    /// Require verify to fail first (enforced TDD)
+    pub fail_first: bool,
 }
 
 /// Assign a child ID for a parent bean.
@@ -93,6 +96,37 @@ pub fn cmd_create(beans_dir: &Path, args: CreateArgs) -> Result<()> {
         );
     }
 
+    // Fail-first check: verify command must FAIL before bean can be created
+    // This prevents "cheating tests" like `assert True` that always pass
+    if args.fail_first {
+        let verify_cmd = args.verify.as_ref()
+            .ok_or_else(|| anyhow!("--fail-first requires --verify"))?;
+        
+        let project_root = beans_dir.parent()
+            .ok_or_else(|| anyhow!("Cannot determine project root"))?;
+        
+        println!("Running verify (must fail): {}", verify_cmd);
+        
+        let status = ShellCommand::new("sh")
+            .args(["-c", verify_cmd])
+            .current_dir(project_root)
+            .status()
+            .with_context(|| format!("Failed to execute verify command: {}", verify_cmd))?;
+        
+        if status.success() {
+            anyhow::bail!(
+                "Cannot create bean: verify command already passes!\n\n\
+                 The test must FAIL on current code to prove it tests something real.\n\
+                 Either:\n\
+                 - The test doesn't actually test the new behavior\n\
+                 - The feature is already implemented\n\
+                 - The test is a no-op (assert True)"
+            );
+        }
+        
+        println!("✓ Verify failed as expected - test is real");
+    }
+
     // Load config
     let mut config = Config::load(beans_dir)?;
 
@@ -129,6 +163,9 @@ pub fn cmd_create(beans_dir: &Path, args: CreateArgs) -> Result<()> {
     }
     if let Some(verify) = args.verify {
         bean.verify = Some(verify);
+    }
+    if args.fail_first {
+        bean.fail_first = true;
     }
     if let Some(priority) = args.priority {
         bean.priority = priority;
@@ -223,6 +260,7 @@ mod tests {
         let config = Config {
             project: "test".to_string(),
             next_id: 1,
+            auto_close_parent: true,
         };
         config.save(&beans_dir).unwrap();
 
@@ -247,6 +285,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            fail_first: false,
         };
 
         cmd_create(&beans_dir, args).unwrap();
@@ -280,6 +319,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            fail_first: false,
         };
 
         let result = cmd_create(&beans_dir, args);
@@ -307,6 +347,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            fail_first: false,
         };
         cmd_create(&beans_dir, args1).unwrap();
 
@@ -325,6 +366,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            fail_first: false,
         };
         cmd_create(&beans_dir, args2).unwrap();
 
@@ -354,6 +396,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            fail_first: false,
         };
         cmd_create(&beans_dir, parent_args).unwrap();
 
@@ -372,6 +415,7 @@ mod tests {
             parent: Some("1".to_string()),
             produces: None,
             requires: None,
+            fail_first: false,
         };
         cmd_create(&beans_dir, child_args).unwrap();
 
@@ -400,6 +444,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            fail_first: false,
         };
         cmd_create(&beans_dir, parent_args).unwrap();
 
@@ -419,6 +464,7 @@ mod tests {
                 parent: Some("1".to_string()),
             produces: None,
             requires: None,
+            fail_first: false,
             };
             cmd_create(&beans_dir, child_args).unwrap();
         }
@@ -453,6 +499,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            fail_first: false,
         };
 
         cmd_create(&beans_dir, args).unwrap();
@@ -487,6 +534,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            fail_first: false,
         };
 
         cmd_create(&beans_dir, args).unwrap();
@@ -545,6 +593,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            fail_first: false,
         };
 
         let result = cmd_create(&beans_dir, args);
@@ -572,6 +621,7 @@ mod tests {
                 parent: None,
             produces: None,
             requires: None,
+            fail_first: false,
             };
 
             let result = cmd_create(&beans_dir, args);
@@ -614,6 +664,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            fail_first: false,
         };
 
         // Bean should be created
@@ -656,6 +707,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            fail_first: false,
         };
 
         // Bean creation should fail
@@ -713,6 +765,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            fail_first: false,
         };
 
         // Create bean
@@ -758,6 +811,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            fail_first: false,
         };
 
         // Bean creation should STILL succeed (post-create failures are non-blocking)
@@ -798,6 +852,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            fail_first: false,
         };
 
         // Bean creation should succeed (untrusted hooks are skipped)
@@ -807,5 +862,88 @@ mod tests {
         // Verify bean WAS created
         let bean_path = beans_dir.join("1-bean-with-untrusted-hook.md");
         assert!(bean_path.exists(), "Bean file should exist when hooks are untrusted");
+    }
+
+    #[test]
+    fn fail_first_rejects_passing_verify() {
+        let (_dir, beans_dir) = setup_beans_dir_with_config();
+
+        let args = CreateArgs {
+            title: "Cheating test".to_string(),
+            description: None,
+            acceptance: None,
+            notes: None,
+            design: None,
+            verify: Some("true".to_string()), // always passes
+            priority: None,
+            labels: None,
+            assignee: None,
+            deps: None,
+            parent: None,
+            produces: None,
+            requires: None,
+            fail_first: true,
+        };
+
+        let result = cmd_create(&beans_dir, args);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("verify command already passes"));
+    }
+
+    #[test]
+    fn fail_first_accepts_failing_verify() {
+        let (_dir, beans_dir) = setup_beans_dir_with_config();
+
+        let args = CreateArgs {
+            title: "Real test".to_string(),
+            description: None,
+            acceptance: None,
+            notes: None,
+            design: None,
+            verify: Some("false".to_string()), // always fails
+            priority: None,
+            labels: None,
+            assignee: None,
+            deps: None,
+            parent: None,
+            produces: None,
+            requires: None,
+            fail_first: true,
+        };
+
+        let result = cmd_create(&beans_dir, args);
+        assert!(result.is_ok());
+
+        // Bean should be created
+        let bean_path = beans_dir.join("1-real-test.md");
+        assert!(bean_path.exists());
+    }
+
+    #[test]
+    fn fail_first_requires_verify() {
+        let (_dir, beans_dir) = setup_beans_dir_with_config();
+
+        let args = CreateArgs {
+            title: "No verify".to_string(),
+            description: None,
+            acceptance: Some("Done".to_string()),
+            notes: None,
+            design: None,
+            verify: None, // no verify command
+            priority: None,
+            labels: None,
+            assignee: None,
+            deps: None,
+            parent: None,
+            produces: None,
+            requires: None,
+            fail_first: true,
+        };
+
+        let result = cmd_create(&beans_dir, args);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("--fail-first requires --verify"));
     }
 }

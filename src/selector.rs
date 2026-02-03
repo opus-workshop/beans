@@ -374,6 +374,8 @@ mod tests {
                 labels: vec![],
                 assignee: None,
                 updated_at: Utc::now(),
+                produces: Vec::new(),
+                requires: Vec::new(),
             })
             .collect();
 
@@ -511,6 +513,8 @@ mod tests {
                 labels: vec![],
                 assignee: None,
                 updated_at: earlier,
+                produces: Vec::new(),
+                requires: Vec::new(),
             },
             IndexEntry {
                 id: "2".to_string(),
@@ -522,6 +526,8 @@ mod tests {
                 labels: vec![],
                 assignee: None,
                 updated_at: later,
+                produces: Vec::new(),
+                requires: Vec::new(),
             },
             IndexEntry {
                 id: "3".to_string(),
@@ -533,6 +539,8 @@ mod tests {
                 labels: vec![],
                 assignee: None,
                 updated_at: now,
+                produces: Vec::new(),
+                requires: Vec::new(),
             },
         ];
 
@@ -751,6 +759,8 @@ mod tests {
             labels: vec![],
             assignee: None,
             updated_at: Utc::now(),
+            produces: Vec::new(),
+            requires: Vec::new(),
         };
 
         let entry_child = IndexEntry {
@@ -763,6 +773,8 @@ mod tests {
             labels: vec![],
             assignee: None,
             updated_at: Utc::now(),
+            produces: Vec::new(),
+            requires: Vec::new(),
         };
 
         let index = Index { beans: vec![entry_parent, entry_child] };
@@ -833,6 +845,8 @@ mod tests {
             labels: vec![],
             assignee: None,
             updated_at: Utc::now(),
+            produces: Vec::new(),
+            requires: Vec::new(),
         };
 
         let index = Index { beans: vec![entry] };
@@ -866,6 +880,8 @@ mod tests {
                 labels: vec![],
                 assignee: Some("alice".to_string()),
                 updated_at: Utc::now(),
+                produces: Vec::new(),
+                requires: Vec::new(),
             },
             IndexEntry {
                 id: "2".to_string(),
@@ -877,6 +893,8 @@ mod tests {
                 labels: vec![],
                 assignee: Some("bob".to_string()),
                 updated_at: Utc::now(),
+                produces: Vec::new(),
+                requires: Vec::new(),
             },
             IndexEntry {
                 id: "3".to_string(),
@@ -888,6 +906,8 @@ mod tests {
                 labels: vec![],
                 assignee: Some("alice".to_string()),
                 updated_at: Utc::now(),
+                produces: Vec::new(),
+                requires: Vec::new(),
             },
         ];
 
@@ -920,6 +940,8 @@ mod tests {
                 labels: vec![],
                 assignee: Some("alice".to_string()),
                 updated_at: Utc::now(),
+                produces: Vec::new(),
+                requires: Vec::new(),
             },
             IndexEntry {
                 id: "2".to_string(),
@@ -931,6 +953,8 @@ mod tests {
                 labels: vec![],
                 assignee: Some("alice".to_string()),
                 updated_at: Utc::now(),
+                produces: Vec::new(),
+                requires: Vec::new(),
             },
         ];
 
@@ -1042,6 +1066,8 @@ mod tests {
                 labels: vec![],
                 assignee: None,
                 updated_at: Utc::now(),
+                produces: Vec::new(),
+                requires: Vec::new(),
             },
             IndexEntry {
                 id: "3.1".to_string(),
@@ -1053,6 +1079,8 @@ mod tests {
                 labels: vec![],
                 assignee: None,
                 updated_at: Utc::now(),
+                produces: Vec::new(),
+                requires: Vec::new(),
             },
         ];
 
@@ -1084,6 +1112,8 @@ mod tests {
                 labels: vec![],
                 assignee: Some("alice".to_string()),
                 updated_at: Utc::now(),
+                produces: Vec::new(),
+                requires: Vec::new(),
             },
         ];
 

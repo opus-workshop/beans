@@ -1,2 +1,3 @@
-project: test-project
-next_id: 11
+project: beans
+next_id: 17
+auto_close_parent: true

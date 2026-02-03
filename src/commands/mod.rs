@@ -1,3 +1,4 @@
+pub mod adopt;
 pub mod claim;
 pub mod close;
 pub mod context;
@@ -12,6 +13,7 @@ pub mod list;
 pub mod quick;
 pub mod ready;
 pub mod reopen;
+pub mod resolve;
 pub mod show;
 pub mod stats;
 pub mod status;
@@ -22,6 +24,7 @@ pub mod unarchive;
 pub mod update;
 pub mod verify;
 
+pub use adopt::cmd_adopt;
 pub use claim::{cmd_claim, cmd_release};
 pub use close::cmd_close;
 pub use context::cmd_context;
@@ -36,6 +39,7 @@ pub use list::cmd_list;
 pub use quick::cmd_quick;
 pub use ready::{cmd_blocked, cmd_ready};
 pub use reopen::cmd_reopen;
+pub use resolve::cmd_resolve;
 pub use show::cmd_show;
 pub use stats::cmd_stats;
 pub use status::cmd_status;
