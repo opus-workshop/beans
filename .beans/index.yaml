@@ -55,28 +55,21 @@ beans:
   dependencies:
   - '11'
   updated_at: 2026-02-03T07:27:36.906627Z
-- id: 12.3.2
-  title: Implement worktree merge logic
-  status: in_progress
-  priority: 2
-  parent: '12.3'
-  updated_at: 2026-02-03T07:36:20.439093Z
 - id: 12.3.3
   title: Integrate worktree merge into bn close
-  status: in_progress
-  priority: 2
-  parent: '12.3'
-  updated_at: 2026-02-03T07:37:25.545502Z
-- id: '13'
-  title: Bean merge conflict resolution (3-way merge)
   status: open
   priority: 2
-  dependencies:
-  - '12'
-  updated_at: 2026-02-03T07:22:46.633886Z
-- id: '13.1'
-  title: Add conflict types and hash tracking to Bean
+  parent: '12.3'
+  updated_at: 2026-02-03T07:44:53.194201Z
+- id: 12.3.3.1
+  title: Add worktree merge handling to cmd_close
   status: in_progress
   priority: 1
-  parent: '13'
-  updated_at: 2026-02-03T07:37:27.477757Z
+  parent: 12.3.3
+  updated_at: 2026-02-04T02:02:11.238186Z
+- id: 12.3.3.2
+  title: Add worktree merge integration tests for close
+  status: in_progress
+  priority: 2
+  parent: 12.3.3
+  updated_at: 2026-02-04T02:02:11.290420Z

@@ -5,12 +5,13 @@ use clap::Parser;
 
 mod cli;
 
-use cli::{Cli, Command, DepCommand};
+use cli::{Cli, Command, ConfigCommand, DepCommand};
 use bn::commands::{
-    cmd_adopt, cmd_claim, cmd_close, cmd_context, cmd_create, cmd_delete, cmd_dep_add, cmd_dep_cycles,
-    cmd_dep_list, cmd_dep_remove, cmd_dep_tree, cmd_doctor, cmd_edit, cmd_graph, cmd_init,
-    cmd_list, cmd_quick, cmd_ready, cmd_blocked, cmd_release, cmd_reopen, cmd_resolve, cmd_show, cmd_stats,
-    cmd_status, cmd_sync, cmd_tree, cmd_trust, cmd_unarchive, cmd_update, cmd_verify,
+    cmd_adopt, cmd_claim, cmd_close, cmd_config_get, cmd_config_set, cmd_context, cmd_create,
+    cmd_delete, cmd_dep_add, cmd_dep_cycles, cmd_dep_list, cmd_dep_remove, cmd_dep_tree, cmd_doctor,
+    cmd_edit, cmd_graph, cmd_init, cmd_list, cmd_quick, cmd_ready, cmd_blocked, cmd_release,
+    cmd_reopen, cmd_resolve, cmd_show, cmd_stats, cmd_status, cmd_sync, cmd_tree, cmd_trust,
+    cmd_unarchive, cmd_update, cmd_verify,
 };
 use bn::commands::create::CreateArgs;
 use bn::commands::quick::QuickArgs;
@@ -266,5 +267,10 @@ fn main() -> Result<()> {
             let resolved_id = resolve_bean_id(&id, &beans_dir)?;
             cmd_resolve(&beans_dir, &resolved_id, &field, choice)
         }
+
+        Command::Config { command } => match command {
+            ConfigCommand::Get { key } => cmd_config_get(&beans_dir, &key),
+            ConfigCommand::Set { key, value } => cmd_config_set(&beans_dir, &key, &value),
+        },
     }
 }

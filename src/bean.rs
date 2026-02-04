@@ -161,6 +161,15 @@ pub struct Bean {
     /// Non-empty when merge detected conflicting changes.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub conflicts: Vec<FieldConflict>,
+
+    /// Estimated token count for this bean's context.
+    /// Used for sizing decisions (decomposition vs implementation).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokens: Option<u64>,
+
+    /// When the token count was last calculated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokens_updated: Option<DateTime<Utc>>,
 }
 
 fn default_priority() -> u8 {
@@ -219,6 +228,8 @@ impl Bean {
             produces: Vec::new(),
             requires: Vec::new(),
             conflicts: Vec::new(),
+            tokens: None,
+            tokens_updated: None,
         })
     }
 
@@ -309,6 +320,33 @@ impl Bean {
         Ok(())
     }
 
+    /// Calculate SHA256 hash of canonical form.
+    ///
+    /// Used for optimistic locking. The hash is calculated from a canonical
+    /// JSON representation with non-content fields (like `conflicts`) cleared.
+    pub fn hash(&self) -> String {
+        use sha2::{Sha256, Digest};
+        // Clone and clear non-content fields
+        let mut canonical = self.clone();
+        canonical.conflicts = Vec::new();  // Don't include conflicts in hash
+        
+        // Serialize to JSON (deterministic)
+        let json = serde_json::to_string(&canonical).unwrap();
+        let mut hasher = Sha256::new();
+        hasher.update(json.as_bytes());
+        format!("{:x}", hasher.finalize())
+    }
+
+    /// Load bean with version hash for optimistic locking.
+    ///
+    /// Returns the bean and its content hash as a tuple. The hash can be
+    /// compared before saving to detect concurrent modifications.
+    pub fn from_file_with_hash(path: impl AsRef<Path>) -> Result<(Self, String)> {
+        let bean = Self::from_file(path)?;
+        let hash = bean.hash();
+        Ok((bean, hash))
+    }
+
     /// Apply a JSON-serialized value to a field by name.
     ///
     /// Used by conflict resolution to set a field to a chosen value.
@@ -339,6 +377,8 @@ impl Bean {
             "requires" => self.requires = serde_json::from_str(json_value)?,
             "claimed_by" => self.claimed_by = serde_json::from_str(json_value)?,
             "close_reason" => self.close_reason = serde_json::from_str(json_value)?,
+            "tokens" => self.tokens = serde_json::from_str(json_value)?,
+            "tokens_updated" => self.tokens_updated = serde_json::from_str(json_value)?,
             _ => return Err(anyhow::anyhow!("Unknown field: {}", field)),
         }
         self.updated_at = Utc::now();
@@ -399,6 +439,8 @@ mod tests {
             produces: vec!["Parser".to_string()],
             requires: vec!["Lexer".to_string()],
             conflicts: Vec::new(),
+            tokens: Some(15000),
+            tokens_updated: Some(now),
         };
 
         let yaml = serde_yaml::to_string(&bean).unwrap();
@@ -439,6 +481,8 @@ mod tests {
         assert!(!yaml.contains("claimed_by:"));
         assert!(!yaml.contains("claimed_at:"));
         assert!(!yaml.contains("is_archived:"));
+        assert!(!yaml.contains("tokens:"));
+        assert!(!yaml.contains("tokens_updated:"));
     }
 
     #[test]
@@ -778,5 +822,60 @@ This should not override.
             bean.description,
             Some("From YAML metadata".to_string())
         );
+    }
+
+    // =====================================================================
+    // Tests for Bean hash methods
+    // =====================================================================
+
+    #[test]
+    fn test_hash_consistency() {
+        let bean1 = Bean::new("1", "Test bean");
+        let bean2 = bean1.clone();
+        // Same content produces same hash
+        assert_eq!(bean1.hash(), bean2.hash());
+        // Hash is deterministic
+        assert_eq!(bean1.hash(), bean1.hash());
+    }
+
+    #[test]
+    fn test_hash_changes_with_content() {
+        let bean1 = Bean::new("1", "Test bean");
+        let bean2 = Bean::new("1", "Different title");
+        assert_ne!(bean1.hash(), bean2.hash());
+    }
+
+    #[test]
+    fn test_hash_ignores_conflicts() {
+        let bean1 = Bean::new("1", "Test bean");
+        // Clone to ensure identical timestamps
+        let mut bean2 = bean1.clone();
+
+        // Add conflict to bean2
+        bean2.conflicts.push(FieldConflict {
+            field: "title".to_string(),
+            versions: vec![ConflictVersion {
+                value: "\"old title\"".to_string(),
+                agent: "agent-1".to_string(),
+                timestamp: Utc::now(),
+            }],
+            resolution: ConflictResolution::Pending,
+        });
+
+        // Hashes should still match (conflicts ignored)
+        assert_eq!(bean1.hash(), bean2.hash());
+    }
+
+    #[test]
+    fn test_from_file_with_hash() {
+        let bean = Bean::new("42", "Hash file test");
+        let expected_hash = bean.hash();
+
+        let tmp = NamedTempFile::new().unwrap();
+        bean.to_file(tmp.path()).unwrap();
+
+        let (loaded, hash) = Bean::from_file_with_hash(tmp.path()).unwrap();
+        assert_eq!(loaded, bean);
+        assert_eq!(hash, expected_hash);
     }
 }

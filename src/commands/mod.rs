@@ -1,6 +1,7 @@
 pub mod adopt;
 pub mod claim;
 pub mod close;
+pub mod config_cmd;
 pub mod context;
 pub mod create;
 pub mod delete;
@@ -27,6 +28,7 @@ pub mod verify;
 pub use adopt::cmd_adopt;
 pub use claim::{cmd_claim, cmd_release};
 pub use close::cmd_close;
+pub use config_cmd::{cmd_config_get, cmd_config_set};
 pub use context::cmd_context;
 pub use create::cmd_create;
 pub use delete::cmd_delete;

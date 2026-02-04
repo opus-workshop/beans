@@ -1,3 +1,4 @@
 project: beans
 next_id: 17
 auto_close_parent: true
+max_tokens: 30000

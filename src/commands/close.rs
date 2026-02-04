@@ -952,6 +952,7 @@ mod tests {
             project: "test".to_string(),
             next_id: 100,
             auto_close_parent: true,
+            max_tokens: 30000,
         };
         config.save(&beans_dir).unwrap();
         
@@ -1039,6 +1040,7 @@ mod tests {
             project: "test".to_string(),
             next_id: 100,
             auto_close_parent: false,
+            max_tokens: 30000,
         };
         config.save(&beans_dir).unwrap();
 

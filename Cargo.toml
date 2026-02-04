@@ -15,6 +15,7 @@ shell-escape = "0.1"
 termimad = "0.24"
 glob = "0.3"
 regex = "1"
+sha2 = "0.10"
 
 [[bin]]
 name = "bctx"

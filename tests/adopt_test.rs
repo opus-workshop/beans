@@ -21,6 +21,7 @@ fn setup_test_env() -> (TempDir, std::path::PathBuf) {
         project: "test-adopt".to_string(),
         next_id: 100,
         auto_close_parent: true,
+        max_tokens: 30000,
     };
     config.save(&beans_dir).unwrap();
 

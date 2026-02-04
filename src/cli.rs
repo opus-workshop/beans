@@ -367,6 +367,12 @@ pub enum Command {
         /// Version choice (0, 1, ...)
         choice: usize,
     },
+
+    /// Manage project configuration
+    Config {
+        #[command(subcommand)]
+        command: ConfigCommand,
+    },
 }
 
 #[derive(Subcommand)]
@@ -403,4 +409,22 @@ pub enum DepCommand {
 
     /// Detect dependency cycles in the graph
     Cycles,
+}
+
+#[derive(Subcommand)]
+pub enum ConfigCommand {
+    /// Get a configuration value
+    Get {
+        /// Config key (e.g., max_tokens, auto_close_parent)
+        key: String,
+    },
+
+    /// Set a configuration value
+    Set {
+        /// Config key (e.g., max_tokens, auto_close_parent)
+        key: String,
+
+        /// New value
+        value: String,
+    },
 }
