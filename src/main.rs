@@ -104,7 +104,10 @@ fn main() -> Result<()> {
         }
 
         Command::Show { id, json, short } => {
-            validate_bean_id(&id)?;
+            // Skip validation for selectors (start with @)
+            if !id.starts_with('@') {
+                validate_bean_id(&id)?;
+            }
             let resolved_id = resolve_bean_id(&id, &beans_dir)?;
             cmd_show(&resolved_id, json, short, &beans_dir)
         }

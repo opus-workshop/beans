@@ -7,6 +7,7 @@ use crate::bean::Bean;
 use crate::discovery::find_bean_file;
 use crate::hooks::{execute_hook, HookEvent};
 use crate::index::Index;
+use crate::tokens::calculate_tokens;
 use crate::util::parse_status;
 
 /// Update a bean's fields based on provided flags.
@@ -54,6 +55,9 @@ pub fn cmd_update(
         return Err(anyhow!("Pre-update hook rejected bean update"));
     }
 
+    // Track if content changes that affect token count
+    let mut content_changed = false;
+
     // Apply updates
     if let Some(new_title) = title {
         bean.title = new_title;
@@ -61,10 +65,12 @@ pub fn cmd_update(
 
     if let Some(new_description) = description {
         bean.description = Some(new_description);
+        content_changed = true;
     }
 
     if let Some(new_acceptance) = acceptance {
         bean.acceptance = Some(new_acceptance);
+        content_changed = true;
     }
 
     if let Some(new_notes) = notes {
@@ -75,6 +81,7 @@ pub fn cmd_update(
         } else {
             bean.notes = Some(format!("---\n{}\n{}", timestamp, new_notes));
         }
+        content_changed = true;
     }
 
     if let Some(new_design) = design {
@@ -102,6 +109,13 @@ pub fn cmd_update(
 
     if let Some(label) = remove_label {
         bean.labels.retain(|l| l != &label);
+    }
+
+    // Recalculate tokens if content changed
+    if content_changed {
+        let tokens = calculate_tokens(&bean, project_root);
+        bean.tokens = Some(tokens);
+        bean.tokens_updated = Some(Utc::now());
     }
 
     // Update timestamp
@@ -521,5 +535,102 @@ mod tests {
         assert_eq!(updated.title, "New title");
         assert_eq!(updated.description, Some("New desc".to_string()));
         assert_eq!(updated.status, Status::InProgress);
+    }
+
+    // =====================================================================
+    // Token Recalculation Tests
+    // =====================================================================
+
+    #[test]
+    fn test_update_description_recalculates_tokens() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+        let bean = Bean::new("1", "Test");
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+
+        cmd_update(&beans_dir, "1", None, Some("New description with content".to_string()), None, None, None, None, None, None, None, None).unwrap();
+
+        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        assert!(updated.tokens.is_some(), "Tokens should be calculated after description update");
+        assert!(updated.tokens_updated.is_some(), "tokens_updated should be set");
+    }
+
+    #[test]
+    fn test_update_acceptance_recalculates_tokens() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+        let bean = Bean::new("1", "Test");
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+
+        cmd_update(&beans_dir, "1", None, None, Some("New acceptance criteria".to_string()), None, None, None, None, None, None, None).unwrap();
+
+        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        assert!(updated.tokens.is_some(), "Tokens should be calculated after acceptance update");
+        assert!(updated.tokens_updated.is_some(), "tokens_updated should be set");
+    }
+
+    #[test]
+    fn test_update_notes_recalculates_tokens() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+        let bean = Bean::new("1", "Test");
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+
+        cmd_update(&beans_dir, "1", None, None, None, Some("New note content".to_string()), None, None, None, None, None, None).unwrap();
+
+        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        assert!(updated.tokens.is_some(), "Tokens should be calculated after notes update");
+        assert!(updated.tokens_updated.is_some(), "tokens_updated should be set");
+    }
+
+    #[test]
+    fn test_update_title_does_not_recalculate_tokens() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+        let bean = Bean::new("1", "Original Title");
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+
+        cmd_update(&beans_dir, "1", Some("New Title".to_string()), None, None, None, None, None, None, None, None, None).unwrap();
+
+        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        assert!(updated.tokens.is_none(), "Tokens should not be calculated for title-only update");
+        assert!(updated.tokens_updated.is_none(), "tokens_updated should not be set");
+    }
+
+    #[test]
+    fn test_update_label_does_not_recalculate_tokens() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+        let bean = Bean::new("1", "Test");
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+
+        cmd_update(&beans_dir, "1", None, None, None, None, None, None, None, None, Some("bug".to_string()), None).unwrap();
+
+        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        assert!(updated.tokens.is_none(), "Tokens should not be calculated for label-only update");
+        assert!(updated.tokens_updated.is_none(), "tokens_updated should not be set");
+    }
+
+    #[test]
+    fn test_update_tokens_updated_timestamp_changes() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+        let bean = Bean::new("1", "Test");
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+
+        // First update
+        cmd_update(&beans_dir, "1", None, Some("First description".to_string()), None, None, None, None, None, None, None, None).unwrap();
+        let first_update = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        let first_tokens_updated = first_update.tokens_updated.unwrap();
+
+        // Brief pause to ensure timestamp difference
+        std::thread::sleep(std::time::Duration::from_millis(10));
+
+        // Second update
+        cmd_update(&beans_dir, "1", None, Some("Second description with more content".to_string()), None, None, None, None, None, None, None, None).unwrap();
+        let second_update = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        let second_tokens_updated = second_update.tokens_updated.unwrap();
+
+        assert!(second_tokens_updated > first_tokens_updated, "tokens_updated should change on content update");
     }
 }

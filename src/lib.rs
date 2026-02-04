@@ -10,5 +10,6 @@ pub mod hooks;
 pub mod merge;
 pub mod project;
 pub mod selector;
+pub mod tokens;
 pub mod util;
 pub mod worktree;

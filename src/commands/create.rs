@@ -4,11 +4,14 @@ use std::process::Command as ShellCommand;
 
 use anyhow::{anyhow, Context, Result};
 
+use chrono::Utc;
+
 use crate::bean::{Bean, validate_priority};
 use crate::config::Config;
 use crate::hooks::{execute_hook, HookEvent};
 use crate::index::Index;
 use crate::project::suggest_verify_command;
+use crate::tokens::calculate_tokens;
 use crate::util::title_to_slug;
 
 /// Create arguments structure for organizing all the parameters passed to create.
@@ -221,6 +224,11 @@ pub fn cmd_create(beans_dir: &Path, args: CreateArgs) -> Result<()> {
     if !pre_passed {
         return Err(anyhow!("Pre-create hook rejected bean creation"));
     }
+
+    // Calculate and store token count
+    let tokens = calculate_tokens(&bean, project_dir);
+    bean.tokens = Some(tokens);
+    bean.tokens_updated = Some(Utc::now());
 
     // Write the bean file with new naming convention: {id}-{slug}.md
     let bean_path = beans_dir.join(format!("{}-{}.md", bean_id, slug));

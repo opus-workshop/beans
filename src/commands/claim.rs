@@ -4,6 +4,7 @@ use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 
 use crate::bean::{Bean, Status};
+use crate::config::Config;
 use crate::discovery::find_bean_file;
 use crate::index::Index;
 
@@ -24,6 +25,24 @@ pub fn cmd_claim(beans_dir: &Path, id: &str, by: Option<String>) -> Result<()> {
             id,
             bean.status
         ));
+    }
+
+    // Check token count against max_tokens config
+    if let Some(tokens) = bean.tokens {
+        let config = Config::load(beans_dir).unwrap_or_else(|_| Config {
+            project: String::new(),
+            next_id: 1,
+            auto_close_parent: true,
+            max_tokens: 30000,
+        });
+        if tokens > config.max_tokens as u64 {
+            return Err(anyhow!(
+                "Cannot claim bean {}: too large ({} tokens > {} limit)\nDecompose into smaller beans first.",
+                id,
+                tokens,
+                config.max_tokens
+            ));
+        }
     }
 
     let now = Utc::now();
@@ -198,5 +217,103 @@ mod tests {
         assert_eq!(index.beans.len(), 1);
         let entry = &index.beans[0];
         assert_eq!(entry.status, Status::Open);
+    }
+
+    #[test]
+    fn test_claim_bean_exceeding_max_tokens_fails() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+
+        // Create config with max_tokens = 30000
+        let config = crate::config::Config {
+            project: "test".to_string(),
+            next_id: 2,
+            auto_close_parent: true,
+            max_tokens: 30000,
+        };
+        config.save(&beans_dir).unwrap();
+
+        // Create bean with tokens > max_tokens
+        let mut bean = Bean::new("1", "Large Bean");
+        bean.tokens = Some(45000);
+        bean.to_file(beans_dir.join("1.yaml")).unwrap();
+
+        let result = cmd_claim(&beans_dir, "1", Some("alice".to_string()));
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("too large"));
+        assert!(err_msg.contains("45000"));
+        assert!(err_msg.contains("30000"));
+        assert!(err_msg.contains("Decompose"));
+    }
+
+    #[test]
+    fn test_claim_bean_under_max_tokens_succeeds() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+
+        // Create config with max_tokens = 30000
+        let config = crate::config::Config {
+            project: "test".to_string(),
+            next_id: 2,
+            auto_close_parent: true,
+            max_tokens: 30000,
+        };
+        config.save(&beans_dir).unwrap();
+
+        // Create bean with tokens < max_tokens
+        let mut bean = Bean::new("1", "Small Bean");
+        bean.tokens = Some(15000);
+        bean.to_file(beans_dir.join("1.yaml")).unwrap();
+
+        let result = cmd_claim(&beans_dir, "1", Some("alice".to_string()));
+        assert!(result.is_ok());
+
+        let updated = Bean::from_file(beans_dir.join("1.yaml")).unwrap();
+        assert_eq!(updated.status, Status::InProgress);
+    }
+
+    #[test]
+    fn test_claim_bean_without_tokens_succeeds() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+
+        // Create config
+        let config = crate::config::Config {
+            project: "test".to_string(),
+            next_id: 2,
+            auto_close_parent: true,
+            max_tokens: 30000,
+        };
+        config.save(&beans_dir).unwrap();
+
+        // Create bean without tokens field (None)
+        let bean = Bean::new("1", "No Token Count");
+        bean.to_file(beans_dir.join("1.yaml")).unwrap();
+
+        let result = cmd_claim(&beans_dir, "1", Some("alice".to_string()));
+        assert!(result.is_ok());
+
+        let updated = Bean::from_file(beans_dir.join("1.yaml")).unwrap();
+        assert_eq!(updated.status, Status::InProgress);
+    }
+
+    #[test]
+    fn test_claim_bean_at_exact_limit_succeeds() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+
+        // Create config with max_tokens = 30000
+        let config = crate::config::Config {
+            project: "test".to_string(),
+            next_id: 2,
+            auto_close_parent: true,
+            max_tokens: 30000,
+        };
+        config.save(&beans_dir).unwrap();
+
+        // Create bean with tokens == max_tokens (exactly at limit)
+        let mut bean = Bean::new("1", "Exact Limit Bean");
+        bean.tokens = Some(30000);
+        bean.to_file(beans_dir.join("1.yaml")).unwrap();
+
+        let result = cmd_claim(&beans_dir, "1", Some("alice".to_string()));
+        assert!(result.is_ok());
     }
 }
