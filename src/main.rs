@@ -80,10 +80,20 @@ fn main() -> Result<()> {
             produces,
             requires,
             fail_first,
+            run,
         } => {
             let title = title
                 .or(set_title)
                 .ok_or_else(|| anyhow::anyhow!("bn create: title is required"))?;
+
+            // --run requires --verify
+            if run && verify.is_none() {
+                anyhow::bail!(
+                    "--run requires --verify\n\n\
+                     Cannot spawn an agent without a test. If you can't write a verify command,\n\
+                     this is a GOAL that needs decomposition, not a SPEC ready for implementation."
+                );
+            }
 
             cmd_create(&beans_dir, CreateArgs {
                 title,

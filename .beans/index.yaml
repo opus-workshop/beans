@@ -98,3 +98,34 @@ beans:
   status: open
   priority: 2
   updated_at: 2026-02-05T07:42:08.177887Z
+- id: '32'
+  title: 'Enforce verify-as-spec: beans without verify are goals, not ready'
+  status: open
+  priority: 2
+  updated_at: 2026-02-05T08:14:28.190389Z
+- id: '32.1'
+  title: 'bn ready: filter to beans with verify command'
+  status: in_progress
+  priority: 2
+  parent: '32'
+  updated_at: 2026-02-05T08:14:53.651965Z
+  produces:
+  - ready_filter_verify
+- id: '32.3'
+  title: 'bn status: show needs-spec indicator for beans without verify'
+  status: in_progress
+  priority: 2
+  parent: '32'
+  updated_at: 2026-02-05T08:14:53.699968Z
+  produces:
+  - status_shows_goals
+  requires:
+  - ready_filter_verify
+- id: '32.4'
+  title: 'bn claim: warn when claiming bean without verify'
+  status: in_progress
+  priority: 2
+  parent: '32'
+  updated_at: 2026-02-05T08:14:53.736007Z
+  requires:
+  - ready_filter_verify

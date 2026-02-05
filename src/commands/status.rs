@@ -12,16 +12,18 @@ use crate::util::natural_cmp;
 struct StatusOutput {
     claimed: Vec<IndexEntry>,
     ready: Vec<IndexEntry>,
+    goals: Vec<IndexEntry>,
     blocked: Vec<IndexEntry>,
 }
 
-/// Show complete work picture: claimed, ready, and blocked beans
+/// Show complete work picture: claimed, ready, goals (need decomposition), and blocked beans
 pub fn cmd_status(json: bool, beans_dir: &Path) -> Result<()> {
     let index = Index::load_or_rebuild(beans_dir)?;
 
     // Separate beans into categories
     let mut claimed: Vec<&IndexEntry> = Vec::new();
     let mut ready: Vec<&IndexEntry> = Vec::new();
+    let mut goals: Vec<&IndexEntry> = Vec::new();
     let mut blocked: Vec<&IndexEntry> = Vec::new();
 
     for entry in &index.beans {
@@ -32,8 +34,10 @@ pub fn cmd_status(json: bool, beans_dir: &Path) -> Result<()> {
             Status::Open => {
                 if is_blocked(entry, &index) {
                     blocked.push(entry);
-                } else {
+                } else if entry.has_verify {
                     ready.push(entry);
+                } else {
+                    goals.push(entry);
                 }
             }
             Status::Closed => {}
@@ -42,12 +46,14 @@ pub fn cmd_status(json: bool, beans_dir: &Path) -> Result<()> {
 
     sort_beans(&mut claimed);
     sort_beans(&mut ready);
+    sort_beans(&mut goals);
     sort_beans(&mut blocked);
 
     if json {
         let output = StatusOutput {
             claimed: claimed.into_iter().cloned().collect(),
             ready: ready.into_iter().cloned().collect(),
+            goals: goals.into_iter().cloned().collect(),
             blocked: blocked.into_iter().cloned().collect(),
         };
         let json_str = serde_json::to_string_pretty(&output)?;
@@ -69,6 +75,16 @@ pub fn cmd_status(json: bool, beans_dir: &Path) -> Result<()> {
         } else {
             for entry in ready {
                 println!("  {} [ ] {}", entry.id, entry.title);
+            }
+        }
+        println!();
+
+        println!("## Goals (need decomposition) ({})", goals.len());
+        if goals.is_empty() {
+            println!("  (none)");
+        } else {
+            for entry in goals {
+                println!("  {} [?] {}", entry.id, entry.title);
             }
         }
         println!();

@@ -80,6 +80,10 @@ pub enum Command {
         /// Require verify to fail first (enforced TDD - proves test is real)
         #[arg(long)]
         fail_first: bool,
+
+        /// Spawn an agent to work on this bean (requires --verify)
+        #[arg(long)]
+        run: bool,
     },
 
     /// Display full bean details

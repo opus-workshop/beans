@@ -27,6 +27,15 @@ pub fn cmd_claim(beans_dir: &Path, id: &str, by: Option<String>) -> Result<()> {
         ));
     }
 
+    // Warn if bean has no verify command (GOAL vs SPEC)
+    let has_verify = bean.verify.as_ref().is_some_and(|v| !v.trim().is_empty());
+    if !has_verify {
+        eprintln!(
+            "Warning: Claiming GOAL (no verify). Consider decomposing with: bn create \"spec\" --parent {} --verify \"test\"",
+            id
+        );
+    }
+
     // Check token count against max_tokens config
     if let Some(tokens) = bean.tokens {
         let config = Config::load(beans_dir).unwrap_or_else(|_| Config {
@@ -333,5 +342,57 @@ mod tests {
 
         let result = cmd_claim(&beans_dir, "1", Some("alice".to_string()));
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_claim_bean_without_verify_succeeds_with_warning() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+
+        // Create bean without verify (this is a GOAL, not a SPEC)
+        let bean = Bean::new("1", "Add authentication");
+        // bean.verify is None by default
+        bean.to_file(beans_dir.join("1.yaml")).unwrap();
+
+        // Claim should succeed (warning is printed but doesn't block)
+        let result = cmd_claim(&beans_dir, "1", Some("alice".to_string()));
+        assert!(result.is_ok());
+
+        let updated = Bean::from_file(beans_dir.join("1.yaml")).unwrap();
+        assert_eq!(updated.status, Status::InProgress);
+        assert_eq!(updated.claimed_by, Some("alice".to_string()));
+    }
+
+    #[test]
+    fn test_claim_bean_with_verify_succeeds() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+
+        // Create bean with verify (this is a SPEC)
+        let mut bean = Bean::new("1", "Add login endpoint");
+        bean.verify = Some("cargo test login".to_string());
+        bean.to_file(beans_dir.join("1.yaml")).unwrap();
+
+        // Claim should succeed without warning
+        let result = cmd_claim(&beans_dir, "1", Some("alice".to_string()));
+        assert!(result.is_ok());
+
+        let updated = Bean::from_file(beans_dir.join("1.yaml")).unwrap();
+        assert_eq!(updated.status, Status::InProgress);
+    }
+
+    #[test]
+    fn test_claim_bean_with_empty_verify_warns() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+
+        // Create bean with empty verify string (should be treated as no verify)
+        let mut bean = Bean::new("1", "Vague task");
+        bean.verify = Some("   ".to_string()); // whitespace only
+        bean.to_file(beans_dir.join("1.yaml")).unwrap();
+
+        // Claim should succeed (warning is printed but doesn't block)
+        let result = cmd_claim(&beans_dir, "1", Some("alice".to_string()));
+        assert!(result.is_ok());
+
+        let updated = Bean::from_file(beans_dir.join("1.yaml")).unwrap();
+        assert_eq!(updated.status, Status::InProgress);
     }
 }

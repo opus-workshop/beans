@@ -6,16 +6,22 @@ use crate::bean::Status;
 use crate::index::{Index, IndexEntry};
 use crate::util::natural_cmp;
 
-/// Show beans ready to work on (status=open AND all dependencies closed)
+/// Show beans ready to work on (SPECs with verify, status=open, all deps closed)
 /// Sorted by priority (P0 first), then by id
+///
+/// Beans without verify are GOALs - they need decomposition, not implementation.
 pub fn cmd_ready(json: bool, beans_dir: &Path) -> Result<()> {
     let index = Index::load_or_rebuild(beans_dir)?;
 
-    // Filter: status=open AND all deps closed
+    // Filter: has_verify AND status=open AND all deps closed
     let ready: Vec<&IndexEntry> = index
         .beans
         .iter()
         .filter(|entry| {
+            // Must have verify command (SPECs, not GOALs)
+            if !entry.has_verify {
+                return false;
+            }
             if entry.status != Status::Open {
                 return false;
             }
@@ -139,14 +145,20 @@ mod tests {
         fs::create_dir(&beans_dir).unwrap();
 
         // Create beans with various dependency and status states
-        let bean1 = crate::bean::Bean::new("1", "Task one");
-        let bean2 = crate::bean::Bean::new("2", "Task two");
+        // All beans have verify commands so they're SPECs (not GOALs)
+        let mut bean1 = crate::bean::Bean::new("1", "Task one");
+        bean1.verify = Some("echo test".to_string());
+        let mut bean2 = crate::bean::Bean::new("2", "Task two");
+        bean2.verify = Some("echo test".to_string());
         let mut bean3 = crate::bean::Bean::new("3", "Task three - depends on 1");
         bean3.dependencies = vec!["1".to_string()];
+        bean3.verify = Some("echo test".to_string());
         let mut bean4 = crate::bean::Bean::new("4", "Task four - depends on 2");
         bean4.dependencies = vec!["2".to_string()];
+        bean4.verify = Some("echo test".to_string());
         let mut bean2_closed = crate::bean::Bean::new("5", "Task five - depends on closed");
         bean2_closed.dependencies = vec!["closed-bean".to_string()];
+        bean2_closed.verify = Some("echo test".to_string());
 
         let mut closed_bean = crate::bean::Bean::new("closed-bean", "Closed");
         closed_bean.status = Status::Closed;
@@ -204,17 +216,20 @@ mod tests {
         let mut child1 = crate::bean::Bean::new("1.1", "Define auth types");
         child1.parent = Some("1".to_string());
         child1.produces = vec!["AuthProvider".to_string()];
+        child1.verify = Some("echo test".to_string());
         child1.to_file(beans_dir.join("1.1-auth-types.md")).unwrap();
 
         // Child 2: requires AuthProvider (should be blocked by 1.1)
         let mut child2 = crate::bean::Bean::new("1.2", "Implement JWT");
         child2.parent = Some("1".to_string());
         child2.requires = vec!["AuthProvider".to_string()];
+        child2.verify = Some("echo test".to_string());
         child2.to_file(beans_dir.join("1.2-jwt.md")).unwrap();
 
         // Child 3: no requires (should be ready)
         let mut child3 = crate::bean::Bean::new("1.3", "Config parsing");
         child3.parent = Some("1".to_string());
+        child3.verify = Some("echo test".to_string());
         child3.to_file(beans_dir.join("1.3-config.md")).unwrap();
 
         let index = Index::build(&beans_dir).unwrap();
@@ -262,16 +277,19 @@ mod tests {
     fn cmd_ready_filters_open_with_closed_deps() {
         let (_dir, beans_dir) = setup_test_beans();
 
-        // Bean 1 and 2 have no deps, so they're ready
+        // Bean 1 and 2 have no deps and have verify, so they're ready
         // Bean 3 depends on 1 (open), so not ready
         // Bean 4 depends on 2 (open), so not ready
-        // Bean 5 depends on closed-bean (closed), so it's ready
+        // Bean 5 depends on closed-bean (closed) and has verify, so it's ready
         let index = Index::load_or_rebuild(&beans_dir).unwrap();
 
         let ready: Vec<&IndexEntry> = index
             .beans
             .iter()
             .filter(|entry| {
+                if !entry.has_verify {
+                    return false;
+                }
                 if entry.status != Status::Open {
                     return false;
                 }
@@ -284,6 +302,37 @@ mod tests {
         assert!(ids.contains(&"1"));
         assert!(ids.contains(&"2"));
         assert!(ids.contains(&"5"));
+    }
+
+    #[test]
+    fn cmd_ready_excludes_beans_without_verify() {
+        let dir = TempDir::new().unwrap();
+        let beans_dir = dir.path().join(".beans");
+        fs::create_dir(&beans_dir).unwrap();
+
+        // Bean with verify (SPEC) - should be ready
+        let mut spec = crate::bean::Bean::new("1", "Spec with verify");
+        spec.verify = Some("echo test".to_string());
+        spec.to_file(beans_dir.join("1.yaml")).unwrap();
+
+        // Bean without verify (GOAL) - should NOT be ready
+        let goal = crate::bean::Bean::new("2", "Goal without verify");
+        goal.to_file(beans_dir.join("2.yaml")).unwrap();
+
+        let index = Index::load_or_rebuild(&beans_dir).unwrap();
+
+        let ready: Vec<&IndexEntry> = index
+            .beans
+            .iter()
+            .filter(|entry| {
+                entry.has_verify && entry.status == Status::Open && resolve_blocked(entry, &index).is_empty()
+            })
+            .collect();
+
+        // Only the SPEC should be ready
+        assert_eq!(ready.len(), 1);
+        assert_eq!(ready[0].id, "1");
+        assert_eq!(ready[0].title, "Spec with verify");
     }
 
     #[test]
@@ -317,10 +366,13 @@ mod tests {
 
         let mut b1 = crate::bean::Bean::new("1", "P2 first");
         b1.priority = 2;
+        b1.verify = Some("echo test".to_string());
         let mut b2 = crate::bean::Bean::new("2", "P1 second");
         b2.priority = 1;
+        b2.verify = Some("echo test".to_string());
         let mut b3 = crate::bean::Bean::new("3", "P2 third");
         b3.priority = 2;
+        b3.verify = Some("echo test".to_string());
 
         b1.to_file(beans_dir.join("1.yaml")).unwrap();
         b2.to_file(beans_dir.join("2.yaml")).unwrap();

@@ -34,6 +34,9 @@ pub struct IndexEntry {
     /// Artifacts this bean requires (for smart dependency inference)
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub requires: Vec<String>,
+    /// Whether this bean has a verify command (SPECs have verify, GOALs don't)
+    #[serde(default)]
+    pub has_verify: bool,
 }
 
 impl From<&Bean> for IndexEntry {
@@ -50,6 +53,7 @@ impl From<&Bean> for IndexEntry {
             updated_at: bean.updated_at,
             produces: bean.produces.clone(),
             requires: bean.requires.clone(),
+            has_verify: bean.verify.is_some(),
         }
     }
 }
