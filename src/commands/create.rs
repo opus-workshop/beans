@@ -238,7 +238,23 @@ pub fn cmd_create(beans_dir: &Path, args: CreateArgs) -> Result<()> {
     let index = Index::build(beans_dir)?;
     index.save(beans_dir)?;
 
-    println!("Created bean {}: {}", bean_id, args.title);
+    // Show token size feedback with assessment
+    let max_tokens = config.max_tokens;
+    if tokens <= max_tokens as u64 {
+        println!("Created bean {}: {} ({}k tokens ✓)", bean_id, args.title, tokens / 1000);
+    } else {
+        println!(
+            "Created bean {}: {} ({}k tokens ⚠️ exceeds {}k limit)",
+            bean_id,
+            args.title,
+            tokens / 1000,
+            max_tokens / 1000
+        );
+        println!(
+            "  This appears to be a GOAL. Create child SPECS with --parent {}",
+            bean_id
+        );
+    }
 
     // Suggest verify command if none was provided
     if !has_verify {

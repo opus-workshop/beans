@@ -37,10 +37,26 @@ pub fn cmd_claim(beans_dir: &Path, id: &str, by: Option<String>) -> Result<()> {
         });
         if tokens > config.max_tokens as u64 {
             return Err(anyhow!(
-                "Cannot claim bean {}: too large ({} tokens > {} limit)\nDecompose into smaller beans first.",
+                "Cannot claim bean {}: too large for implementation
+
+  {} tokens > {} limit
+
+This bean appears to be a GOAL (high-level outcome) rather than a SPEC 
+(concrete, implementable contract).
+
+To make it implementable:
+1. Break it into smaller specs using: bn create \"spec title\" --parent {}
+2. Each spec should have clear inputs/outputs and a verify command
+3. Or use the decompose skill to interactively clarify requirements
+
+See: Goal → Spec → Test framework
+  - GOAL = WHY (this bean)
+  - SPEC = WHAT (child beans with contracts)
+  - TEST = verify command (proves spec is met)",
                 id,
                 tokens,
-                config.max_tokens
+                config.max_tokens,
+                id
             ));
         }
     }
@@ -243,7 +259,9 @@ mod tests {
         assert!(err_msg.contains("too large"));
         assert!(err_msg.contains("45000"));
         assert!(err_msg.contains("30000"));
-        assert!(err_msg.contains("Decompose"));
+        assert!(err_msg.contains("GOAL"));
+        assert!(err_msg.contains("SPEC"));
+        assert!(err_msg.contains("--parent"));
     }
 
     #[test]
