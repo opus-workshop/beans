@@ -11,6 +11,7 @@ beans:
   - code-quality
   - core
   updated_at: 2026-01-30T18:52:17.686266Z
+  has_verify: true
 - id: '9'
   title: Extract beans_dir discovery pattern
   status: closed
@@ -21,6 +22,7 @@ beans:
   - refactor
   - code-quality
   updated_at: 2026-01-30T18:46:30.023197Z
+  has_verify: true
 - id: '10'
   title: Expand .gitignore with platform artifacts
   status: closed
@@ -29,11 +31,13 @@ beans:
   - hygiene
   - meta
   updated_at: 2026-01-30T18:51:07.517469Z
+  has_verify: true
 - id: '11'
   title: 'Verify-on-claim: run verify before granting claim'
   status: in_progress
   priority: 2
   updated_at: 2026-02-03T05:10:47.689160Z
+  has_verify: true
 - id: '12'
   title: 'Spro sandboxing: git worktrees for parallel agents'
   status: open
@@ -41,12 +45,14 @@ beans:
   dependencies:
   - '11'
   updated_at: 2026-02-03T03:21:51.875721Z
+  has_verify: true
 - id: '12.1'
   title: Implement git worktree isolation in spro spawn
   status: in_progress
   priority: 2
   parent: '12'
   updated_at: 2026-02-03T05:02:37.164217Z
+  has_verify: true
 - id: '12.3'
   title: Add worktree merge to bn close
   status: open
@@ -55,77 +61,25 @@ beans:
   dependencies:
   - '11'
   updated_at: 2026-02-03T07:27:36.906627Z
+  has_verify: true
 - id: 12.3.3
   title: Integrate worktree merge into bn close
   status: open
   priority: 2
   parent: '12.3'
   updated_at: 2026-02-03T07:44:53.194201Z
+  has_verify: true
 - id: 12.3.3.1
   title: Add worktree merge handling to cmd_close
   status: in_progress
   priority: 1
   parent: 12.3.3
   updated_at: 2026-02-04T02:02:11.238186Z
+  has_verify: true
 - id: 12.3.3.2
   title: Add worktree merge integration tests for close
   status: in_progress
   priority: 2
   parent: 12.3.3
   updated_at: 2026-02-04T02:02:11.290420Z
-- id: '22'
-  title: test token calc
-  status: open
-  priority: 2
-  updated_at: 2026-02-04T07:49:56.246120Z
-- id: '23'
-  title: 'test: verify token sizing'
-  status: open
-  priority: 2
-  updated_at: 2026-02-04T07:50:37.488917Z
-- id: '24'
-  title: test size feedback
-  status: open
-  priority: 2
-  updated_at: 2026-02-05T07:37:54.246805Z
-- id: '30'
-  title: test output check
-  status: open
-  priority: 2
-  updated_at: 2026-02-05T07:41:52.135115Z
-- id: '31'
-  title: test
-  status: open
-  priority: 2
-  updated_at: 2026-02-05T07:42:08.177887Z
-- id: '32'
-  title: 'Enforce verify-as-spec: beans without verify are goals, not ready'
-  status: open
-  priority: 2
-  updated_at: 2026-02-05T08:14:28.190389Z
-- id: '32.1'
-  title: 'bn ready: filter to beans with verify command'
-  status: in_progress
-  priority: 2
-  parent: '32'
-  updated_at: 2026-02-05T08:14:53.651965Z
-  produces:
-  - ready_filter_verify
-- id: '32.3'
-  title: 'bn status: show needs-spec indicator for beans without verify'
-  status: in_progress
-  priority: 2
-  parent: '32'
-  updated_at: 2026-02-05T08:14:53.699968Z
-  produces:
-  - status_shows_goals
-  requires:
-  - ready_filter_verify
-- id: '32.4'
-  title: 'bn claim: warn when claiming bean without verify'
-  status: in_progress
-  priority: 2
-  parent: '32'
-  updated_at: 2026-02-05T08:14:53.736007Z
-  requires:
-  - ready_filter_verify
+  has_verify: true
