@@ -73,18 +73,13 @@ beans:
   priority: 2
   parent: 12.3.3
   updated_at: 2026-02-04T02:02:11.290420Z
-- id: '19'
-  title: test task
+- id: '22'
+  title: test token calc
   status: open
   priority: 2
-  updated_at: 2026-02-04T07:40:33.492416Z
-- id: '20'
-  title: test task
+  updated_at: 2026-02-04T07:49:56.246120Z
+- id: '23'
+  title: 'test: verify token sizing'
   status: open
   priority: 2
-  updated_at: 2026-02-04T07:42:07.243044Z
-- id: '21'
-  title: test task
-  status: open
-  priority: 2
-  updated_at: 2026-02-04T07:42:24.168714Z
+  updated_at: 2026-02-04T07:50:37.488917Z
