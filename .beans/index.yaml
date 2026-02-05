@@ -89,9 +89,3 @@ beans:
   priority: 2
   updated_at: 2026-02-05T18:47:19.828248Z
   has_verify: true
-- id: '42'
-  title: Add agent status display to bn status
-  status: open
-  priority: 2
-  updated_at: 2026-02-05T18:51:39.600639Z
-  has_verify: true
