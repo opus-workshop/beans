@@ -376,7 +376,7 @@ mod tests {
                 updated_at: Utc::now(),
                 produces: Vec::new(),
                 requires: Vec::new(),
-                has_verify: true,
+                has_verify: true, claimed_by: None,
             })
             .collect();
 
@@ -516,7 +516,7 @@ mod tests {
                 updated_at: earlier,
                 produces: Vec::new(),
                 requires: Vec::new(),
-                has_verify: true,
+                has_verify: true, claimed_by: None,
             },
             IndexEntry {
                 id: "2".to_string(),
@@ -530,7 +530,7 @@ mod tests {
                 updated_at: later,
                 produces: Vec::new(),
                 requires: Vec::new(),
-                has_verify: true,
+                has_verify: true, claimed_by: None,
             },
             IndexEntry {
                 id: "3".to_string(),
@@ -544,7 +544,7 @@ mod tests {
                 updated_at: now,
                 produces: Vec::new(),
                 requires: Vec::new(),
-                has_verify: true,
+                has_verify: true, claimed_by: None,
             },
         ];
 
@@ -765,7 +765,7 @@ mod tests {
             updated_at: Utc::now(),
             produces: Vec::new(),
             requires: Vec::new(),
-                has_verify: true,
+                has_verify: true, claimed_by: None,
         };
 
         let entry_child = IndexEntry {
@@ -780,7 +780,7 @@ mod tests {
             updated_at: Utc::now(),
             produces: Vec::new(),
             requires: Vec::new(),
-                has_verify: true,
+                has_verify: true, claimed_by: None,
         };
 
         let index = Index { beans: vec![entry_parent, entry_child] };
@@ -853,7 +853,7 @@ mod tests {
             updated_at: Utc::now(),
             produces: Vec::new(),
             requires: Vec::new(),
-                has_verify: true,
+                has_verify: true, claimed_by: None,
         };
 
         let index = Index { beans: vec![entry] };
@@ -889,7 +889,7 @@ mod tests {
                 updated_at: Utc::now(),
                 produces: Vec::new(),
                 requires: Vec::new(),
-                has_verify: true,
+                has_verify: true, claimed_by: None,
             },
             IndexEntry {
                 id: "2".to_string(),
@@ -903,7 +903,7 @@ mod tests {
                 updated_at: Utc::now(),
                 produces: Vec::new(),
                 requires: Vec::new(),
-                has_verify: true,
+                has_verify: true, claimed_by: None,
             },
             IndexEntry {
                 id: "3".to_string(),
@@ -917,7 +917,7 @@ mod tests {
                 updated_at: Utc::now(),
                 produces: Vec::new(),
                 requires: Vec::new(),
-                has_verify: true,
+                has_verify: true, claimed_by: None,
             },
         ];
 
@@ -952,7 +952,7 @@ mod tests {
                 updated_at: Utc::now(),
                 produces: Vec::new(),
                 requires: Vec::new(),
-                has_verify: true,
+                has_verify: true, claimed_by: None,
             },
             IndexEntry {
                 id: "2".to_string(),
@@ -966,7 +966,7 @@ mod tests {
                 updated_at: Utc::now(),
                 produces: Vec::new(),
                 requires: Vec::new(),
-                has_verify: true,
+                has_verify: true, claimed_by: None,
             },
         ];
 
@@ -1080,7 +1080,7 @@ mod tests {
                 updated_at: Utc::now(),
                 produces: Vec::new(),
                 requires: Vec::new(),
-                has_verify: true,
+                has_verify: true, claimed_by: None,
             },
             IndexEntry {
                 id: "3.1".to_string(),
@@ -1094,7 +1094,7 @@ mod tests {
                 updated_at: Utc::now(),
                 produces: Vec::new(),
                 requires: Vec::new(),
-                has_verify: true,
+                has_verify: true, claimed_by: None,
             },
         ];
 
@@ -1128,7 +1128,7 @@ mod tests {
                 updated_at: Utc::now(),
                 produces: Vec::new(),
                 requires: Vec::new(),
-                has_verify: true,
+                has_verify: true, claimed_by: None,
             },
         ];
 

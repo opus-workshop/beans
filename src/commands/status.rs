@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::process::Command;
 
 use anyhow::Result;
 use serde::Serialize;
@@ -7,10 +8,64 @@ use crate::bean::Status;
 use crate::index::{Index, IndexEntry};
 use crate::util::natural_cmp;
 
+/// Agent status parsed from claimed_by field
+#[derive(Debug, Clone, Serialize)]
+pub struct AgentStatus {
+    pub pid: u32,
+    pub alive: bool,
+}
+
+/// Parse claimed_by field for agent info (e.g., "spro:12345" -> Some(AgentStatus))
+fn parse_agent_claim(claimed_by: &Option<String>) -> Option<AgentStatus> {
+    let claim = claimed_by.as_ref()?;
+    if !claim.starts_with("spro:") {
+        return None;
+    }
+    let pid_str = claim.strip_prefix("spro:")?;
+    let pid: u32 = pid_str.parse().ok()?;
+    let alive = is_pid_alive(pid);
+    Some(AgentStatus { pid, alive })
+}
+
+/// Check if a process with the given PID is alive
+fn is_pid_alive(pid: u32) -> bool {
+    // Use kill -0 to check if process exists (doesn't send a signal)
+    Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
+/// Format agent status for display
+fn format_agent_status(entry: &IndexEntry) -> String {
+    match parse_agent_claim(&entry.claimed_by) {
+        Some(agent) if agent.alive => format!("spro:{} ●", agent.pid),
+        Some(agent) => format!("spro:{} ✗", agent.pid),
+        None => entry.claimed_by.clone().unwrap_or_else(|| "-".to_string()),
+    }
+}
+
+/// Entry with agent status for JSON output
+#[derive(Serialize)]
+struct StatusEntry {
+    #[serde(flatten)]
+    entry: IndexEntry,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    agent: Option<AgentStatus>,
+}
+
+impl StatusEntry {
+    fn from_entry(entry: IndexEntry) -> Self {
+        let agent = parse_agent_claim(&entry.claimed_by);
+        Self { entry, agent }
+    }
+}
+
 /// JSON output structure for status command
 #[derive(Serialize)]
 struct StatusOutput {
-    claimed: Vec<IndexEntry>,
+    claimed: Vec<StatusEntry>,
     ready: Vec<IndexEntry>,
     goals: Vec<IndexEntry>,
     blocked: Vec<IndexEntry>,
@@ -51,7 +106,7 @@ pub fn cmd_status(json: bool, beans_dir: &Path) -> Result<()> {
 
     if json {
         let output = StatusOutput {
-            claimed: claimed.into_iter().cloned().collect(),
+            claimed: claimed.into_iter().cloned().map(StatusEntry::from_entry).collect(),
             ready: ready.into_iter().cloned().collect(),
             goals: goals.into_iter().cloned().collect(),
             blocked: blocked.into_iter().cloned().collect(),
@@ -64,7 +119,8 @@ pub fn cmd_status(json: bool, beans_dir: &Path) -> Result<()> {
             println!("  (none)");
         } else {
             for entry in claimed {
-                println!("  {} [-] {}", entry.id, entry.title);
+                let agent_str = format_agent_status(entry);
+                println!("  {} [-] {} ({})", entry.id, entry.title, agent_str);
             }
         }
         println!();

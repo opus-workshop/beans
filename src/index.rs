@@ -37,6 +37,9 @@ pub struct IndexEntry {
     /// Whether this bean has a verify command (SPECs have verify, GOALs don't)
     #[serde(default)]
     pub has_verify: bool,
+    /// Agent or user currently holding a claim on this bean (e.g., "spro:12345" for agent with PID)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub claimed_by: Option<String>,
 }
 
 impl From<&Bean> for IndexEntry {
@@ -54,6 +57,7 @@ impl From<&Bean> for IndexEntry {
             produces: bean.produces.clone(),
             requires: bean.requires.clone(),
             has_verify: bean.verify.is_some(),
+            claimed_by: bean.claimed_by.clone(),
         }
     }
 }

@@ -276,7 +276,7 @@ mod tests {
             updated_at: chrono::Utc::now(),
             produces: Vec::new(),
             requires: Vec::new(),
-            has_verify: true,
+            has_verify: true, claimed_by: None,
         };
         let index = Index {
             beans: vec![entry.clone()],
@@ -298,7 +298,7 @@ mod tests {
             updated_at: chrono::Utc::now(),
             produces: Vec::new(),
             requires: Vec::new(),
-            has_verify: true,
+            has_verify: true, claimed_by: None,
         };
         let index = Index {
             beans: vec![entry.clone()],
@@ -320,7 +320,7 @@ mod tests {
             updated_at: chrono::Utc::now(),
             produces: Vec::new(),
             requires: Vec::new(),
-            has_verify: true,
+            has_verify: true, claimed_by: None,
         };
         let index = Index {
             beans: vec![entry.clone()],
