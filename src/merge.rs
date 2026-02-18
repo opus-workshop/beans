@@ -371,7 +371,7 @@ impl Bean {
     fn get_field<T: Clone + 'static>(&self, field: &str) -> Result<T> {
         use std::any::Any;
         let val: Box<dyn Any> = match field {
-            "status" => Box::new(self.status.clone()),
+            "status" => Box::new(self.status),
             "priority" => Box::new(self.priority),
             "fail_first" => Box::new(self.fail_first),
             "max_attempts" => Box::new(self.max_attempts),
