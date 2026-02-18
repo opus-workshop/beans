@@ -81,6 +81,14 @@ pub enum Command {
         #[arg(long)]
         fail_first: bool,
 
+        /// Claim the bean immediately (sets status to in_progress)
+        #[arg(long, conflicts_with = "run")]
+        claim: bool,
+
+        /// Who is claiming (requires --claim)
+        #[arg(long, requires = "claim")]
+        by: Option<String>,
+
         /// Spawn an agent to work on this bean (requires --verify)
         #[arg(long)]
         run: bool,

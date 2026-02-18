@@ -80,6 +80,8 @@ fn main() -> Result<()> {
             produces,
             requires,
             fail_first,
+            claim,
+            by,
             run,
         } => {
             let title = title
@@ -110,6 +112,8 @@ fn main() -> Result<()> {
                 produces,
                 requires,
                 fail_first,
+                claim,
+                by,
             })
         }
 

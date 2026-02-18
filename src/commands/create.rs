@@ -7,6 +7,7 @@ use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 
 use crate::bean::{Bean, validate_priority};
+use crate::commands::claim::cmd_claim;
 use crate::config::Config;
 use crate::hooks::{execute_hook, HookEvent};
 use crate::index::Index;
@@ -31,6 +32,10 @@ pub struct CreateArgs {
     pub requires: Option<String>,
     /// Require verify to fail first (enforced TDD)
     pub fail_first: bool,
+    /// Claim the bean immediately after creation
+    pub claim: bool,
+    /// Who is claiming (used with claim)
+    pub by: Option<String>,
 }
 
 /// Assign a child ID for a parent bean.
@@ -268,12 +273,18 @@ pub fn cmd_create(beans_dir: &Path, args: CreateArgs) -> Result<()> {
         eprintln!("Warning: post-create hook failed: {}", e);
     }
 
+    // If --claim was passed, claim the bean immediately
+    if args.claim {
+        cmd_claim(beans_dir, &bean_id, args.by)?;
+    }
+
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bean::Status;
     use tempfile::TempDir;
 
     fn setup_beans_dir_with_config() -> (TempDir, std::path::PathBuf) {
@@ -311,6 +322,8 @@ mod tests {
             produces: None,
             requires: None,
             fail_first: false,
+            claim: false,
+            by: None,
         };
 
         cmd_create(&beans_dir, args).unwrap();
@@ -345,6 +358,8 @@ mod tests {
             produces: None,
             requires: None,
             fail_first: false,
+            claim: false,
+            by: None,
         };
 
         let result = cmd_create(&beans_dir, args);
@@ -373,6 +388,8 @@ mod tests {
             produces: None,
             requires: None,
             fail_first: false,
+            claim: false,
+            by: None,
         };
         cmd_create(&beans_dir, args1).unwrap();
 
@@ -392,6 +409,8 @@ mod tests {
             produces: None,
             requires: None,
             fail_first: false,
+            claim: false,
+            by: None,
         };
         cmd_create(&beans_dir, args2).unwrap();
 
@@ -422,6 +441,8 @@ mod tests {
             produces: None,
             requires: None,
             fail_first: false,
+            claim: false,
+            by: None,
         };
         cmd_create(&beans_dir, parent_args).unwrap();
 
@@ -441,6 +462,8 @@ mod tests {
             produces: None,
             requires: None,
             fail_first: false,
+            claim: false,
+            by: None,
         };
         cmd_create(&beans_dir, child_args).unwrap();
 
@@ -470,6 +493,8 @@ mod tests {
             produces: None,
             requires: None,
             fail_first: false,
+            claim: false,
+            by: None,
         };
         cmd_create(&beans_dir, parent_args).unwrap();
 
@@ -490,6 +515,8 @@ mod tests {
             produces: None,
             requires: None,
             fail_first: false,
+            claim: false,
+            by: None,
             };
             cmd_create(&beans_dir, child_args).unwrap();
         }
@@ -525,6 +552,8 @@ mod tests {
             produces: None,
             requires: None,
             fail_first: false,
+            claim: false,
+            by: None,
         };
 
         cmd_create(&beans_dir, args).unwrap();
@@ -560,6 +589,8 @@ mod tests {
             produces: None,
             requires: None,
             fail_first: false,
+            claim: false,
+            by: None,
         };
 
         cmd_create(&beans_dir, args).unwrap();
@@ -619,6 +650,8 @@ mod tests {
             produces: None,
             requires: None,
             fail_first: false,
+            claim: false,
+            by: None,
         };
 
         let result = cmd_create(&beans_dir, args);
@@ -647,6 +680,8 @@ mod tests {
             produces: None,
             requires: None,
             fail_first: false,
+            claim: false,
+            by: None,
             };
 
             let result = cmd_create(&beans_dir, args);
@@ -690,6 +725,8 @@ mod tests {
             produces: None,
             requires: None,
             fail_first: false,
+            claim: false,
+            by: None,
         };
 
         // Bean should be created
@@ -733,6 +770,8 @@ mod tests {
             produces: None,
             requires: None,
             fail_first: false,
+            claim: false,
+            by: None,
         };
 
         // Bean creation should fail
@@ -791,6 +830,8 @@ mod tests {
             produces: None,
             requires: None,
             fail_first: false,
+            claim: false,
+            by: None,
         };
 
         // Create bean
@@ -837,6 +878,8 @@ mod tests {
             produces: None,
             requires: None,
             fail_first: false,
+            claim: false,
+            by: None,
         };
 
         // Bean creation should STILL succeed (post-create failures are non-blocking)
@@ -878,6 +921,8 @@ mod tests {
             produces: None,
             requires: None,
             fail_first: false,
+            claim: false,
+            by: None,
         };
 
         // Bean creation should succeed (untrusted hooks are skipped)
@@ -908,6 +953,8 @@ mod tests {
             produces: None,
             requires: None,
             fail_first: true,
+            claim: false,
+            by: None,
         };
 
         let result = cmd_create(&beans_dir, args);
@@ -935,6 +982,8 @@ mod tests {
             produces: None,
             requires: None,
             fail_first: true,
+            claim: false,
+            by: None,
         };
 
         let result = cmd_create(&beans_dir, args);
@@ -964,11 +1013,171 @@ mod tests {
             produces: None,
             requires: None,
             fail_first: true,
+            claim: false,
+            by: None,
         };
 
         let result = cmd_create(&beans_dir, args);
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
         assert!(err_msg.contains("--fail-first requires --verify"));
+    }
+
+    // =========================================================================
+    // --claim Flag Tests
+    // =========================================================================
+
+    #[test]
+    fn create_with_claim_sets_in_progress() {
+        let (_dir, beans_dir) = setup_beans_dir_with_config();
+
+        let args = CreateArgs {
+            title: "Claimed task".to_string(),
+            description: None,
+            acceptance: None,
+            notes: None,
+            design: None,
+            verify: Some("cargo test".to_string()),
+            priority: None,
+            labels: None,
+            assignee: None,
+            deps: None,
+            parent: None,
+            produces: None,
+            requires: None,
+            fail_first: false,
+            claim: true,
+            by: Some("agent-1".to_string()),
+        };
+
+        cmd_create(&beans_dir, args).unwrap();
+
+        let bean_path = beans_dir.join("1-claimed-task.md");
+        assert!(bean_path.exists());
+
+        let bean = Bean::from_file(&bean_path).unwrap();
+        assert_eq!(bean.id, "1");
+        assert_eq!(bean.title, "Claimed task");
+        assert_eq!(bean.status, Status::InProgress);
+        assert_eq!(bean.claimed_by, Some("agent-1".to_string()));
+        assert!(bean.claimed_at.is_some());
+    }
+
+    #[test]
+    fn create_with_claim_without_by() {
+        let (_dir, beans_dir) = setup_beans_dir_with_config();
+
+        let args = CreateArgs {
+            title: "Anon claimed".to_string(),
+            description: None,
+            acceptance: None,
+            notes: None,
+            design: None,
+            verify: Some("true".to_string()),
+            priority: None,
+            labels: None,
+            assignee: None,
+            deps: None,
+            parent: None,
+            produces: None,
+            requires: None,
+            fail_first: false,
+            claim: true,
+            by: None,
+        };
+
+        cmd_create(&beans_dir, args).unwrap();
+
+        let bean_path = beans_dir.join("1-anon-claimed.md");
+        let bean = Bean::from_file(&bean_path).unwrap();
+        assert_eq!(bean.status, Status::InProgress);
+        assert_eq!(bean.claimed_by, None);
+        assert!(bean.claimed_at.is_some());
+    }
+
+    #[test]
+    fn create_without_claim_stays_open() {
+        let (_dir, beans_dir) = setup_beans_dir_with_config();
+
+        let args = CreateArgs {
+            title: "Unclaimed task".to_string(),
+            description: None,
+            acceptance: None,
+            notes: None,
+            design: None,
+            verify: Some("cargo test".to_string()),
+            priority: None,
+            labels: None,
+            assignee: None,
+            deps: None,
+            parent: None,
+            produces: None,
+            requires: None,
+            fail_first: false,
+            claim: false,
+            by: None,
+        };
+
+        cmd_create(&beans_dir, args).unwrap();
+
+        let bean_path = beans_dir.join("1-unclaimed-task.md");
+        let bean = Bean::from_file(&bean_path).unwrap();
+        assert_eq!(bean.status, Status::Open);
+        assert_eq!(bean.claimed_by, None);
+        assert_eq!(bean.claimed_at, None);
+    }
+
+    #[test]
+    fn create_with_claim_and_parent() {
+        let (_dir, beans_dir) = setup_beans_dir_with_config();
+
+        // Create parent first
+        let parent_args = CreateArgs {
+            title: "Parent".to_string(),
+            description: None,
+            acceptance: Some("Children done".to_string()),
+            notes: None,
+            design: None,
+            verify: None,
+            priority: None,
+            labels: None,
+            assignee: None,
+            deps: None,
+            parent: None,
+            produces: None,
+            requires: None,
+            fail_first: false,
+            claim: false,
+            by: None,
+        };
+        cmd_create(&beans_dir, parent_args).unwrap();
+
+        // Create child with --claim
+        let child_args = CreateArgs {
+            title: "Child claimed".to_string(),
+            description: None,
+            acceptance: None,
+            notes: None,
+            design: None,
+            verify: Some("cargo test".to_string()),
+            priority: None,
+            labels: None,
+            assignee: None,
+            deps: None,
+            parent: Some("1".to_string()),
+            produces: None,
+            requires: None,
+            fail_first: false,
+            claim: true,
+            by: Some("agent-2".to_string()),
+        };
+        cmd_create(&beans_dir, child_args).unwrap();
+
+        let bean_path = beans_dir.join("1.1-child-claimed.md");
+        let bean = Bean::from_file(&bean_path).unwrap();
+        assert_eq!(bean.id, "1.1");
+        assert_eq!(bean.parent, Some("1".to_string()));
+        assert_eq!(bean.status, Status::InProgress);
+        assert_eq!(bean.claimed_by, Some("agent-2".to_string()));
     }
 }
