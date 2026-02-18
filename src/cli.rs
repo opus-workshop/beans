@@ -164,8 +164,8 @@ pub enum Command {
         #[arg(long)]
         acceptance: Option<String>,
 
-        /// New/appended notes
-        #[arg(long)]
+        /// Append a note (with timestamp separator)
+        #[arg(long, visible_alias = "note")]
         notes: Option<String>,
 
         /// New design notes

@@ -97,12 +97,9 @@ pub fn cmd_create(beans_dir: &Path, args: CreateArgs) -> Result<()> {
         validate_priority(priority)?;
     }
 
-    // Require at least acceptance or verify criteria
-    if args.acceptance.is_none() && args.verify.is_none() {
-        anyhow::bail!(
-            "Bean must have validation criteria: provide --acceptance or --verify (or both)"
-        );
-    }
+    // Note: acceptance and verify are optional. Parent/goal beans may have neither.
+    // The real gate is on close: bn close checks verify. Creating without verify
+    // just means the bean can't be auto-verified on close.
 
     // Fail-first check: verify command must FAIL before bean can be created
     // This prevents "cheating tests" like `assert True` that always pass
@@ -340,12 +337,12 @@ mod tests {
     }
 
     #[test]
-    fn create_rejects_missing_validation_criteria() {
+    fn create_allows_bean_without_verify_or_acceptance() {
         let (_dir, beans_dir) = setup_beans_dir_with_config();
 
         let args = CreateArgs {
-            title: "No criteria".to_string(),
-            description: None,
+            title: "Goal bean".to_string(),
+            description: Some("A parent/goal bean with no verify".to_string()),
             acceptance: None,
             notes: None,
             design: None,
@@ -363,9 +360,14 @@ mod tests {
         };
 
         let result = cmd_create(&beans_dir, args);
-        assert!(result.is_err(), "Should reject bean without validation criteria");
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("validation criteria"), "Error should mention validation criteria");
+        assert!(result.is_ok(), "Should allow bean without verify or acceptance");
+
+        let bean_path = beans_dir.join("1-goal-bean.md");
+        assert!(bean_path.exists());
+        let bean = Bean::from_file(&bean_path).unwrap();
+        assert_eq!(bean.title, "Goal bean");
+        assert!(bean.verify.is_none());
+        assert!(bean.acceptance.is_none());
     }
 
     #[test]
