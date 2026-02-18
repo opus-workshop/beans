@@ -1,10 +1,10 @@
 id: '46'
 title: Replace unsafe pointer casts in merge.rs with safe field accessors
 slug: replace-unsafe-pointer-casts-in-mergers-with-safe
-status: open
+status: in_progress
 priority: 1
 created_at: 2026-02-18T06:54:10.633956Z
-updated_at: 2026-02-18T08:36:18.496717Z
+updated_at: 2026-02-18T08:36:59.943295Z
 description: |-
   **Problem:** `src/merge.rs` uses `unsafe` raw pointer casts in `get_field`, `set_field`, `get_field_option`, and `set_field_option` methods (14 occurrences). The pattern:
 
@@ -26,6 +26,6 @@ description: |-
 
   **Severity:** High — unsafe code with soundness risk in a critical merge path
 verify: cd /Users/asher/beans && ! grep -q "unsafe" src/merge.rs && cargo test merge
-claimed_at: 2026-02-18T08:36:07.441942Z
+claimed_at: 2026-02-18T08:36:59.943295Z
 tokens: 7613
 tokens_updated: 2026-02-18T06:54:10.638434Z

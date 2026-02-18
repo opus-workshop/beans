@@ -1,10 +1,10 @@
 id: '48'
 title: '@me selector only checks assignee, not claimed_by — claimed beans invisible'
 slug: me-selector-only-checks-assignee-not-claimedby-cla
-status: open
+status: in_progress
 priority: 2
 created_at: 2026-02-18T06:54:10.676689Z
-updated_at: 2026-02-18T08:36:18.510209Z
+updated_at: 2026-02-18T08:36:59.927567Z
 description: |-
   **Problem:** In `src/selector.rs`, the `resolve_me()` function filters beans by `entry.assignee`, but the `claim` system sets `claimed_by` — a different field. This means:
 
@@ -26,6 +26,6 @@ description: |-
   **Files:**
   - `src/selector.rs` (lines ~226-233, `resolve_me` function)
 verify: cd /Users/asher/beans && cargo test selector::tests::resolve_me
-claimed_at: 2026-02-18T08:36:07.458656Z
+claimed_at: 2026-02-18T08:36:59.927567Z
 tokens: 10048
 tokens_updated: 2026-02-18T06:54:10.677929Z

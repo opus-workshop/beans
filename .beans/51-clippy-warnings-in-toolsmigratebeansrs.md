@@ -1,10 +1,10 @@
 id: '51'
 title: Clippy warnings in tools/migrate_beans.rs
 slug: clippy-warnings-in-toolsmigratebeansrs
-status: open
+status: in_progress
 priority: 4
 created_at: 2026-02-18T06:54:10.717820Z
-updated_at: 2026-02-18T08:36:18.526145Z
+updated_at: 2026-02-18T08:36:59.914387Z
 description: |-
   **Problem:** `cargo clippy` reports 5 warnings in `tools/migrate_beans.rs`, all `needless_borrows_for_generic_args`:
 
@@ -19,6 +19,6 @@ description: |-
   **Files:**
   - `tools/migrate_beans.rs`
 verify: cd /Users/asher/beans && cargo clippy 2>&1 | grep -c "warning" | grep -q "^0$"
-claimed_at: 2026-02-18T08:36:07.476751Z
+claimed_at: 2026-02-18T08:36:59.914387Z
 tokens: 1895
 tokens_updated: 2026-02-18T06:54:10.719002Z

@@ -1,10 +1,10 @@
 id: '50'
 title: bn quick missing --parent flag — inconsistent with bn create
 slug: bn-quick-missing-parent-flag-inconsistent-with-bn
-status: open
+status: in_progress
 priority: 3
 created_at: 2026-02-18T06:54:10.704890Z
-updated_at: 2026-02-18T08:36:18.520820Z
+updated_at: 2026-02-18T08:36:59.921989Z
 description: |-
   **Problem:** The `quick` command (in `src/commands/quick.rs` and `src/cli.rs`) is documented as a convenience shortcut for `create + claim`, but it doesn't support the `--parent` flag. Users who want to create a child bean and immediately claim it must use `bn create --parent X --claim` instead.
 
@@ -18,6 +18,6 @@ description: |-
   - `src/cli.rs` (Quick command variant)
   - `src/commands/quick.rs` (QuickArgs struct, cmd_quick function)
 verify: cd /Users/asher/beans && cargo build 2>&1 | grep -v warning | tail -1 | grep -q "Finished"
-claimed_at: 2026-02-18T08:36:07.470976Z
+claimed_at: 2026-02-18T08:36:59.921989Z
 tokens: 6225
 tokens_updated: 2026-02-18T06:54:10.706032Z
