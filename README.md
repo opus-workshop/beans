@@ -5,14 +5,14 @@ Task tracker for AI agents.
 Markdown files that track dependencies and require verification to close.
 
 ```bash
-bn quick "Add /health endpoint" --verify "curl -sf localhost:8080/health"
+bn create "Add /health endpoint" --verify "curl -sf localhost:8080/health"
 bn close 1   # Runs the curl. Only closes if it succeeds.
 ```
 
 Verify commands must **fail first** by default — proving the test is real, not `assert True`:
 
 ```bash
-bn quick "Fix unicode bug" --verify "pytest test_unicode.py"
+bn create "Fix unicode bug" --verify "pytest test_unicode.py"
 # Test must FAIL first (proves it tests something real)
 # Then passes after implementation → bean closes
 ```
@@ -350,6 +350,7 @@ Tasks are just markdown files. `cat .beans/3-*.md`. No API, no auth, no waiting.
 
 ## Documentation
 
+- [Agent Skill](docs/SKILL.md) — Full reference for AI agents using beans (workflows, issue discovery, context assembly, smart deps)
 - [Best Practices](docs/BEST_PRACTICES.md) — Writing effective beans for agents
 - `bn --help` — Full command reference
 
