@@ -275,8 +275,8 @@ impl Bean {
         let body_start = second_delimiter_pos + 3;
         let body_raw = &after_first_delimiter[body_start..];
 
-        // Trim leading newlines but preserve the rest
-        let body = body_raw.trim_start_matches(['\n', '\r']);
+        // Trim leading/trailing whitespace from body
+        let body = body_raw.trim();
         let body = (!body.is_empty()).then(|| body.to_string());
 
         Ok((frontmatter.to_string(), body))
