@@ -77,9 +77,9 @@ pub enum Command {
         #[arg(long)]
         requires: Option<String>,
 
-        /// Require verify to fail first (enforced TDD - proves test is real)
-        #[arg(long)]
-        fail_first: bool,
+        /// Skip fail-first check (allow verify to already pass)
+        #[arg(long, short = 'p')]
+        pass_ok: bool,
 
         /// Claim the bean immediately (sets status to in_progress)
         #[arg(long, conflicts_with = "run")]
@@ -274,9 +274,9 @@ pub enum Command {
     /// Force rebuild index from YAML files
     Sync,
 
-    /// Archive all closed beans and rebuild the index
+    /// Archive closed beans, release stale in-progress beans, and rebuild the index
     Tidy {
-        /// Show what would happen without moving any files
+        /// Show what would happen without changing any files
         #[arg(long)]
         dry_run: bool,
     },
@@ -360,9 +360,9 @@ pub enum Command {
         #[arg(long)]
         requires: Option<String>,
 
-        /// Require verify to fail first (enforced TDD - proves test is real)
-        #[arg(long)]
-        fail_first: bool,
+        /// Skip fail-first check (allow verify to already pass)
+        #[arg(long, short = 'p')]
+        pass_ok: bool,
     },
 
     /// Adopt existing beans as children of a parent

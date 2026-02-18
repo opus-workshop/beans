@@ -274,8 +274,8 @@ bn tree                            # Hierarchy view
 bn show <id>                       # Full task details
 
 # Housekeeping
-bn tidy                            # Archive closed beans + rebuild index
-bn tidy --dry-run                  # Preview without moving files
+bn tidy                            # Archive closed beans, release stale in-progress, rebuild index
+bn tidy --dry-run                  # Preview without changing files
 bn sync                            # Force rebuild index only
 
 # Dependencies

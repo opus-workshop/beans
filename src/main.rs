@@ -79,7 +79,7 @@ fn main() -> Result<()> {
             deps,
             produces,
             requires,
-            fail_first,
+            pass_ok,
             claim,
             by,
             run,
@@ -111,7 +111,7 @@ fn main() -> Result<()> {
                 parent,
                 produces,
                 requires,
-                fail_first,
+                pass_ok,
                 claim,
                 by,
             })?;
@@ -270,7 +270,7 @@ fn main() -> Result<()> {
             cmd_unarchive(&beans_dir, &resolved_id)
         }
 
-        Command::Quick { title, description, acceptance, notes, verify, priority, by, produces, requires, fail_first } => {
+        Command::Quick { title, description, acceptance, notes, verify, priority, by, produces, requires, pass_ok } => {
             cmd_quick(&beans_dir, QuickArgs {
                 title,
                 description,
@@ -281,7 +281,7 @@ fn main() -> Result<()> {
                 by,
                 produces,
                 requires,
-                fail_first,
+                pass_ok,
             })
         }
 

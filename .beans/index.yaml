@@ -131,3 +131,21 @@ beans:
   priority: 3
   updated_at: 2026-02-18T06:54:24.151484Z
   has_verify: false
+- id: '53'
+  title: README documents verify-on-claim behavior that is not implemented
+  status: open
+  priority: 1
+  updated_at: 2026-02-18T07:05:52.500558Z
+  has_verify: false
+- id: '54'
+  title: README documents worktree merge in bn close that is not implemented
+  status: open
+  priority: 1
+  updated_at: 2026-02-18T07:05:52.538493Z
+  has_verify: false
+- id: '55'
+  title: 'README Design Principle #2 says "No force-close" but --force flag exists'
+  status: open
+  priority: 2
+  updated_at: 2026-02-18T07:05:52.556163Z
+  has_verify: false

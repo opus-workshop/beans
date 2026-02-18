@@ -30,8 +30,8 @@ pub struct CreateArgs {
     pub parent: Option<String>,
     pub produces: Option<String>,
     pub requires: Option<String>,
-    /// Require verify to fail first (enforced TDD)
-    pub fail_first: bool,
+    /// Skip fail-first check (allow verify to already pass)
+    pub pass_ok: bool,
     /// Claim the bean immediately after creation
     pub claim: bool,
     /// Who is claiming (used with claim)
@@ -102,35 +102,36 @@ pub fn cmd_create(beans_dir: &Path, args: CreateArgs) -> Result<String> {
     // The real gate is on close: bn close checks verify. Creating without verify
     // just means the bean can't be auto-verified on close.
 
-    // Fail-first check: verify command must FAIL before bean can be created
+    // Fail-first check (default): verify command must FAIL before bean can be created
     // This prevents "cheating tests" like `assert True` that always pass
-    if args.fail_first {
-        let verify_cmd = args.verify.as_ref()
-            .ok_or_else(|| anyhow!("--fail-first requires --verify"))?;
-        
-        let project_root = beans_dir.parent()
-            .ok_or_else(|| anyhow!("Cannot determine project root"))?;
-        
-        println!("Running verify (must fail): {}", verify_cmd);
-        
-        let status = ShellCommand::new("sh")
-            .args(["-c", verify_cmd])
-            .current_dir(project_root)
-            .status()
-            .with_context(|| format!("Failed to execute verify command: {}", verify_cmd))?;
-        
-        if status.success() {
-            anyhow::bail!(
-                "Cannot create bean: verify command already passes!\n\n\
-                 The test must FAIL on current code to prove it tests something real.\n\
-                 Either:\n\
-                 - The test doesn't actually test the new behavior\n\
-                 - The feature is already implemented\n\
-                 - The test is a no-op (assert True)"
-            );
+    // Use --pass-ok / -p to skip this check
+    if !args.pass_ok {
+        if let Some(verify_cmd) = args.verify.as_ref() {
+            let project_root = beans_dir.parent()
+                .ok_or_else(|| anyhow!("Cannot determine project root"))?;
+            
+            println!("Running verify (must fail): {}", verify_cmd);
+            
+            let status = ShellCommand::new("sh")
+                .args(["-c", verify_cmd])
+                .current_dir(project_root)
+                .status()
+                .with_context(|| format!("Failed to execute verify command: {}", verify_cmd))?;
+            
+            if status.success() {
+                anyhow::bail!(
+                    "Cannot create bean: verify command already passes!\n\n\
+                     The test must FAIL on current code to prove it tests something real.\n\
+                     Either:\n\
+                     - The test doesn't actually test the new behavior\n\
+                     - The feature is already implemented\n\
+                     - The test is a no-op (assert True)\n\n\
+                     Use --pass-ok / -p to skip this check."
+                );
+            }
+            
+            println!("✓ Verify failed as expected - test is real");
         }
-        
-        println!("✓ Verify failed as expected - test is real");
     }
 
     // Load config
@@ -167,10 +168,11 @@ pub fn cmd_create(beans_dir: &Path, args: CreateArgs) -> Result<String> {
     if let Some(design) = args.design {
         bean.design = Some(design);
     }
+    let has_fail_first = !args.pass_ok && args.verify.is_some();
     if let Some(verify) = args.verify {
         bean.verify = Some(verify);
     }
-    if args.fail_first {
+    if has_fail_first {
         bean.fail_first = true;
     }
     if let Some(priority) = args.priority {
@@ -319,7 +321,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
-            fail_first: false,
+            pass_ok: true,
             claim: false,
             by: None,
         };
@@ -355,7 +357,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
-            fail_first: false,
+            pass_ok: true,
             claim: false,
             by: None,
         };
@@ -390,7 +392,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
-            fail_first: false,
+            pass_ok: true,
             claim: false,
             by: None,
         };
@@ -411,7 +413,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
-            fail_first: false,
+            pass_ok: true,
             claim: false,
             by: None,
         };
@@ -443,7 +445,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
-            fail_first: false,
+            pass_ok: true,
             claim: false,
             by: None,
         };
@@ -464,7 +466,7 @@ mod tests {
             parent: Some("1".to_string()),
             produces: None,
             requires: None,
-            fail_first: false,
+            pass_ok: true,
             claim: false,
             by: None,
         };
@@ -495,7 +497,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
-            fail_first: false,
+            pass_ok: true,
             claim: false,
             by: None,
         };
@@ -517,7 +519,7 @@ mod tests {
                 parent: Some("1".to_string()),
             produces: None,
             requires: None,
-            fail_first: false,
+            pass_ok: true,
             claim: false,
             by: None,
             };
@@ -554,7 +556,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
-            fail_first: false,
+            pass_ok: true,
             claim: false,
             by: None,
         };
@@ -591,7 +593,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
-            fail_first: false,
+            pass_ok: true,
             claim: false,
             by: None,
         };
@@ -652,7 +654,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
-            fail_first: false,
+            pass_ok: true,
             claim: false,
             by: None,
         };
@@ -682,7 +684,7 @@ mod tests {
                 parent: None,
             produces: None,
             requires: None,
-            fail_first: false,
+            pass_ok: true,
             claim: false,
             by: None,
             };
@@ -727,7 +729,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
-            fail_first: false,
+            pass_ok: true,
             claim: false,
             by: None,
         };
@@ -772,7 +774,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
-            fail_first: false,
+            pass_ok: true,
             claim: false,
             by: None,
         };
@@ -832,7 +834,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
-            fail_first: false,
+            pass_ok: true,
             claim: false,
             by: None,
         };
@@ -880,7 +882,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
-            fail_first: false,
+            pass_ok: true,
             claim: false,
             by: None,
         };
@@ -923,7 +925,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
-            fail_first: false,
+            pass_ok: true,
             claim: false,
             by: None,
         };
@@ -938,7 +940,7 @@ mod tests {
     }
 
     #[test]
-    fn fail_first_rejects_passing_verify() {
+    fn default_rejects_passing_verify() {
         let (_dir, beans_dir) = setup_beans_dir_with_config();
 
         let args = CreateArgs {
@@ -955,7 +957,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
-            fail_first: true,
+            pass_ok: false, // default: fail-first enforced
             claim: false,
             by: None,
         };
@@ -967,7 +969,7 @@ mod tests {
     }
 
     #[test]
-    fn fail_first_accepts_failing_verify() {
+    fn default_accepts_failing_verify() {
         let (_dir, beans_dir) = setup_beans_dir_with_config();
 
         let args = CreateArgs {
@@ -984,7 +986,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
-            fail_first: true,
+            pass_ok: false, // default: fail-first enforced
             claim: false,
             by: None,
         };
@@ -995,10 +997,49 @@ mod tests {
         // Bean should be created
         let bean_path = beans_dir.join("1-real-test.md");
         assert!(bean_path.exists());
+
+        // Should have fail_first set in the bean
+        let bean = Bean::from_file(&bean_path).unwrap();
+        assert!(bean.fail_first);
     }
 
     #[test]
-    fn fail_first_requires_verify() {
+    fn pass_ok_skips_fail_first_check() {
+        let (_dir, beans_dir) = setup_beans_dir_with_config();
+
+        let args = CreateArgs {
+            title: "Passing verify ok".to_string(),
+            description: None,
+            acceptance: None,
+            notes: None,
+            design: None,
+            verify: Some("true".to_string()), // always passes — allowed with --pass-ok
+            priority: None,
+            labels: None,
+            assignee: None,
+            deps: None,
+            parent: None,
+            produces: None,
+            requires: None,
+            pass_ok: true,
+            claim: false,
+            by: None,
+        };
+
+        let result = cmd_create(&beans_dir, args);
+        assert!(result.is_ok());
+
+        // Bean should be created
+        let bean_path = beans_dir.join("1-passing-verify-ok.md");
+        assert!(bean_path.exists());
+
+        // Should NOT have fail_first set
+        let bean = Bean::from_file(&bean_path).unwrap();
+        assert!(!bean.fail_first);
+    }
+
+    #[test]
+    fn no_verify_skips_fail_first_check() {
         let (_dir, beans_dir) = setup_beans_dir_with_config();
 
         let args = CreateArgs {
@@ -1007,7 +1048,7 @@ mod tests {
             acceptance: Some("Done".to_string()),
             notes: None,
             design: None,
-            verify: None, // no verify command
+            verify: None, // no verify command — fail-first not applicable
             priority: None,
             labels: None,
             assignee: None,
@@ -1015,15 +1056,18 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
-            fail_first: true,
+            pass_ok: false,
             claim: false,
             by: None,
         };
 
         let result = cmd_create(&beans_dir, args);
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("--fail-first requires --verify"));
+        assert!(result.is_ok());
+
+        // Should NOT have fail_first set (no verify)
+        let bean_path = beans_dir.join("1-no-verify.md");
+        let bean = Bean::from_file(&bean_path).unwrap();
+        assert!(!bean.fail_first);
     }
 
     // =========================================================================
@@ -1048,7 +1092,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
-            fail_first: false,
+            pass_ok: true,
             claim: true,
             by: Some("agent-1".to_string()),
         };
@@ -1084,7 +1128,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
-            fail_first: false,
+            pass_ok: true,
             claim: true,
             by: None,
         };
@@ -1116,7 +1160,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
-            fail_first: false,
+            pass_ok: true,
             claim: false,
             by: None,
         };
@@ -1149,7 +1193,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
-            fail_first: false,
+            pass_ok: true,
             claim: false,
             by: None,
         };
@@ -1170,7 +1214,7 @@ mod tests {
             parent: Some("1".to_string()),
             produces: None,
             requires: None,
-            fail_first: false,
+            pass_ok: true,
             claim: true,
             by: Some("agent-2".to_string()),
         };
