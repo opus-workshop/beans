@@ -266,6 +266,13 @@ pub enum Command {
     /// Force rebuild index from YAML files
     Sync,
 
+    /// Archive all closed beans and rebuild the index
+    Tidy {
+        /// Show what would happen without moving any files
+        #[arg(long)]
+        dry_run: bool,
+    },
+
     /// Project statistics
     Stats,
 
