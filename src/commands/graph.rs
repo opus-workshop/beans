@@ -192,6 +192,7 @@ fn output_ascii_graph(index: &Index) -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_tree<'a>(
     entry: &'a IndexEntry,
     children_map: &HashMap<&str, Vec<&'a IndexEntry>>,

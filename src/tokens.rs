@@ -87,9 +87,9 @@ pub fn calculate_tokens(bean: &Bean, workspace: &Path) -> u64 {
 
     for file_path in file_paths {
         // Expand ~ to home directory
-        let expanded = if file_path.starts_with("~/") {
+        let expanded = if let Some(stripped) = file_path.strip_prefix("~/") {
             if let Some(home) = dirs::home_dir() {
-                home.join(&file_path[2..])
+                home.join(stripped)
             } else {
                 workspace.join(&file_path)
             }
