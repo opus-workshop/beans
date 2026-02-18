@@ -98,9 +98,14 @@ pub fn cmd_create(beans_dir: &Path, args: CreateArgs) -> Result<String> {
         validate_priority(priority)?;
     }
 
-    // Note: acceptance and verify are optional. Parent/goal beans may have neither.
-    // The real gate is on close: bn close checks verify. Creating without verify
-    // just means the bean can't be auto-verified on close.
+    // When --claim is used without --parent, require validation criteria
+    // (same as bn quick). Parent/goal beans (no --claim) remain exempt.
+    if args.claim && args.parent.is_none() && args.acceptance.is_none() && args.verify.is_none() {
+        anyhow::bail!(
+            "Bean must have validation criteria: provide --acceptance or --verify (or both)\n\
+             Hint: parent/goal beans (without --claim) don't require this."
+        );
+    }
 
     // Fail-first check (default): verify command must FAIL before bean can be created
     // This prevents "cheating tests" like `assert True` that always pass
@@ -1226,5 +1231,174 @@ mod tests {
         assert_eq!(bean.parent, Some("1".to_string()));
         assert_eq!(bean.status, Status::InProgress);
         assert_eq!(bean.claimed_by, Some("agent-2".to_string()));
+    }
+
+    // =========================================================================
+    // --claim Validation: require --acceptance or --verify
+    // =========================================================================
+
+    #[test]
+    fn create_claim_rejects_missing_validation_criteria() {
+        let (_dir, beans_dir) = setup_beans_dir_with_config();
+
+        let args = CreateArgs {
+            title: "No criteria claimed".to_string(),
+            description: None,
+            acceptance: None,
+            notes: None,
+            design: None,
+            verify: None,
+            priority: None,
+            labels: None,
+            assignee: None,
+            deps: None,
+            parent: None,
+            produces: None,
+            requires: None,
+            pass_ok: true,
+            claim: true,
+            by: Some("agent-1".to_string()),
+        };
+
+        let result = cmd_create(&beans_dir, args);
+        assert!(result.is_err(), "Should reject --claim without --acceptance or --verify");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("validation criteria"),
+            "Error should mention validation criteria, got: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn create_claim_accepts_with_acceptance() {
+        let (_dir, beans_dir) = setup_beans_dir_with_config();
+
+        let args = CreateArgs {
+            title: "Claimed with acceptance".to_string(),
+            description: None,
+            acceptance: Some("Done when tests pass".to_string()),
+            notes: None,
+            design: None,
+            verify: None,
+            priority: None,
+            labels: None,
+            assignee: None,
+            deps: None,
+            parent: None,
+            produces: None,
+            requires: None,
+            pass_ok: true,
+            claim: true,
+            by: None,
+        };
+
+        let result = cmd_create(&beans_dir, args);
+        assert!(result.is_ok(), "Should accept --claim with --acceptance");
+    }
+
+    #[test]
+    fn create_claim_accepts_with_verify() {
+        let (_dir, beans_dir) = setup_beans_dir_with_config();
+
+        let args = CreateArgs {
+            title: "Claimed with verify".to_string(),
+            description: None,
+            acceptance: None,
+            notes: None,
+            design: None,
+            verify: Some("cargo test".to_string()),
+            priority: None,
+            labels: None,
+            assignee: None,
+            deps: None,
+            parent: None,
+            produces: None,
+            requires: None,
+            pass_ok: true,
+            claim: true,
+            by: None,
+        };
+
+        let result = cmd_create(&beans_dir, args);
+        assert!(result.is_ok(), "Should accept --claim with --verify");
+    }
+
+    #[test]
+    fn create_claim_with_parent_exempt_from_validation() {
+        let (_dir, beans_dir) = setup_beans_dir_with_config();
+
+        // Create parent first
+        let parent_args = CreateArgs {
+            title: "Parent".to_string(),
+            description: None,
+            acceptance: Some("Children done".to_string()),
+            notes: None,
+            design: None,
+            verify: None,
+            priority: None,
+            labels: None,
+            assignee: None,
+            deps: None,
+            parent: None,
+            produces: None,
+            requires: None,
+            pass_ok: true,
+            claim: false,
+            by: None,
+        };
+        cmd_create(&beans_dir, parent_args).unwrap();
+
+        // Create child with --claim but no acceptance/verify
+        // Should succeed because child beans with --parent are exempt
+        let child_args = CreateArgs {
+            title: "Child no criteria".to_string(),
+            description: None,
+            acceptance: None,
+            notes: None,
+            design: None,
+            verify: None,
+            priority: None,
+            labels: None,
+            assignee: None,
+            deps: None,
+            parent: Some("1".to_string()),
+            produces: None,
+            requires: None,
+            pass_ok: true,
+            claim: true,
+            by: Some("agent-1".to_string()),
+        };
+
+        let result = cmd_create(&beans_dir, child_args);
+        assert!(result.is_ok(), "Should allow --claim --parent without --acceptance or --verify");
+    }
+
+    #[test]
+    fn create_without_claim_exempt_from_validation() {
+        let (_dir, beans_dir) = setup_beans_dir_with_config();
+
+        // Parent/goal beans without --claim don't need acceptance or verify
+        let args = CreateArgs {
+            title: "Goal bean no criteria".to_string(),
+            description: None,
+            acceptance: None,
+            notes: None,
+            design: None,
+            verify: None,
+            priority: None,
+            labels: None,
+            assignee: None,
+            deps: None,
+            parent: None,
+            produces: None,
+            requires: None,
+            pass_ok: true,
+            claim: false,
+            by: None,
+        };
+
+        let result = cmd_create(&beans_dir, args);
+        assert!(result.is_ok(), "Should allow create without --claim and without criteria");
     }
 }
