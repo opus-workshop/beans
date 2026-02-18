@@ -255,6 +255,11 @@ bn ready                           # Tasks with no blockers
 bn tree                            # Hierarchy view
 bn show <id>                       # Full task details
 
+# Housekeeping
+bn tidy                            # Archive closed beans + rebuild index
+bn tidy --dry-run                  # Preview without moving files
+bn sync                            # Force rebuild index only
+
 # Dependencies
 bn dep add <id> <blocks>           # Task depends on another
 bn blocked                         # Tasks waiting on dependencies
