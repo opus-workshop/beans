@@ -313,10 +313,33 @@ impl Bean {
         Self::from_string(&contents)
     }
 
-    /// Write this bean to a YAML file.
+    /// Write this bean to a file.
+    /// For `.md` files, writes markdown frontmatter format (YAML between `---` delimiters
+    /// with description as the markdown body). For other extensions, writes pure YAML.
     pub fn to_file(&self, path: impl AsRef<Path>) -> Result<()> {
-        let yaml = serde_yaml::to_string(self)?;
-        std::fs::write(path.as_ref(), yaml)?;
+        let path = path.as_ref();
+        let is_md = path.extension().and_then(|e| e.to_str()) == Some("md");
+
+        if is_md && self.description.is_some() {
+            // Write frontmatter format: YAML metadata + markdown body
+            let mut frontmatter_bean = self.clone();
+            let description = frontmatter_bean.description.take(); // Remove from YAML
+            let yaml = serde_yaml::to_string(&frontmatter_bean)?;
+            let mut content = String::from("---\n");
+            content.push_str(yaml.trim_start_matches("---\n").trim_end());
+            content.push_str("\n---\n");
+            if let Some(desc) = description {
+                content.push('\n');
+                content.push_str(&desc);
+                if !desc.ends_with('\n') {
+                    content.push('\n');
+                }
+            }
+            std::fs::write(path, content)?;
+        } else {
+            let yaml = serde_yaml::to_string(self)?;
+            std::fs::write(path, yaml)?;
+        }
         Ok(())
     }
 
@@ -731,8 +754,9 @@ updated_at: "2026-01-01T00:00:00Z"
 This is a test of reading markdown from a file.
 "#;
 
-        let tmp = NamedTempFile::new().unwrap();
-        let path = tmp.path().to_path_buf();
+        // Use a .md extension to trigger frontmatter write
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("7-test.md");
 
         // Write markdown content
         std::fs::write(&path, content).unwrap();
@@ -748,7 +772,25 @@ This is a test of reading markdown from a file.
             .unwrap()
             .contains("# Markdown Body"));
 
-        drop(tmp);
+        // Write it back — should preserve frontmatter format for .md files
+        bean.to_file(&path).unwrap();
+
+        // Verify the file still has frontmatter format
+        let written = std::fs::read_to_string(&path).unwrap();
+        assert!(written.starts_with("---\n"), "Should start with frontmatter delimiter, got: {}", &written[..50.min(written.len())]);
+        assert!(written.contains("# Markdown Body"), "Should contain markdown body");
+        // Description should NOT be in the YAML frontmatter section
+        let parts: Vec<&str> = written.splitn(3, "---").collect();
+        assert!(parts.len() >= 3, "Should have frontmatter delimiters");
+        let frontmatter_section = parts[1];
+        assert!(!frontmatter_section.contains("# Markdown Body"),
+            "Description should be in body, not frontmatter");
+
+        // Read back one more time to verify full round-trip
+        let bean2 = Bean::from_file(&path).unwrap();
+        assert_eq!(bean2.id, bean.id);
+        assert_eq!(bean2.title, bean.title);
+        assert_eq!(bean2.description, bean.description);
     }
 
     #[test]
