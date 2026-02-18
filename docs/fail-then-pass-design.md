@@ -11,10 +11,10 @@ def test_something():
 
 ## Solution
 
-Require the verify command to FAIL before a bean can be created:
+**Fail-first is the default.** Any bean with `--verify` has the verify command run at creation time — it must FAIL:
 
 ```
-bn quick "fix unicode urls" --verify "pytest test_unicode.py" --fail-first
+bn quick "fix unicode urls" --verify "pytest test_unicode.py"
 ```
 
 1. Run verify command → must FAIL (proves it tests something real)
@@ -22,62 +22,68 @@ bn quick "fix unicode urls" --verify "pytest test_unicode.py" --fail-first
 3. Agent does work
 4. `bn close` → verify must PASS
 
+Use `--pass-ok` / `-p` to skip this check for refactoring or build tasks:
+
+```
+bn quick "extract helper" --verify "cargo test" -p
+```
+
 ## CLI Changes
 
 ```rust
-// In cli.rs, Quick command:
-/// Require verify to fail before bean creation (enforced TDD)
-#[arg(long)]
-fail_first: bool,
+// In cli.rs, Quick and Create commands:
+/// Skip fail-first check (allow verify to already pass)
+#[arg(long, short = 'p')]
+pass_ok: bool,
 ```
 
 ## Implementation
 
 ```rust
-// In commands/quick.rs, before creating the bean:
+// In commands/quick.rs and commands/create.rs, before creating the bean:
 
-if args.fail_first {
-    let verify_cmd = args.verify.as_ref()
-        .ok_or_else(|| anyhow!("--fail-first requires --verify"))?;
-    
-    let project_root = beans_dir.parent()
-        .ok_or_else(|| anyhow!("Cannot determine project root"))?;
-    
-    println!("Running verify (must fail): {}", verify_cmd);
-    
-    let status = std::process::Command::new("sh")
-        .args(["-c", verify_cmd])
-        .current_dir(project_root)
-        .status()?;
-    
-    if status.success() {
-        anyhow::bail!(
-            "Cannot create bean: verify command already passes!\n\
-             \n\
-             The test must FAIL on current code to prove it tests something real.\n\
-             Either:\n\
-             - The test doesn't actually test the new behavior\n\
-             - The feature is already implemented\n\
-             - The test is a no-op (assert True)"
-        );
+if !args.pass_ok {
+    if let Some(verify_cmd) = args.verify.as_ref() {
+        let project_root = beans_dir.parent()
+            .ok_or_else(|| anyhow!("Cannot determine project root"))?;
+        
+        println!("Running verify (must fail): {}", verify_cmd);
+        
+        let status = std::process::Command::new("sh")
+            .args(["-c", verify_cmd])
+            .current_dir(project_root)
+            .status()?;
+        
+        if status.success() {
+            anyhow::bail!(
+                "Cannot create bean: verify command already passes!\n\
+                 \n\
+                 The test must FAIL on current code to prove it tests something real.\n\
+                 Either:\n\
+                 - The test doesn't actually test the new behavior\n\
+                 - The feature is already implemented\n\
+                 - The test is a no-op (assert True)\n\n\
+                 Use --pass-ok / -p to skip this check."
+            );
+        }
+        
+        println!("✓ Verify failed as expected - test is real");
     }
-    
-    println!("✓ Verify failed as expected - test is real");
 }
 ```
 
 ## Example Flow
 
 ```bash
-# Cheating attempt - test already passes
-$ bn quick "fix unicode" --verify "python -c 'assert True'" --fail-first
+# Cheating attempt - test already passes (rejected by default)
+$ bn quick "fix unicode" --verify "python -c 'assert True'"
 Running verify (must fail): python -c 'assert True'
 error: Cannot create bean: verify command already passes!
 
 The test must FAIL on current code to prove it tests something real.
 
-# Real test - fails on current code
-$ bn quick "fix unicode" --verify "pytest tests/test_unicode.py::test_fetch" --fail-first
+# Real test - fails on current code (accepted)
+$ bn quick "fix unicode" --verify "pytest tests/test_unicode.py::test_fetch"
 Running verify (must fail): pytest tests/test_unicode.py::test_fetch
 FAILED tests/test_unicode.py::test_fetch - URLError: ...
 ✓ Verify failed as expected - test is real
@@ -89,14 +95,21 @@ Running verify: pytest tests/test_unicode.py::test_fetch
 PASSED tests/test_unicode.py::test_fetch
 ✓ Verify passed for bean 5
 Closed bean 5
+
+# Refactoring - verify should already pass, use --pass-ok
+$ bn quick "extract helper" --verify "cargo test" --pass-ok
+Created and claimed bean 6: extract helper (by pi-agent)
 ```
 
-## Future Considerations
+## Design History
 
-1. **Make it default?** Once proven, could make `--fail-first` the default for `bn quick` when `--verify` is provided
+1. **v1: Opt-in `--fail-first`** — Required explicit flag. Too easy to forget.
+2. **v2: Default on, opt-out `--pass-ok` / `-p`** — Fail-first is now the default for all beans with `--verify`. The `fail_first` field in bean metadata records that verification was enforced.
 
-2. **`--skip-fail-check`** - escape hatch for special cases (build commands, existing tests)
+## Bean Metadata
 
-3. **Store in bean metadata** - record that this bean used fail-first, for audit trail
+The `fail_first: true` field is stored in bean metadata when fail-first was enforced (i.e., verify was provided and `--pass-ok` was not used). This provides an audit trail.
 
-4. **Integration with spro** - checkpoints already exist, could auto-verify against checkpoint
+## Integration with deli/spro
+
+Checkpoints already exist for parallel agent work. The fail-first check runs at bean creation time, before any agent claims the work.

@@ -48,13 +48,13 @@ bn quick "What user asked for" --verify "test command"
 
 The bean becomes your receipt—proof of what was requested, what you did, and that it worked.
 
-## Fail-First: Enforced TDD (Prevents Cheating Tests)
+## Fail-First: Enforced TDD (Default)
 
-Use `--fail-first` to ensure your test is real, not a no-op like `assert True`:
+Fail-first is **on by default** for any bean with `--verify`. The verify command runs before creation and must FAIL:
 
 ```bash
-bn quick "fix unicode URLs" --verify "pytest test_unicode.py" --fail-first
-bn create "fix unicode URLs" --verify "pytest test_unicode.py" --fail-first
+bn quick "fix unicode URLs" --verify "pytest test_unicode.py"
+bn create "fix unicode URLs" --verify "pytest test_unicode.py"
 ```
 
 Works on both `bn quick` and `bn create`.
@@ -67,29 +67,29 @@ Works on both `bn quick` and `bn create`.
 
 **Example - Cheating test rejected:**
 ```bash
-$ bn quick "fix bug" --verify "python -c 'assert True'" --fail-first
+$ bn quick "fix bug" --verify "python -c 'assert True'"
 Running verify (must fail): python -c 'assert True'
 error: Cannot create bean: verify command already passes!
 ```
 
 **Example - Real test accepted:**
 ```bash
-$ bn quick "fix unicode" --verify "pytest test_unicode.py::test_fetch" --fail-first
+$ bn quick "fix unicode" --verify "pytest test_unicode.py::test_fetch"
 Running verify (must fail): pytest test_unicode.py::test_fetch
 FAILED test_unicode.py::test_fetch - URLError...
 ✓ Verify failed as expected - test is real
 Created and claimed bean 5: fix unicode (by pi-agent)
 ```
 
-**When to use `--fail-first`:**
-- Writing new features with tests
-- Bug fixes where you write a regression test first
-- Any TDD workflow
-
-**When to skip `--fail-first`:**
+**When to use `--pass-ok` / `-p` (skip fail-first):**
 - Build commands (`cargo build`, `make`)
 - Refactoring (tests should already pass)
 - Tasks without test-based verification
+
+```bash
+bn quick "extract helper" --verify "cargo test" -p
+bn quick "remove secrets" --verify "! grep 'api_key' src/" --pass-ok
+```
 
 ## Core Workflow
 
@@ -354,8 +354,8 @@ See the `spro` skill for full details on parallel agent orchestration.
 | Command | Purpose |
 |---------|---------|
 | `bn status` | Overview of work |
-| `bn quick "..." --verify "..."` | **User asks for something → create bean first** |
-| `bn quick/create ... --fail-first` | **TDD mode: test must fail first** |
+| `bn quick "..." --verify "..."` | **User asks for something → create bean first (fail-first by default)** |
+| `bn quick/create ... --pass-ok` | **Skip fail-first check (allow verify to already pass)** |
 | `bn ready` | Tasks with no blockers |
 | `bn claim <id>` | Claim existing task |
 | `bn verify <id>` | Test verify without closing |

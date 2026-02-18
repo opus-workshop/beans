@@ -9,10 +9,10 @@ bn quick "Add /health endpoint" --verify "curl -sf localhost:8080/health"
 bn close 1   # Runs the curl. Only closes if it succeeds.
 ```
 
-Want to ensure agents write real tests, not `assert True`? Use `--fail-first`:
+Verify commands must **fail first** by default — proving the test is real, not `assert True`:
 
 ```bash
-bn quick "Fix unicode bug" --verify "pytest test_unicode.py" --fail-first
+bn quick "Fix unicode bug" --verify "pytest test_unicode.py"
 # Test must FAIL first (proves it tests something real)
 # Then passes after implementation → bean closes
 ```
@@ -29,15 +29,16 @@ You know what's exhausting? Vague tasks. "Improve the auth flow." Done... how? W
 
 Beans fixes this.
 
-Every bean has a `verify` command—a test that **must fail** when you claim the task and **must pass** when you close it. Not "looks good to me." Not "I think it works." The test passes or it doesn't. You're not done until the machine says you're done.
+Every bean has a `verify` command—a test that **must fail** when you create the task and **must pass** when you close it. Not "looks good to me." Not "I think it works." The test passes or it doesn't. You're not done until the machine says you're done.
 
 ```bash
-bn claim 3             # Verify runs. Must FAIL. (Proves work is needed.)
+bn quick "fix it" --verify "pytest test_fix.py"
+# Verify runs at creation. Must FAIL. (Proves work is needed.)
 # ... you implement ...
 bn close 3             # Verify runs. Must PASS. (Proves you did it.)
 ```
 
-**No more `assert True`.** If someone writes a test that already passes, the bean is rejected. You can't game it. You can't cheat. The failing test *is* your spec, and the passing test *is* your proof.
+**No more `assert True`.** If someone writes a test that already passes, the bean is rejected at creation. You can't game it. You can't cheat. The failing test *is* your spec, and the passing test *is* your proof. Use `--pass-ok` / `-p` to skip this check for refactoring or build tasks where the verify should already pass.
 
 **No more conflicts.** If you're running in parallel with other agents, you get your own worktree. Make your changes. When you close, it merges. Conflict? You resolve it—you know what you wrote.
 
@@ -46,8 +47,8 @@ bn close 3             # Verify runs. Must PASS. (Proves you did it.)
 **No more ambiguity.** The verify command is the contract. Hit it and you're done. Miss it and you're not.
 
 ```bash
-bn quick "fix unicode URLs" --verify "pytest test_urls.py" --fail-first
-# pytest fails → bean created
+bn quick "fix unicode URLs" --verify "pytest test_urls.py"
+# pytest fails → bean created (fail-first is default)
 # you fix the bug
 # pytest passes → bean closed
 # receipt: test_urls.py proves you fixed it
@@ -146,7 +147,7 @@ bn close 5 (from .spro/5/)
 
 One command. Agent doesn't need to know about git worktrees or merging.
 
-## Fail-First: Enforced TDD
+## Fail-First: Enforced TDD (Default)
 
 Agents can write "cheating tests" that prove nothing:
 
@@ -155,10 +156,10 @@ def test_feature():
     assert True  # Always passes!
 ```
 
-### Option 1: Explicit flag (`--fail-first`)
+**Fail-first is the default** for any bean with `--verify`. Before creating the bean, the verify command runs and must **fail**:
 
 ```bash
-bn quick "Fix bug" --verify "pytest test_bug.py" --fail-first
+bn quick "Fix bug" --verify "pytest test_bug.py"
 ```
 
 1. Before creating the bean, runs the verify command
@@ -168,29 +169,29 @@ bn quick "Fix bug" --verify "pytest test_bug.py" --fail-first
 
 ```
 REJECTED (cheating test):
-  $ bn quick "..." --verify "python -c 'assert True'" --fail-first
+  $ bn quick "..." --verify "python -c 'assert True'"
   error: Cannot create bean: verify command already passes!
 
 ACCEPTED (real test):
-  $ bn quick "..." --verify "pytest test_unicode.py" --fail-first
+  $ bn quick "..." --verify "pytest test_unicode.py"
   ✓ Verify failed as expected - test is real
   Created bean 5
 ```
 
 Works on both `bn quick` and `bn create`.
 
-**Use `--fail-first` for new behavior** (features, bug fixes with regression tests):
+**Default behavior** — fail-first applies automatically for new features and bug fixes:
 
 ```bash
-bn quick "add unicode support" --verify "pytest test_unicode.py" --fail-first
-bn quick "fix login crash" --verify "cargo test auth::special_chars" --fail-first
+bn quick "add unicode support" --verify "pytest test_unicode.py"
+bn quick "fix login crash" --verify "cargo test auth::special_chars"
 ```
 
-**Use regular `--verify` for everything else** (refactoring, hardening, builds):
+**Use `--pass-ok` / `-p` to skip** fail-first for refactoring, hardening, and builds where the verify should already pass:
 
 ```bash
-bn quick "extract helper" --verify "cargo test"           # behavior unchanged
-bn quick "remove secrets" --verify "! grep 'api_key' src/"  # verify absence
+bn quick "extract helper" --verify "cargo test" -p           # behavior unchanged
+bn quick "remove secrets" --verify "! grep 'api_key' src/" --pass-ok  # verify absence
 ```
 
 ### Option 2: Automatic on claim (verify-on-claim)
@@ -261,8 +262,8 @@ git worktree remove .spro/5.1
 
 ```bash
 # Task lifecycle
-bn quick "title" --verify "cmd"    # Create + claim (most common)
-bn quick "title" --verify "cmd" --fail-first  # TDD: test must fail first
+bn quick "title" --verify "cmd"    # Create + claim (fail-first by default)
+bn quick "title" --verify "cmd" -p  # Skip fail-first (--pass-ok)
 bn claim <id>                      # Claim existing task
 bn close <id>                      # Run verify, close if passes
 bn verify <id>                     # Test verify without closing
