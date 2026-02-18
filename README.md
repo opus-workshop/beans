@@ -295,6 +295,38 @@ bn sync                             # Force rebuild index
 
 </details>
 
+## Agent Spawning
+
+Create a task and immediately delegate it to a background agent:
+
+```bash
+# Configure once: tell beans how to launch your agent
+bn config set run "claude -p 'implement bean {id} and run bn close {id}'"
+
+# Now --run spawns an agent for any task
+bn create "fix the auth bug" --verify "cargo test auth" --run
+```
+
+`{id}` is replaced with the bean ID. The spawned agent should read the bean, do the work, and run `bn close`.
+
+This is powerful for **discover-and-delegate**: while working on your main task, spawn agents for everything you notice:
+
+```bash
+bn create "bug: nil panic in logger" --verify "cargo test logger" --run
+bn create "test: no coverage for cache" --verify "cargo test cache" --run
+bn create "docs: stale API examples" --verify "grep -q 'v2' README.md" --run
+```
+
+Other agent setups:
+
+```bash
+# Pi agent (via deli orchestrator)
+bn config set run "deli spawn {id}"
+
+# Any CLI agent
+bn config set run "my-agent --task-file .beans/{id}-*.md"
+```
+
 ## Agent Workflow
 
 ```bash
