@@ -44,31 +44,65 @@ pub fn validate_bean_id(id: &str) -> Result<()> {
     Ok(())
 }
 
+/// A segment of a dot-separated ID, either numeric or alphanumeric.
+/// Numeric segments sort before alpha segments when compared.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum IdSegment {
+    Num(u64),
+    Alpha(String),
+}
+
+impl PartialOrd for IdSegment {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for IdSegment {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        match (self, other) {
+            (IdSegment::Num(a), IdSegment::Num(b)) => a.cmp(b),
+            (IdSegment::Alpha(a), IdSegment::Alpha(b)) => a.cmp(b),
+            // Numeric segments sort before alpha segments
+            (IdSegment::Num(_), IdSegment::Alpha(_)) => std::cmp::Ordering::Less,
+            (IdSegment::Alpha(_), IdSegment::Num(_)) => std::cmp::Ordering::Greater,
+        }
+    }
+}
+
 /// Compare two bean IDs using natural ordering.
-/// Parses IDs as dot-separated numeric segments and compares lexicographically.
+/// Parses IDs as dot-separated segments and compares them.
+/// Numeric segments are compared numerically, alpha segments lexicographically.
+/// Numeric segments sort before alpha segments.
 ///
 /// # Examples
 /// - "1" < "2" (numeric comparison)
 /// - "1" < "10" (numeric comparison, not string comparison)
 /// - "3.1" < "3.2" (multi-level comparison)
+/// - "abc" < "def" (alpha comparison)
+/// - "1" < "abc" (numeric sorts before alpha)
 pub fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     let sa = parse_id_segments(a);
     let sb = parse_id_segments(b);
     sa.cmp(&sb)
 }
 
-/// Parse a dot-separated ID into numeric segments.
+/// Parse a dot-separated ID into segments.
 ///
-/// Each segment is parsed as u64. Non-numeric segments are skipped.
+/// Each segment is parsed as numeric (u64) if possible, otherwise kept as a string.
 /// Used for natural ID comparison.
 ///
 /// # Examples
-/// - "1" → [1]
-/// - "3.1" → [3, 1]
-/// - "3.2.1" → [3, 2, 1]
-fn parse_id_segments(id: &str) -> Vec<u64> {
+/// - "1" → [Num(1)]
+/// - "3.1" → [Num(3), Num(1)]
+/// - "my-task" → [Alpha("my-task")]
+/// - "1.abc.2" → [Num(1), Alpha("abc"), Num(2)]
+fn parse_id_segments(id: &str) -> Vec<IdSegment> {
     id.split('.')
-        .filter_map(|seg| seg.parse::<u64>().ok())
+        .map(|seg| match seg.parse::<u64>() {
+            Ok(n) => IdSegment::Num(n),
+            Err(_) => IdSegment::Alpha(seg.to_string()),
+        })
         .collect()
 }
 
@@ -320,28 +354,52 @@ mod tests {
 
     #[test]
     fn parse_id_segments_single() {
-        assert_eq!(parse_id_segments("1"), vec![1]);
-        assert_eq!(parse_id_segments("42"), vec![42]);
+        assert_eq!(parse_id_segments("1"), vec![IdSegment::Num(1)]);
+        assert_eq!(parse_id_segments("42"), vec![IdSegment::Num(42)]);
     }
 
     #[test]
     fn parse_id_segments_multi_level() {
-        assert_eq!(parse_id_segments("1.2"), vec![1, 2]);
-        assert_eq!(parse_id_segments("3.2.1"), vec![3, 2, 1]);
+        assert_eq!(parse_id_segments("1.2"), vec![IdSegment::Num(1), IdSegment::Num(2)]);
+        assert_eq!(parse_id_segments("3.2.1"), vec![IdSegment::Num(3), IdSegment::Num(2), IdSegment::Num(1)]);
     }
 
     #[test]
     fn parse_id_segments_leading_zeros() {
         // Leading zeros are parsed as decimal, not octal
-        assert_eq!(parse_id_segments("01"), vec![1]);
-        assert_eq!(parse_id_segments("03.02"), vec![3, 2]);
+        assert_eq!(parse_id_segments("01"), vec![IdSegment::Num(1)]);
+        assert_eq!(parse_id_segments("03.02"), vec![IdSegment::Num(3), IdSegment::Num(2)]);
     }
 
     #[test]
-    fn parse_id_segments_non_numeric_skipped() {
-        let empty: Vec<u64> = vec![];
-        assert_eq!(parse_id_segments("abc"), empty);
-        assert_eq!(parse_id_segments("1.abc.2"), vec![1, 2]);
+    fn parse_id_segments_alpha() {
+        assert_eq!(parse_id_segments("abc"), vec![IdSegment::Alpha("abc".to_string())]);
+        assert_eq!(
+            parse_id_segments("1.abc.2"),
+            vec![IdSegment::Num(1), IdSegment::Alpha("abc".to_string()), IdSegment::Num(2)]
+        );
+    }
+
+    #[test]
+    fn natural_cmp_alpha_ids() {
+        // Alpha IDs should not all compare equal
+        assert_eq!(natural_cmp("abc", "def"), std::cmp::Ordering::Less);
+        assert_eq!(natural_cmp("def", "abc"), std::cmp::Ordering::Greater);
+        assert_eq!(natural_cmp("abc", "abc"), std::cmp::Ordering::Equal);
+    }
+
+    #[test]
+    fn natural_cmp_numeric_before_alpha() {
+        assert_eq!(natural_cmp("1", "abc"), std::cmp::Ordering::Less);
+        assert_eq!(natural_cmp("abc", "1"), std::cmp::Ordering::Greater);
+    }
+
+    #[test]
+    fn natural_cmp_mixed_segments() {
+        // "1.abc.2" vs "1.abc.3" — third segment differs
+        assert_eq!(natural_cmp("1.abc.2", "1.abc.3"), std::cmp::Ordering::Less);
+        // "1.abc" vs "1.def" — second segment differs
+        assert_eq!(natural_cmp("1.abc", "1.def"), std::cmp::Ordering::Less);
     }
 
     // ---------- parse_status tests ----------

@@ -250,7 +250,8 @@ pub fn resolve_me(context: &SelectionContext) -> Result<Vec<String>> {
 
     let mut my_beans: Vec<String> = context.index.beans.iter()
         .filter(|entry| {
-            entry.assignee.as_ref() == Some(&current_user)
+            (entry.assignee.as_ref() == Some(&current_user)
+                || entry.claimed_by.as_ref() == Some(&current_user))
                 && entry.status != Status::Closed
         })
         .map(|entry| entry.id.clone())
@@ -982,6 +983,73 @@ mod tests {
         let my_beans = result.unwrap();
         assert_eq!(my_beans.len(), 1);
         assert_eq!(my_beans, vec!["1"]);
+    }
+
+    #[test]
+    fn resolve_me_includes_claimed_by() {
+        use crate::index::IndexEntry;
+
+        let beans = vec![
+            IndexEntry {
+                id: "1".to_string(),
+                title: "Bean 1".to_string(),
+                status: Status::InProgress,
+                priority: 2,
+                parent: None,
+                dependencies: vec![],
+                labels: vec![],
+                assignee: None,
+                updated_at: Utc::now(),
+                produces: Vec::new(),
+                requires: Vec::new(),
+                has_verify: true,
+                claimed_by: Some("alice".to_string()),
+            },
+            IndexEntry {
+                id: "2".to_string(),
+                title: "Bean 2".to_string(),
+                status: Status::Open,
+                priority: 2,
+                parent: None,
+                dependencies: vec![],
+                labels: vec![],
+                assignee: Some("alice".to_string()),
+                updated_at: Utc::now(),
+                produces: Vec::new(),
+                requires: Vec::new(),
+                has_verify: true,
+                claimed_by: None,
+            },
+            IndexEntry {
+                id: "3".to_string(),
+                title: "Bean 3".to_string(),
+                status: Status::Open,
+                priority: 2,
+                parent: None,
+                dependencies: vec![],
+                labels: vec![],
+                assignee: None,
+                updated_at: Utc::now(),
+                produces: Vec::new(),
+                requires: Vec::new(),
+                has_verify: true,
+                claimed_by: Some("bob".to_string()),
+            },
+        ];
+
+        let index = Index { beans };
+        let context = SelectionContext {
+            index: &index,
+            current_bean_id: None,
+            current_user: Some("alice".to_string()),
+        };
+
+        let result = resolve_me(&context);
+        assert!(result.is_ok());
+        let my_beans = result.unwrap();
+        assert_eq!(my_beans.len(), 2);
+        assert!(my_beans.contains(&"1".to_string())); // claimed_by alice
+        assert!(my_beans.contains(&"2".to_string())); // assignee alice
     }
 
     #[test]

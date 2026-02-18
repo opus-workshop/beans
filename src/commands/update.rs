@@ -16,6 +16,7 @@ use crate::util::parse_status;
 /// - notes: append with timestamp separator
 /// - labels: add/remove operations
 /// - updates updated_at and rebuilds index
+#[allow(clippy::too_many_arguments)]
 pub fn cmd_update(
     beans_dir: &Path,
     id: &str,

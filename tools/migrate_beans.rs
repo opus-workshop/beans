@@ -42,7 +42,7 @@ fn main() -> anyhow::Result<()> {
 fn find_yaml_beans_in_git() -> anyhow::Result<Vec<String>> {
     // Get all .beans/*.yaml files ever in git
     let output = Command::new("git")
-        .args(&[
+        .args([
             "log",
             "--all",
             "--name-only",
@@ -90,7 +90,7 @@ fn migrate_bean(bean_id: &str) -> anyhow::Result<String> {
 
     // Get title for slug generation
     let title = mapping
-        .get(&Value::String("title".to_string()))
+        .get(Value::String("title".to_string()))
         .and_then(|v| v.as_str())
         .unwrap_or(bean_id);
 
@@ -98,7 +98,7 @@ fn migrate_bean(bean_id: &str) -> anyhow::Result<String> {
 
     // Extract description (becomes the markdown body)
     let description = mapping
-        .get(&Value::String("description".to_string()))
+        .get(Value::String("description".to_string()))
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .trim()
@@ -132,7 +132,7 @@ fn reconstruct_bean_from_git(bean_id: &str) -> anyhow::Result<String> {
 
     // Search through git history to find this file
     let log_output = Command::new("git")
-        .args(&["log", "--all", "--oneline", "--", &yaml_path])
+        .args(["log", "--all", "--oneline", "--", &yaml_path])
         .output()?;
 
     if !log_output.status.success() {
@@ -145,7 +145,7 @@ fn reconstruct_bean_from_git(bean_id: &str) -> anyhow::Result<String> {
     for line in log.lines() {
         let commit = line.split_whitespace().next().unwrap_or("HEAD");
         let output = Command::new("git")
-            .args(&["show", &format!("{}:{}", commit, yaml_path)])
+            .args(["show", &format!("{}:{}", commit, yaml_path)])
             .output()?;
 
         if output.status.success() {

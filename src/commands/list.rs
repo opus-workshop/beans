@@ -19,6 +19,7 @@ use crate::util::{natural_cmp, parse_status};
 /// - Shows [!] for blocked beans
 ///
 /// When --status closed is specified, also searches archived beans.
+#[allow(clippy::too_many_arguments)]
 pub fn cmd_list(
     status_filter: Option<&str>,
     priority_filter: Option<u8>,

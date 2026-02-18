@@ -1,10 +1,10 @@
 id: '55'
 title: 'README Design Principle #2 says "No force-close" but --force flag exists'
 slug: readme-design-principle-2-says-no-force-close-but
-status: open
+status: closed
 priority: 2
 created_at: 2026-02-18T07:05:52.556163Z
-updated_at: 2026-02-18T07:05:52.556163Z
+updated_at: 2026-02-18T08:03:00.181111Z
 description: |-
   **Problem:** The README's Design Principles section states:
 
@@ -33,5 +33,7 @@ description: |-
   **Files:**
   - `README.md` (Design Principles section, principle #2)
 acceptance: 'Design Principle #2 in README accurately reflects the existence (or absence) of --force on bn close'
+closed_at: 2026-02-18T08:03:00.181111Z
+is_archived: true
 tokens: 15917
 tokens_updated: 2026-02-18T07:05:52.557371Z

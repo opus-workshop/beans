@@ -45,51 +45,55 @@ fn format_duration(duration: chrono::Duration) -> String {
     }
 }
 
+/// Check if a process matching a pattern is running (excluding our own PID).
+fn pgrep_running(pattern: &str) -> bool {
+    let current_pid = std::process::id();
+    if let Ok(output) = std::process::Command::new("pgrep")
+        .args(["-f", pattern])
+        .output()
+    {
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            for line in stdout.lines() {
+                if let Ok(pid) = line.trim().parse::<u32>() {
+                    if pid != current_pid {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
 /// Check if any agent processes are currently running.
 ///
-/// Looks for `pi` processes that might be working on beans. This is used
-/// to avoid releasing in-progress beans that are actively being worked on.
-/// Returns true if we detect running agent processes.
+/// Uses the configured `run` command to determine what process pattern to
+/// look for. Falls back to checking for common agent patterns if no run
+/// command is configured.
 fn has_running_agents() -> bool {
-    // Check for running `pi` processes (the coding agent that works on beans).
-    // We look for `pi` processes that are NOT the current process.
-    let current_pid = std::process::id();
-
-    // Try pgrep first (macOS/Linux)
-    if let Ok(output) = std::process::Command::new("pgrep")
-        .args(["-f", "pi -p beans"])
-        .output()
-    {
-        if output.status.success() {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            for line in stdout.lines() {
-                if let Ok(pid) = line.trim().parse::<u32>() {
-                    if pid != current_pid {
-                        return true;
-                    }
+    // If a run command is configured, extract the binary name and search for it
+    if let Ok(config) = crate::config::Config::load(std::path::Path::new(".beans")) {
+        if let Some(ref run_cmd) = config.run {
+            // Extract the first word (binary name) from the run template
+            if let Some(binary) = run_cmd.split_whitespace().next() {
+                if pgrep_running(binary) {
+                    return true;
                 }
             }
+            // Also search for the full command pattern (with {id} stripped)
+            let pattern = run_cmd.replace("{id}", "");
+            if pgrep_running(pattern.trim()) {
+                return true;
+            }
+            return false;
         }
     }
 
-    // Also check for deli spawn processes
-    if let Ok(output) = std::process::Command::new("pgrep")
-        .args(["-f", "deli spawn"])
-        .output()
-    {
-        if output.status.success() {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            for line in stdout.lines() {
-                if let Ok(pid) = line.trim().parse::<u32>() {
-                    if pid != current_pid {
-                        return true;
-                    }
-                }
-            }
-        }
-    }
-
-    false
+    // No run command configured — check common agent patterns as fallback
+    pgrep_running("pi -p beans")
+        || pgrep_running("deli spawn")
+        || pgrep_running("claude")
 }
 
 /// Tidy the beans directory: archive closed beans, release stale in-progress

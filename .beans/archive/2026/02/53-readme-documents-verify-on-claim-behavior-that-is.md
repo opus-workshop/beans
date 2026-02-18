@@ -1,10 +1,10 @@
 id: '53'
 title: README documents verify-on-claim behavior that is not implemented
 slug: readme-documents-verify-on-claim-behavior-that-is
-status: open
+status: closed
 priority: 1
 created_at: 2026-02-18T07:05:52.500558Z
-updated_at: 2026-02-18T07:05:52.500558Z
+updated_at: 2026-02-18T08:03:00.165322Z
 description: |-
   **Problem:** The README describes verify-on-claim as a working feature in two places:
 
@@ -33,5 +33,7 @@ description: |-
   **Files:**
   - `README.md` (search for "bn claim 3" and "Option 2: Automatic on claim")
 acceptance: README accurately reflects the implemented behavior of bn claim (no verify-on-claim documented as working unless the feature is actually implemented)
+closed_at: 2026-02-18T08:03:00.165322Z
+is_archived: true
 tokens: 7236
 tokens_updated: 2026-02-18T07:05:52.504614Z

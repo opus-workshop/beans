@@ -43,6 +43,7 @@ pub fn cmd_claim(beans_dir: &Path, id: &str, by: Option<String>) -> Result<()> {
             next_id: 1,
             auto_close_parent: true,
             max_tokens: 30000,
+            run: None,
         });
         if tokens > config.max_tokens as u64 {
             return Err(anyhow!(
@@ -254,6 +255,7 @@ mod tests {
             next_id: 2,
             auto_close_parent: true,
             max_tokens: 30000,
+            run: None,
         };
         config.save(&beans_dir).unwrap();
 
@@ -283,6 +285,7 @@ mod tests {
             next_id: 2,
             auto_close_parent: true,
             max_tokens: 30000,
+            run: None,
         };
         config.save(&beans_dir).unwrap();
 
@@ -308,6 +311,7 @@ mod tests {
             next_id: 2,
             auto_close_parent: true,
             max_tokens: 30000,
+            run: None,
         };
         config.save(&beans_dir).unwrap();
 
@@ -332,6 +336,7 @@ mod tests {
             next_id: 2,
             auto_close_parent: true,
             max_tokens: 30000,
+            run: None,
         };
         config.save(&beans_dir).unwrap();
 

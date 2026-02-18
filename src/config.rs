@@ -14,6 +14,11 @@ pub struct Config {
     /// Maximum tokens for bean context (default: 30000)
     #[serde(default = "default_max_tokens")]
     pub max_tokens: u32,
+    /// Shell command template for `--run`. Use `{id}` as placeholder for bean ID.
+    /// Example: `claude -p "implement bean {id} and run bn close {id}"`.
+    /// If unset, `--run` will print an error asking the user to configure it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run: Option<String>,
 }
 
 fn default_auto_close_parent() -> bool {
@@ -66,6 +71,7 @@ mod tests {
             next_id: 42,
             auto_close_parent: true,
             max_tokens: 30000,
+            run: None,
         };
 
         config.save(dir.path()).unwrap();
@@ -81,6 +87,7 @@ mod tests {
             next_id: 1,
             auto_close_parent: true,
             max_tokens: 30000,
+            run: None,
         };
 
         assert_eq!(config.increment_id(), 1);
@@ -112,6 +119,7 @@ mod tests {
             next_id: 100,
             auto_close_parent: true,
             max_tokens: 30000,
+            run: None,
         };
         config.save(dir.path()).unwrap();
 
@@ -142,6 +150,7 @@ mod tests {
             next_id: 1,
             auto_close_parent: false,
             max_tokens: 30000,
+            run: None,
         };
         config.save(dir.path()).unwrap();
 
@@ -171,10 +180,56 @@ mod tests {
             next_id: 1,
             auto_close_parent: true,
             max_tokens: 50000,
+            run: None,
         };
         config.save(dir.path()).unwrap();
 
         let loaded = Config::load(dir.path()).unwrap();
         assert_eq!(loaded.max_tokens, 50000);
+    }
+
+    #[test]
+    fn run_defaults_to_none() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("config.yaml"),
+            "project: test\nnext_id: 1\n",
+        )
+        .unwrap();
+
+        let loaded = Config::load(dir.path()).unwrap();
+        assert_eq!(loaded.run, None);
+    }
+
+    #[test]
+    fn run_can_be_set() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = Config {
+            project: "test".to_string(),
+            next_id: 1,
+            auto_close_parent: true,
+            max_tokens: 30000,
+            run: Some("claude -p 'implement bean {id}'".to_string()),
+        };
+        config.save(dir.path()).unwrap();
+
+        let loaded = Config::load(dir.path()).unwrap();
+        assert_eq!(loaded.run, Some("claude -p 'implement bean {id}'".to_string()));
+    }
+
+    #[test]
+    fn run_not_serialized_when_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = Config {
+            project: "test".to_string(),
+            next_id: 1,
+            auto_close_parent: true,
+            max_tokens: 30000,
+            run: None,
+        };
+        config.save(dir.path()).unwrap();
+
+        let contents = fs::read_to_string(dir.path().join("config.yaml")).unwrap();
+        assert!(!contents.contains("run:"));
     }
 }

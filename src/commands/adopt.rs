@@ -223,6 +223,7 @@ mod tests {
             next_id: 10,
             auto_close_parent: true,
             max_tokens: 30000,
+            run: None,
         };
         config.save(&beans_dir).unwrap();
 

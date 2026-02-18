@@ -13,6 +13,7 @@ pub fn cmd_config_get(beans_dir: &Path, key: &str) -> Result<()> {
         "next_id" => config.next_id.to_string(),
         "auto_close_parent" => config.auto_close_parent.to_string(),
         "max_tokens" => config.max_tokens.to_string(),
+        "run" => config.run.unwrap_or_default(),
         _ => return Err(anyhow!("Unknown config key: {}", key)),
     };
 
@@ -42,6 +43,13 @@ pub fn cmd_config_set(beans_dir: &Path, key: &str, value: &str) -> Result<()> {
             config.max_tokens = value
                 .parse()
                 .map_err(|_| anyhow!("Invalid value for max_tokens: {} (expected positive integer)", value))?;
+        }
+        "run" => {
+            if value.is_empty() || value == "none" || value == "unset" {
+                config.run = None;
+            } else {
+                config.run = Some(value.to_string());
+            }
         }
         _ => return Err(anyhow!("Unknown config key: {}", key)),
     }
@@ -105,5 +113,41 @@ mod tests {
         let result = cmd_config_set(dir.path(), "unknown_key", "value");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Unknown config key"));
+    }
+
+    #[test]
+    fn get_run_returns_empty_when_unset() {
+        let dir = setup_test_dir();
+        let result = cmd_config_get(dir.path(), "run");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn set_run_stores_command_template() {
+        let dir = setup_test_dir();
+        cmd_config_set(dir.path(), "run", "claude -p 'implement bean {id}'").unwrap();
+
+        let config = Config::load(dir.path()).unwrap();
+        assert_eq!(config.run, Some("claude -p 'implement bean {id}'".to_string()));
+    }
+
+    #[test]
+    fn set_run_to_none_clears_it() {
+        let dir = setup_test_dir();
+        cmd_config_set(dir.path(), "run", "some command").unwrap();
+        cmd_config_set(dir.path(), "run", "none").unwrap();
+
+        let config = Config::load(dir.path()).unwrap();
+        assert_eq!(config.run, None);
+    }
+
+    #[test]
+    fn set_run_to_empty_clears_it() {
+        let dir = setup_test_dir();
+        cmd_config_set(dir.path(), "run", "some command").unwrap();
+        cmd_config_set(dir.path(), "run", "").unwrap();
+
+        let config = Config::load(dir.path()).unwrap();
+        assert_eq!(config.run, None);
     }
 }

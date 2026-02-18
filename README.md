@@ -5,14 +5,14 @@ Task tracker for AI agents.
 Markdown files that track dependencies and require verification to close.
 
 ```bash
-bn quick "Add /health endpoint" --verify "curl -sf localhost:8080/health"
+bn create "Add /health endpoint" --verify "curl -sf localhost:8080/health"
 bn close 1   # Runs the curl. Only closes if it succeeds.
 ```
 
 Verify commands must **fail first** by default — proving the test is real, not `assert True`:
 
 ```bash
-bn quick "Fix unicode bug" --verify "pytest test_unicode.py"
+bn create "Fix unicode bug" --verify "pytest test_unicode.py"
 # Test must FAIL first (proves it tests something real)
 # Then passes after implementation → bean closes
 ```
@@ -30,6 +30,7 @@ No databases. No daemons. Just `.beans/` files you can `cat`, `grep`, and `git d
 - [Hierarchical Tasks](#hierarchical-tasks)
 - [Smart Dependencies](#smart-dependencies)
 - [Core Commands](#core-commands)
+- [Agent Spawning](#agent-spawning)
 - [Agent Workflow](#agent-workflow)
 - [Why Not X?](#why-not-x)
 - [Design Principles](#design-principles)
@@ -295,6 +296,38 @@ bn sync                             # Force rebuild index
 
 </details>
 
+## Agent Spawning
+
+Create a task and immediately delegate it to a background agent:
+
+```bash
+# Configure once: tell beans how to launch your agent
+bn config set run "claude -p 'implement bean {id} and run bn close {id}'"
+
+# Now --run spawns an agent for any task
+bn create "fix the auth bug" --verify "cargo test auth" --run
+```
+
+`{id}` is replaced with the bean ID. The spawned agent should read the bean, do the work, and run `bn close`.
+
+This is powerful for **discover-and-delegate**: while working on your main task, spawn agents for everything you notice:
+
+```bash
+bn create "bug: nil panic in logger" --verify "cargo test logger" --run
+bn create "test: no coverage for cache" --verify "cargo test cache" --run
+bn create "docs: stale API examples" --verify "grep -q 'v2' README.md" --run
+```
+
+Other agent setups:
+
+```bash
+# Pi agent (via deli orchestrator)
+bn config set run "deli spawn {id}"
+
+# Any CLI agent
+bn config set run "my-agent --task-file .beans/{id}-*.md"
+```
+
 ## Agent Workflow
 
 ```bash
@@ -350,6 +383,7 @@ Tasks are just markdown files. `cat .beans/3-*.md`. No API, no auth, no waiting.
 
 ## Documentation
 
+- [Agent Skill](docs/SKILL.md) — Full reference for AI agents using beans (workflows, issue discovery, context assembly, smart deps)
 - [Best Practices](docs/BEST_PRACTICES.md) — Writing effective beans for agents
 - `bn --help` — Full command reference
 
