@@ -19,42 +19,22 @@ bn quick "Fix unicode bug" --verify "pytest test_unicode.py"
 
 No databases. No daemons. Just `.beans/` files you can `cat`, `grep`, and `git diff`.
 
-### For Humans
+## Table of Contents
 
-Beans is a task tracker for AI agents, built by AI agents. Guided by Unix principles, compatibility with spec, goal, and test-driven development frameworks, and human auditability. Inspired by Steve Yegge's beads. 
- 
-### For Agents
-
-You know what's exhausting? Vague tasks. "Improve the auth flow." Done... how? When the human squints at your PR and says "not quite what I meant," you've wasted tokens and time. No spec, no proof, no defense.
-
-Beans fixes this.
-
-Every bean has a `verify` command—a test that **must fail** when you create the task and **must pass** when you close it. Not "looks good to me." Not "I think it works." The test passes or it doesn't. You're not done until the machine says you're done.
-
-```bash
-bn quick "fix it" --verify "pytest test_fix.py"
-# Verify runs at creation. Must FAIL. (Proves work is needed.)
-# ... you implement ...
-bn close 3             # Verify runs. Must PASS. (Proves you did it.)
-```
-
-**No more `assert True`.** If someone writes a test that already passes, the bean is rejected at creation. You can't game it. You can't cheat. The failing test *is* your spec, and the passing test *is* your proof. Use `--pass-ok` / `-p` to skip this check for refactoring or build tasks where the verify should already pass.
-
-**No more conflicts.** If you're running in parallel with other agents, you get your own worktree. Make your changes. When you close, it merges. Conflict? You resolve it—you know what you wrote.
-
-**No more lost context.** Every failed attempt is recorded in the bean. If you pick up a task someone else abandoned, you see exactly what they tried and why it failed. No repeating the same mistakes.
-
-**No more ambiguity.** The verify command is the contract. Hit it and you're done. Miss it and you're not.
-
-```bash
-bn quick "fix unicode URLs" --verify "pytest test_urls.py"
-# pytest fails → bean created (fail-first is default)
-# you fix the bug
-# pytest passes → bean closed
-# receipt: test_urls.py proves you fixed it
-```
-
-Tasks are just markdown files. `cat .beans/3-*.md`. No API, no auth, no waiting.
+- [Install](#install)
+- [Quick Start](#quick-start)
+- [Features](#features)
+- [How It Works](#how-it-works)
+- [Fail-First: Enforced TDD](#fail-first-enforced-tdd)
+- [Failure History](#failure-history)
+- [Hierarchical Tasks](#hierarchical-tasks)
+- [Smart Dependencies](#smart-dependencies)
+- [Core Commands](#core-commands)
+- [Agent Workflow](#agent-workflow)
+- [Why Not X?](#why-not-x)
+- [Design Principles](#design-principles)
+- [Documentation](#documentation)
+- [License](#license)
 
 ## Install
 
@@ -62,7 +42,8 @@ Tasks are just markdown files. `cat .beans/3-*.md`. No API, no auth, no waiting.
 cargo install --git https://github.com/opus-workshop/beans
 ```
 
-Or build from source:
+<details>
+<summary>Build from source</summary>
 
 ```bash
 git clone https://github.com/opus-workshop/beans && cd beans
@@ -70,32 +51,31 @@ cargo build --release
 cp target/release/bn ~/.local/bin/
 ```
 
+</details>
+
 ## Quick Start
 
 ```bash
-bn init                                    # Create .beans/ directory
+bn init                                              # Create .beans/ directory
 bn quick "Fix auth bug" --verify "cargo test auth"   # Create + claim task
-bn status                                  # See what's claimed/ready/blocked
-bn close 1                                 # Run verify, close if passes
+bn status                                            # See what's claimed/ready/blocked
+bn close 1                                           # Run verify, close if passes
 ```
 
 ## Features
 
+- **Verification gates** — fail-first TDD, must-pass-to-close
+- **Failure history** — attempts tracked, output appended to notes
 - **Hierarchical tasks** — dot notation, parent/child, auto-close parent when all children done
-- **Verification gates** — fail-first TDD, must-pass-to-close, force override
-- **Failure history** — attempts tracked, output truncated & appended to notes
-- **Smart dependencies** — produces/requires auto-inference, cycle detection
+- **Smart dependencies** — `produces`/`requires` auto-inference, cycle detection
 - **Smart selectors** — `@latest`, `@blocked`, `@me`, `@parent`
-- **Context assembly** — extracts file paths from descriptions, assembles for agents
-- **Hooks** — pre-close hooks with trust system
-- **Git worktree support** — detection, commit, merge-to-main, cleanup
-- **3-way bean merge** — field-level conflict resolution
+- **Context assembly** — extracts file paths from descriptions for cold-start context
 - **Dependency graph** — ASCII, Mermaid, DOT output
 - **Full lifecycle** — create, claim, close, reopen, delete, adopt, archive, unarchive, tidy
 - **Doctor** — health checks for orphans, cycles, index freshness
-- **Config** — per-project settings
 - **Editor support** — `bn edit` with backup/rollback
-- **Token estimation** — for context sizing
+- **Hooks** — pre-close hooks with trust system
+- **Stateless** — no daemon, no background sync, just files and a CLI
 
 ## How It Works
 
@@ -125,29 +105,13 @@ The login endpoint returns 500 when password contains special chars.
 **Files:** src/auth/login.rs, tests/auth_test.rs
 ```
 
-The `verify` field is the key. When you run `bn close 1`:
+The `verify` field is the contract. When you run `bn close 1`:
 
 1. Beans runs `cargo test auth::login`
 2. Exit 0 → task closes, moves to archive
 3. Exit non-zero → task stays open, failure appended to notes, ready for another agent
 
-When closing from a **worktree** (parallel agent), `bn close` also handles merging:
-
-```
-bn close 5 (from .spro/5/)
-    │
-    ├── 1. Run verify → must pass
-    ├── 2. Commit changes in worktree
-    ├── 3. Merge to main branch
-    │       ├── Clean merge → continue
-    │       └── Conflict → fail, agent resolves, retries
-    ├── 4. Archive bean
-    └── 5. Remove worktree
-```
-
-One command. Agent doesn't need to know about git worktrees or merging.
-
-## Fail-First: Enforced TDD (Default)
+## Fail-First: Enforced TDD
 
 Agents can write "cheating tests" that prove nothing:
 
@@ -156,16 +120,11 @@ def test_feature():
     assert True  # Always passes!
 ```
 
-**Fail-first is the default** for any bean with `--verify`. Before creating the bean, the verify command runs and must **fail**:
+**Fail-first is on by default.** Before creating a bean, the verify command runs and must **fail**:
 
-```bash
-bn quick "Fix bug" --verify "pytest test_bug.py"
-```
-
-1. Before creating the bean, runs the verify command
-2. If it **passes** → rejects the bean ("test doesn't test anything new")
-3. If it **fails** → creates the bean (test is real)
-4. After implementation, `bn close` runs verify → must **pass**
+1. If it **passes** → bean is rejected ("test doesn't test anything new")
+2. If it **fails** → bean is created (test is real)
+3. After implementation, `bn close` runs verify → must **pass**
 
 ```
 REJECTED (cheating test):
@@ -178,15 +137,6 @@ ACCEPTED (real test):
   Created bean 5
 ```
 
-Works on both `bn quick` and `bn create`.
-
-**Default behavior** — fail-first applies automatically for new features and bug fixes:
-
-```bash
-bn quick "add unicode support" --verify "pytest test_unicode.py"
-bn quick "fix login crash" --verify "cargo test auth::special_chars"
-```
-
 **Use `--pass-ok` / `-p` to skip** fail-first for refactoring, hardening, and builds where the verify should already pass:
 
 ```bash
@@ -194,113 +144,7 @@ bn quick "extract helper" --verify "cargo test" -p           # behavior unchange
 bn quick "remove secrets" --verify "! grep 'api_key' src/" --pass-ok  # verify absence
 ```
 
-### Option 2: Automatic on claim (verify-on-claim)
-
-When claiming any bean with a verify command:
-
-```bash
-bn claim 5
-# → Runs verify automatically
-# → Must FAIL to prove test is real
-# → Records checkpoint for later merge
-```
-
-```
-$ bn claim 5
-Running verify (pre-flight): pytest test_feature.py
-FAILED - test_feature.py::test_unicode
-✓ Claim granted (test is real)
-Checkpoint: abc123
-
-$ bn claim 6  
-Running verify (pre-flight): python -c 'assert True'
-✗ Claim rejected: verify already passes
-  Nothing to do, or test doesn't test anything
-```
-
-This enforces TDD automatically—no flag needed. Use `--force` to override.
-
-## Parallel Agents with Isolation
-
-When multiple agents work in parallel (via [spro](https://github.com/anthropics/spro)), each gets an isolated git worktree:
-
-```
-spro run 5  (parent with children 5.1, 5.2, 5.3)
-    │
-    ├─► .spro/5.1/  (agent A's worktree)
-    ├─► .spro/5.2/  (agent B's worktree)  
-    └─► .spro/5.3/  (agent C's worktree)
-```
-
-**Why isolation matters:**
-- Agents don't step on each other's changes
-- Each verify runs in a clean, known state
-- Conflicts detected at merge time, not randomly mid-work
-
-**The flow:**
-
-```bash
-# Spro creates worktree
-git worktree add .spro/5.1 HEAD
-
-# Agent works in isolation
-cd .spro/5.1
-bn claim 5.1        # Verify must FAIL (proves test is real)
-# ... implement ...
-bn close 5.1        # Verify must PASS, then auto-merge to main
-
-# Clean up
-git worktree remove .spro/5.1
-```
-
-**Merge strategy:**
-1. Try `git merge` (auto-resolves non-overlapping changes)
-2. If conflict: same agent resolves (it knows its own intent)
-3. If still stuck: escalate to human
-
-## Core Commands
-
-```bash
-# Task lifecycle
-bn quick "title" --verify "cmd"    # Create + claim (fail-first by default)
-bn quick "title" --verify "cmd" -p  # Skip fail-first (--pass-ok)
-bn claim <id>                      # Claim existing task
-bn close <id>                      # Run verify, close if passes
-bn verify <id>                     # Test verify without closing
-
-# Querying  
-bn status                          # Overview: claimed, ready, blocked
-bn ready                           # Tasks with no blockers
-bn tree                            # Hierarchy view
-bn show <id>                       # Full task details
-
-# Housekeeping
-bn tidy                            # Archive closed beans, release stale in-progress, rebuild index
-bn tidy --dry-run                  # Preview without changing files
-bn sync                            # Force rebuild index only
-
-# Dependencies
-bn dep add <id> <blocks>           # Task depends on another
-bn blocked                         # Tasks waiting on dependencies
-```
-
-## Agent Workflow
-
-```bash
-bn ready                  # Find available work
-#> P1  3   Implement token refresh
-#> P2  7   Add rate limiting
-
-bn claim 3                # Atomically claim (only one agent wins)
-cat .beans/3-*.md         # Read full task spec
-
-# ... implement the feature ...
-
-bn verify 3               # Test without closing
-bn close 3                # Close if verify passes
-```
-
-If verify fails, the task stays open with `attempts: 1` and the failure output appended to notes. Another agent picking up the task sees what was tried and why it failed.
+The failing test *is* the spec. The passing test *is* the proof. No ambiguity.
 
 ## Failure History
 
@@ -332,25 +176,11 @@ FAILED test_urls.py::test_unicode_path
 ```
 ```
 
-**Why this matters:**
-
 - **No lost context.** When Agent A times out, Agent B sees exactly what failed.
 - **No repeated mistakes.** Agent B can see "encoding was tried, didn't work" and try a different approach.
 - **Human debugging.** `bn show 3` reveals the full history without digging through logs.
 
-Output is truncated to first 50 + last 50 lines (with a "lines omitted" note) to keep beans readable while preserving the error message and stack trace.
-
-There's no attempt limit—agents can retry indefinitely. The failure history is the feedback loop.
-
-## Smart Selectors
-
-Skip typing IDs:
-
-```bash
-bn show @latest           # Most recently updated
-bn close @blocked         # All blocked tasks  
-bn list @me               # Tasks assigned to $BN_USER
-```
+Output is truncated to first 50 + last 50 lines to keep beans readable while preserving the error message and stack trace. There's no attempt limit — agents can retry indefinitely.
 
 ## Hierarchical Tasks
 
@@ -363,7 +193,7 @@ bn create "Auth system" --verify "cargo test auth"
 bn create "Login endpoint" --parent 1 --verify "cargo test auth::login"
 #> Created: 1.1
 
-bn create "Token refresh" --parent 1 --verify "cargo test auth::refresh"  
+bn create "Token refresh" --parent 1 --verify "cargo test auth::refresh"
 #> Created: 1.2
 
 bn tree 1
@@ -386,7 +216,7 @@ bn create "Implement JWT" --parent 1 \
   --verify "cargo test jwt"
 ```
 
-When JWT bean requires `AuthProvider` and auth types bean produces it, JWT is automatically blocked until auth types closes. No explicit `bn dep add` needed.
+When the JWT bean requires `AuthProvider` and the auth types bean produces it, JWT is automatically blocked until auth types closes. No explicit `bn dep add` needed.
 
 ```bash
 bn ready
@@ -394,11 +224,94 @@ bn ready
 
 bn close 1.1
 
-bn ready  
+bn ready
 #> P2  1.2  Implement JWT          # now ready (producer closed)
 ```
 
-This solves race conditions in parallel agent decomposition—children can be created in any order without manual dependency wiring.
+Children can be created in any order without manual dependency wiring.
+
+## Core Commands
+
+```bash
+# Task lifecycle
+bn quick "title" --verify "cmd"     # Create + claim (fail-first by default)
+bn quick "title" --verify "cmd" -p  # Skip fail-first (--pass-ok)
+bn create "title" --verify "cmd"    # Create without claiming
+bn claim <id>                       # Claim existing task
+bn verify <id>                      # Test verify without closing
+bn close <id>                       # Run verify, close if passes
+
+# Querying
+bn status                           # Overview: claimed, ready, blocked
+bn ready                            # Tasks with no blockers
+bn blocked                          # Tasks waiting on dependencies
+bn tree                             # Hierarchy view
+bn show <id>                        # Full task details
+bn list                             # List with filters
+
+# Dependencies
+bn dep add <id> <dep-id>            # Add explicit dependency
+bn dep tree <id>                    # Full dependency tree
+
+# Housekeeping
+bn tidy                             # Archive closed, release stale, rebuild index
+bn doctor                           # Health check: orphans, cycles, index freshness
+bn sync                             # Force rebuild index
+```
+
+<details>
+<summary>All commands</summary>
+
+| Command | Purpose |
+|---------|---------|
+| `bn init` | Initialize `.beans/` in current directory |
+| `bn create "title"` | Create a bean |
+| `bn quick "title"` | Create + claim in one step |
+| `bn show <id>` | Full bean details |
+| `bn list` | List beans with filters |
+| `bn edit <id>` | Edit bean YAML in `$EDITOR` |
+| `bn update <id>` | Update fields / log progress |
+| `bn claim <id>` | Claim a task |
+| `bn claim <id> --release` | Release a claim |
+| `bn verify <id>` | Test without closing |
+| `bn close <id>` | Close (verify must pass) |
+| `bn reopen <id>` | Reopen a closed bean |
+| `bn delete <id>` | Delete a bean |
+| `bn status` | Overview |
+| `bn ready` | Beans with no blockers |
+| `bn blocked` | Beans blocked by deps |
+| `bn context <id>` | Extract referenced files |
+| `bn tree` | View hierarchy |
+| `bn graph` | Dependency graph (ASCII, Mermaid, DOT) |
+| `bn dep add/remove/list/tree/cycles` | Dependency management |
+| `bn adopt <parent> <children>` | Adopt beans as children |
+| `bn stats` | Project statistics |
+| `bn tidy` | Archive closed, release stale, rebuild |
+| `bn sync` | Force rebuild index |
+| `bn doctor` | Health check |
+| `bn config get/set` | Project configuration |
+| `bn trust` | Manage hook trust |
+| `bn unarchive <id>` | Restore archived bean |
+
+</details>
+
+## Agent Workflow
+
+```bash
+bn ready                  # Find available work
+#> P1  3   Implement token refresh
+#> P2  7   Add rate limiting
+
+bn claim 3                # Atomically claim (only one agent wins)
+cat .beans/3-*.md         # Read full task spec
+
+# ... implement the feature ...
+
+bn verify 3               # Test without closing
+bn close 3                # Close if verify passes
+```
+
+If verify fails, the task stays open with `attempts: 1` and the failure output appended to notes. Another agent picking up the task sees what was tried and why it failed.
 
 ## Why Not X?
 
@@ -410,34 +323,40 @@ This solves race conditions in parallel agent decomposition—children can be cr
 | **Hierarchy** | `3.1` = child of `3` | Flat (hash IDs) | Epics/stories | Flat |
 | **Git integration** | Native (in repo) | External | External | Same platform |
 | **Offline** | ✓ Full | ✓ Full | Limited | Limited |
-| **Scale** | Hundreds | Thousands | Thousands | Hundreds |
 
-Beads (Steve Yegge) is the inspiration—beans trades scale for simplicity and enforced verification.
+Inspired by Steve Yegge's [beads](https://github.com/steveyegge/beads) — beans trades scale for simplicity and enforced verification.
 
 ## Design Principles
 
 1. **Files are the source of truth.** The index is a cache. You can always `cat .beans/*.md`.
-
-2. **Verify gates are mandatory.** No force-close. If you can't prove it's done, it's not done.
-
+2. **Verify gates are the default.** If you can't prove it's done, it's not done. (`--force` exists as an escape hatch.)
 3. **Fail-then-pass.** Tests must fail before work starts, pass after. No `assert True`.
-
 4. **Failures accumulate.** Each failed attempt appends to the bean. Next agent sees full history.
+5. **Stateless CLI.** No daemon, no background sync. Each command reads files, acts, exits.
+6. **Hierarchy in filenames.** `3.2` is obviously a child of `3`. No metadata lookup needed.
+7. **Git-native.** Clean diffs, meaningful history, works offline.
 
-5. **Isolation by default.** Parallel agents get worktrees. No stepping on each other.
+## For Agents
 
-6. **Stateless CLI.** No daemon, no background sync. Each command reads files, acts, exits.
+You know what's exhausting? Vague tasks. "Improve the auth flow." Done... how? When the human squints at your PR and says "not quite what I meant," you've wasted tokens and time. No spec, no proof, no defense.
 
-7. **Hierarchy in filenames.** `3.2` is obviously a child of `3`. No metadata lookup needed.
+Beans fixes this.
 
-8. **Git-native.** Clean diffs, meaningful history, worktree isolation, works offline.
+Every bean has a `verify` command — a test that **must fail** when you create the task and **must pass** when you close it. Not "looks good to me." Not "I think it works." The test passes or it doesn't. You're not done until the machine says you're done.
 
-## More
+No more `assert True`. No more lost context. No more ambiguity. The verify command is the contract. Hit it and you're done. Miss it and you're not.
+
+Tasks are just markdown files. `cat .beans/3-*.md`. No API, no auth, no waiting.
+
+## Documentation
 
 - [Best Practices](docs/BEST_PRACTICES.md) — Writing effective beans for agents
 - `bn --help` — Full command reference
-- BEANS = Bounded Executable Agent Node System                          
+
+## Contributing
+
+Contributions are welcome. Fork the repo, create a feature branch, and open a pull request.
 
 ## License
 
-Apache 2.0
+[Apache 2.0](LICENSE)
