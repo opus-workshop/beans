@@ -15,26 +15,25 @@ use crate::index::Index;
 /// 3. Scan all remaining beans and remove deleted_id from their dependencies
 /// 4. Rebuild the index
 pub fn cmd_delete(beans_dir: &Path, id: &str) -> Result<()> {
-    let bean_path = find_bean_file(beans_dir, id)
-        .with_context(|| format!("Bean not found: {}", id))?;
+    let bean_path =
+        find_bean_file(beans_dir, id).with_context(|| format!("Bean not found: {}", id))?;
 
     // Load the bean to get title before deleting
-    let bean = Bean::from_file(&bean_path)
-        .with_context(|| format!("Failed to load bean: {}", id))?;
+    let bean =
+        Bean::from_file(&bean_path).with_context(|| format!("Failed to load bean: {}", id))?;
     let title = bean.title.clone();
 
     // Delete the bean file
-    fs::remove_file(&bean_path)
-        .with_context(|| format!("Failed to delete bean file: {}", id))?;
+    fs::remove_file(&bean_path).with_context(|| format!("Failed to delete bean file: {}", id))?;
 
     // Clean up dependency references
     cleanup_dep_references(beans_dir, id)
         .with_context(|| format!("Failed to clean up dependency references for: {}", id))?;
 
     // Rebuild index
-    let index = Index::build(beans_dir)
-        .with_context(|| "Failed to rebuild index")?;
-    index.save(beans_dir)
+    let index = Index::build(beans_dir).with_context(|| "Failed to rebuild index")?;
+    index
+        .save(beans_dir)
         .with_context(|| "Failed to save index")?;
 
     println!("Deleted bean {}: {}", id, title);
@@ -64,7 +63,7 @@ fn cleanup_dep_references(beans_dir: &Path, deleted_id: &str) -> Result<()> {
         let ext = path.extension().and_then(|e| e.to_str());
         let is_bean_file = match ext {
             Some("md") => filename.contains('-'), // New format: {id}-{slug}.md
-            Some("yaml") => true,                   // Legacy format: {id}.yaml
+            Some("yaml") => true,                 // Legacy format: {id}.yaml
             _ => false,
         };
 
@@ -91,8 +90,8 @@ fn cleanup_dep_references(beans_dir: &Path, deleted_id: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
     use crate::util::title_to_slug;
+    use tempfile::TempDir;
 
     fn setup_test_beans_dir() -> (TempDir, std::path::PathBuf) {
         let dir = TempDir::new().unwrap();
@@ -138,20 +137,28 @@ mod tests {
         let slug1 = title_to_slug(&bean1.title);
         let slug2 = title_to_slug(&bean2.title);
         let slug3 = title_to_slug(&bean3.title);
-        
-        bean1.to_file(beans_dir.join(format!("1-{}.md", slug1))).unwrap();
-        bean2.to_file(beans_dir.join(format!("2-{}.md", slug2))).unwrap();
-        bean3.to_file(beans_dir.join(format!("3-{}.md", slug3))).unwrap();
+
+        bean1
+            .to_file(beans_dir.join(format!("1-{}.md", slug1)))
+            .unwrap();
+        bean2
+            .to_file(beans_dir.join(format!("2-{}.md", slug2)))
+            .unwrap();
+        bean3
+            .to_file(beans_dir.join(format!("3-{}.md", slug3)))
+            .unwrap();
 
         // Delete bean 1
         cmd_delete(&beans_dir, "1").unwrap();
 
         // Verify bean 2 no longer depends on 1
-        let bean2_updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "2").unwrap()).unwrap();
+        let bean2_updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "2").unwrap()).unwrap();
         assert!(!bean2_updated.dependencies.contains(&"1".to_string()));
 
         // Verify bean 3 no longer depends on 1, but still depends on 2
-        let bean3_updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "3").unwrap()).unwrap();
+        let bean3_updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "3").unwrap()).unwrap();
         assert!(!bean3_updated.dependencies.contains(&"1".to_string()));
         assert!(bean3_updated.dependencies.contains(&"2".to_string()));
     }
@@ -163,8 +170,12 @@ mod tests {
         let bean2 = Bean::new("2", "Task 2");
         let slug1 = title_to_slug(&bean1.title);
         let slug2 = title_to_slug(&bean2.title);
-        bean1.to_file(beans_dir.join(format!("1-{}.md", slug1))).unwrap();
-        bean2.to_file(beans_dir.join(format!("2-{}.md", slug2))).unwrap();
+        bean1
+            .to_file(beans_dir.join(format!("1-{}.md", slug1)))
+            .unwrap();
+        bean2
+            .to_file(beans_dir.join(format!("2-{}.md", slug2)))
+            .unwrap();
 
         cmd_delete(&beans_dir, "1").unwrap();
 
@@ -187,14 +198,21 @@ mod tests {
         let slug1 = title_to_slug(&bean1.title);
         let slug2 = title_to_slug(&bean2.title);
         let slug3 = title_to_slug(&bean3.title);
-        
-        bean1.to_file(beans_dir.join(format!("1-{}.md", slug1))).unwrap();
-        bean2.to_file(beans_dir.join(format!("2-{}.md", slug2))).unwrap();
-        bean3.to_file(beans_dir.join(format!("3-{}.md", slug3))).unwrap();
+
+        bean1
+            .to_file(beans_dir.join(format!("1-{}.md", slug1)))
+            .unwrap();
+        bean2
+            .to_file(beans_dir.join(format!("2-{}.md", slug2)))
+            .unwrap();
+        bean3
+            .to_file(beans_dir.join(format!("3-{}.md", slug3)))
+            .unwrap();
 
         cmd_delete(&beans_dir, "1").unwrap();
 
-        let bean3_check = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "3").unwrap()).unwrap();
+        let bean3_check =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "3").unwrap()).unwrap();
         assert!(bean3_check.dependencies.is_empty());
     }
 
@@ -216,19 +234,30 @@ mod tests {
         let slug2 = title_to_slug(&bean2.title);
         let slug3 = title_to_slug(&bean3.title);
         let slug4 = title_to_slug(&bean4.title);
-        
-        bean1.to_file(beans_dir.join(format!("1-{}.md", slug1))).unwrap();
-        bean2.to_file(beans_dir.join(format!("2-{}.md", slug2))).unwrap();
-        bean3.to_file(beans_dir.join(format!("3-{}.md", slug3))).unwrap();
-        bean4.to_file(beans_dir.join(format!("4-{}.md", slug4))).unwrap();
+
+        bean1
+            .to_file(beans_dir.join(format!("1-{}.md", slug1)))
+            .unwrap();
+        bean2
+            .to_file(beans_dir.join(format!("2-{}.md", slug2)))
+            .unwrap();
+        bean3
+            .to_file(beans_dir.join(format!("3-{}.md", slug3)))
+            .unwrap();
+        bean4
+            .to_file(beans_dir.join(format!("4-{}.md", slug4)))
+            .unwrap();
 
         // Delete node 1
         cmd_delete(&beans_dir, "1").unwrap();
 
         // Verify cleanup
-        let bean2_updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "2").unwrap()).unwrap();
-        let bean3_updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "3").unwrap()).unwrap();
-        let bean4_updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "4").unwrap()).unwrap();
+        let bean2_updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "2").unwrap()).unwrap();
+        let bean3_updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "3").unwrap()).unwrap();
+        let bean4_updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "4").unwrap()).unwrap();
 
         assert!(!bean2_updated.dependencies.contains(&"1".to_string()));
         assert!(!bean3_updated.dependencies.contains(&"1".to_string()));
@@ -243,7 +272,9 @@ mod tests {
 
         let bean1 = Bean::new("1", "Task 1");
         let slug1 = title_to_slug(&bean1.title);
-        bean1.to_file(beans_dir.join(format!("1-{}.md", slug1))).unwrap();
+        bean1
+            .to_file(beans_dir.join(format!("1-{}.md", slug1)))
+            .unwrap();
 
         // Create config.yaml with a fake reference to "1"
         fs::write(

@@ -32,15 +32,28 @@ fn test_no_paths() {
 
 #[test]
 fn test_various_extensions() {
-    let description = "Check src/config.rs, tests/test.ts, docs/guide.md, package.json, and Cargo.toml";
+    let description =
+        "Check src/config.rs, tests/test.ts, docs/guide.md, package.json, and Cargo.toml";
     let result = extract_paths(description);
-    assert_eq!(result, vec!["src/config.rs", "tests/test.ts", "docs/guide.md", "package.json", "Cargo.toml"]);
+    assert_eq!(
+        result,
+        vec![
+            "src/config.rs",
+            "tests/test.ts",
+            "docs/guide.md",
+            "package.json",
+            "Cargo.toml"
+        ]
+    );
 }
 
 #[test]
 fn test_paths_with_hyphens() {
     let result = extract_paths("See src/my-module.rs and tests/integration-test.rs");
-    assert_eq!(result, vec!["src/my-module.rs", "tests/integration-test.rs"]);
+    assert_eq!(
+        result,
+        vec!["src/my-module.rs", "tests/integration-test.rs"]
+    );
 }
 
 #[test]

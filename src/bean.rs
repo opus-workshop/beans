@@ -82,6 +82,77 @@ pub fn validate_priority(priority: u8) -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
+// RunResult / RunRecord (verification history)
+// ---------------------------------------------------------------------------
+
+/// Outcome of a verification run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RunResult {
+    Pass,
+    Fail,
+    Timeout,
+    Cancelled,
+}
+
+/// A single verification run record.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunRecord {
+    pub attempt: u32,
+    pub started_at: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub finished_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_secs: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+    pub result: RunResult,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cost: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_snippet: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// OnCloseAction
+// ---------------------------------------------------------------------------
+
+/// Declarative action to run when a bean's verify command fails.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum OnFailAction {
+    /// Retry with optional max attempts and delay.
+    Retry {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        max: Option<u32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        delay_secs: Option<u64>,
+    },
+    /// Bump priority and add message.
+    Escalate {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        priority: Option<u8>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
+    },
+}
+
+/// Declarative actions to run when a bean is closed.
+/// Processed after the bean is archived and post-close hook fires.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum OnCloseAction {
+    /// Run a shell command in the project root.
+    Run { command: String },
+    /// Print a notification message.
+    Notify { message: String },
+}
+
+// ---------------------------------------------------------------------------
 // Bean
 // ---------------------------------------------------------------------------
 
@@ -122,7 +193,6 @@ pub struct Bean {
     pub dependencies: Vec<String>,
 
     // -- verification & claim fields --
-
     /// Shell command that must exit 0 to close the bean.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub verify: Option<String>,
@@ -134,7 +204,10 @@ pub struct Bean {
     #[serde(default, skip_serializing_if = "is_zero")]
     pub attempts: u32,
     /// Maximum verify attempts before escalation (default 3).
-    #[serde(default = "default_max_attempts", skip_serializing_if = "is_default_max_attempts")]
+    #[serde(
+        default = "default_max_attempts",
+        skip_serializing_if = "is_default_max_attempts"
+    )]
     pub max_attempts: u32,
     /// Agent or user currently holding a claim on this bean.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -170,6 +243,27 @@ pub struct Bean {
     /// When the token count was last calculated.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tokens_updated: Option<DateTime<Utc>>,
+
+    /// Declarative action to execute when verify fails.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_fail: Option<OnFailAction>,
+
+    /// Declarative actions to execute when this bean is closed.
+    /// Runs after archive and post-close hook. Failures warn but don't revert.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub on_close: Vec<OnCloseAction>,
+
+    /// Structured history of verification runs.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub history: Vec<RunRecord>,
+
+    /// Structured output from verify commands (arbitrary JSON).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outputs: Option<serde_json::Value>,
+
+    /// Maximum agent loops for this bean (overrides config default, 0 = unlimited).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_loops: Option<u32>,
 }
 
 fn default_priority() -> u8 {
@@ -230,6 +324,11 @@ impl Bean {
             conflicts: Vec::new(),
             tokens: None,
             tokens_updated: None,
+            on_fail: None,
+            on_close: Vec::new(),
+            history: Vec::new(),
+            outputs: None,
+            max_loops: None,
         })
     }
 
@@ -237,6 +336,12 @@ impl Bean {
     /// Panics if the ID is invalid. Prefer `try_new` for fallible construction.
     pub fn new(id: impl Into<String>, title: impl Into<String>) -> Self {
         Self::try_new(id, title).expect("Invalid bean ID")
+    }
+
+    /// Get effective max_loops (per-bean override or config default).
+    /// A value of 0 means unlimited.
+    pub fn effective_max_loops(&self, config_max: u32) -> u32 {
+        self.max_loops.unwrap_or(config_max)
     }
 
     /// Parse YAML frontmatter and markdown body.
@@ -266,9 +371,9 @@ impl Bean {
             return Err(anyhow::anyhow!("Not markdown frontmatter format"));
         };
 
-        let second_delimiter_pos = after_first_delimiter
-            .find("---")
-            .ok_or_else(|| anyhow::anyhow!("Markdown frontmatter is missing closing delimiter (---)"))?;
+        let second_delimiter_pos = after_first_delimiter.find("---").ok_or_else(|| {
+            anyhow::anyhow!("Markdown frontmatter is missing closing delimiter (---)")
+        })?;
         let frontmatter = &after_first_delimiter[..second_delimiter_pos];
 
         // Skip the closing --- and any whitespace to get the body
@@ -348,11 +453,11 @@ impl Bean {
     /// Used for optimistic locking. The hash is calculated from a canonical
     /// JSON representation with non-content fields (like `conflicts`) cleared.
     pub fn hash(&self) -> String {
-        use sha2::{Sha256, Digest};
+        use sha2::{Digest, Sha256};
         // Clone and clear non-content fields
         let mut canonical = self.clone();
-        canonical.conflicts = Vec::new();  // Don't include conflicts in hash
-        
+        canonical.conflicts = Vec::new(); // Don't include conflicts in hash
+
         // Serialize to JSON (deterministic)
         let json = serde_json::to_string(&canonical).unwrap();
         let mut hasher = Sha256::new();
@@ -400,8 +505,11 @@ impl Bean {
             "requires" => self.requires = serde_json::from_str(json_value)?,
             "claimed_by" => self.claimed_by = serde_json::from_str(json_value)?,
             "close_reason" => self.close_reason = serde_json::from_str(json_value)?,
+            "on_fail" => self.on_fail = serde_json::from_str(json_value)?,
             "tokens" => self.tokens = serde_json::from_str(json_value)?,
             "tokens_updated" => self.tokens_updated = serde_json::from_str(json_value)?,
+            "outputs" => self.outputs = serde_json::from_str(json_value)?,
+            "max_loops" => self.max_loops = serde_json::from_str(json_value)?,
             _ => return Err(anyhow::anyhow!("Unknown field: {}", field)),
         }
         self.updated_at = Utc::now();
@@ -464,6 +572,21 @@ mod tests {
             conflicts: Vec::new(),
             tokens: Some(15000),
             tokens_updated: Some(now),
+            on_fail: Some(OnFailAction::Retry {
+                max: Some(5),
+                delay_secs: None,
+            }),
+            on_close: vec![
+                OnCloseAction::Run {
+                    command: "echo done".to_string(),
+                },
+                OnCloseAction::Notify {
+                    message: "Task complete".to_string(),
+                },
+            ],
+            history: Vec::new(),
+            outputs: Some(serde_json::json!({"key": "value"})),
+            max_loops: None,
         };
 
         let yaml = serde_yaml::to_string(&bean).unwrap();
@@ -506,6 +629,10 @@ mod tests {
         assert!(!yaml.contains("is_archived:"));
         assert!(!yaml.contains("tokens:"));
         assert!(!yaml.contains("tokens_updated:"));
+        assert!(!yaml.contains("on_fail:"));
+        assert!(!yaml.contains("on_close:"));
+        assert!(!yaml.contains("history:"));
+        assert!(!yaml.contains("outputs:"));
     }
 
     #[test]
@@ -517,10 +644,7 @@ mod tests {
         for line in yaml.lines() {
             if line.starts_with("created_at:") || line.starts_with("updated_at:") {
                 let value = line.split_once(':').unwrap().1.trim();
-                assert!(
-                    value.contains('T'),
-                    "timestamp should be ISO 8601: {value}"
-                );
+                assert!(value.contains('T'), "timestamp should be ISO 8601: {value}");
             }
         }
     }
@@ -576,7 +700,11 @@ updated_at: "2025-01-01T00:00:00Z"
     #[test]
     fn validate_priority_accepts_valid_range() {
         for priority in 0..=4 {
-            assert!(validate_priority(priority).is_ok(), "Priority {} should be valid", priority);
+            assert!(
+                validate_priority(priority).is_ok(),
+                "Priority {} should be valid",
+                priority
+            );
         }
     }
 
@@ -612,7 +740,11 @@ Test markdown body.
         assert_eq!(bean.status, Status::Open);
         assert!(bean.description.is_some());
         assert!(bean.description.as_ref().unwrap().contains("# Description"));
-        assert!(bean.description.as_ref().unwrap().contains("Test markdown body"));
+        assert!(bean
+            .description
+            .as_ref()
+            .unwrap()
+            .contains("Test markdown body"));
     }
 
     #[test]
@@ -643,7 +775,10 @@ This is a complex bean with multiple metadata fields.
         assert_eq!(bean.status, Status::InProgress);
         assert_eq!(bean.priority, 1);
         assert_eq!(bean.parent, Some("2".to_string()));
-        assert_eq!(bean.labels, vec!["backend".to_string(), "urgent".to_string()]);
+        assert_eq!(
+            bean.labels,
+            vec!["backend".to_string(), "urgent".to_string()]
+        );
         assert_eq!(
             bean.dependencies,
             vec!["2.1".to_string(), "2.2".to_string()]
@@ -777,14 +912,23 @@ This is a test of reading markdown from a file.
 
         // Verify the file still has frontmatter format
         let written = std::fs::read_to_string(&path).unwrap();
-        assert!(written.starts_with("---\n"), "Should start with frontmatter delimiter, got: {}", &written[..50.min(written.len())]);
-        assert!(written.contains("# Markdown Body"), "Should contain markdown body");
+        assert!(
+            written.starts_with("---\n"),
+            "Should start with frontmatter delimiter, got: {}",
+            &written[..50.min(written.len())]
+        );
+        assert!(
+            written.contains("# Markdown Body"),
+            "Should contain markdown body"
+        );
         // Description should NOT be in the YAML frontmatter section
         let parts: Vec<&str> = written.splitn(3, "---").collect();
         assert!(parts.len() >= 3, "Should have frontmatter delimiters");
         let frontmatter_section = parts[1];
-        assert!(!frontmatter_section.contains("# Markdown Body"),
-            "Description should be in body, not frontmatter");
+        assert!(
+            !frontmatter_section.contains("# Markdown Body"),
+            "Description should be in body, not frontmatter"
+        );
 
         // Read back one more time to verify full round-trip
         let bean2 = Bean::from_file(&path).unwrap();
@@ -860,10 +1004,7 @@ This should not override.
 "#;
         let bean = Bean::from_string(content).unwrap();
         // Description from YAML should take precedence
-        assert_eq!(
-            bean.description,
-            Some("From YAML metadata".to_string())
-        );
+        assert_eq!(bean.description, Some("From YAML metadata".to_string()));
     }
 
     // =====================================================================
@@ -919,5 +1060,559 @@ This should not override.
         let (loaded, hash) = Bean::from_file_with_hash(tmp.path()).unwrap();
         assert_eq!(loaded, bean);
         assert_eq!(hash, expected_hash);
+    }
+
+    // =====================================================================
+    // on_close serialization tests
+    // =====================================================================
+
+    #[test]
+    fn on_close_empty_vec_not_serialized() {
+        let bean = Bean::new("1", "No actions");
+        let yaml = serde_yaml::to_string(&bean).unwrap();
+        assert!(!yaml.contains("on_close"));
+    }
+
+    #[test]
+    fn on_close_round_trip_run_action() {
+        let mut bean = Bean::new("1", "With run");
+        bean.on_close = vec![OnCloseAction::Run {
+            command: "echo hi".to_string(),
+        }];
+
+        let yaml = serde_yaml::to_string(&bean).unwrap();
+        assert!(yaml.contains("on_close"));
+        assert!(yaml.contains("action: run"));
+        assert!(yaml.contains("echo hi"));
+
+        let restored: Bean = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(restored.on_close, bean.on_close);
+    }
+
+    #[test]
+    fn on_close_round_trip_notify_action() {
+        let mut bean = Bean::new("1", "With notify");
+        bean.on_close = vec![OnCloseAction::Notify {
+            message: "Done!".to_string(),
+        }];
+
+        let yaml = serde_yaml::to_string(&bean).unwrap();
+        assert!(yaml.contains("action: notify"));
+        assert!(yaml.contains("Done!"));
+
+        let restored: Bean = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(restored.on_close, bean.on_close);
+    }
+
+    #[test]
+    fn on_close_round_trip_multiple_actions() {
+        let mut bean = Bean::new("1", "Multiple actions");
+        bean.on_close = vec![
+            OnCloseAction::Run {
+                command: "make deploy".to_string(),
+            },
+            OnCloseAction::Notify {
+                message: "Deployed".to_string(),
+            },
+            OnCloseAction::Run {
+                command: "echo cleanup".to_string(),
+            },
+        ];
+
+        let yaml = serde_yaml::to_string(&bean).unwrap();
+        let restored: Bean = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(restored.on_close.len(), 3);
+        assert_eq!(restored.on_close, bean.on_close);
+    }
+
+    #[test]
+    fn on_close_deserialized_from_yaml() {
+        let yaml = r#"
+id: "1"
+title: From YAML
+status: open
+priority: 2
+created_at: "2026-01-01T00:00:00Z"
+updated_at: "2026-01-01T00:00:00Z"
+on_close:
+  - action: run
+    command: "cargo test"
+  - action: notify
+    message: "Tests passed"
+"#;
+        let bean: Bean = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(bean.on_close.len(), 2);
+        assert_eq!(
+            bean.on_close[0],
+            OnCloseAction::Run {
+                command: "cargo test".to_string()
+            }
+        );
+        assert_eq!(
+            bean.on_close[1],
+            OnCloseAction::Notify {
+                message: "Tests passed".to_string()
+            }
+        );
+    }
+
+    // =====================================================================
+    // RunResult / RunRecord / history tests
+    // =====================================================================
+
+    #[test]
+    fn run_result_serializes_as_snake_case() {
+        assert_eq!(
+            serde_yaml::to_string(&RunResult::Pass).unwrap().trim(),
+            "pass"
+        );
+        assert_eq!(
+            serde_yaml::to_string(&RunResult::Fail).unwrap().trim(),
+            "fail"
+        );
+        assert_eq!(
+            serde_yaml::to_string(&RunResult::Timeout).unwrap().trim(),
+            "timeout"
+        );
+        assert_eq!(
+            serde_yaml::to_string(&RunResult::Cancelled).unwrap().trim(),
+            "cancelled"
+        );
+    }
+
+    #[test]
+    fn run_record_minimal_round_trip() {
+        let now = Utc::now();
+        let record = RunRecord {
+            attempt: 1,
+            started_at: now,
+            finished_at: None,
+            duration_secs: None,
+            agent: None,
+            result: RunResult::Pass,
+            exit_code: None,
+            tokens: None,
+            cost: None,
+            output_snippet: None,
+        };
+
+        let yaml = serde_yaml::to_string(&record).unwrap();
+        let restored: RunRecord = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(record, restored);
+
+        // Optional fields should be omitted
+        assert!(!yaml.contains("finished_at:"));
+        assert!(!yaml.contains("duration_secs:"));
+        assert!(!yaml.contains("agent:"));
+        assert!(!yaml.contains("exit_code:"));
+        assert!(!yaml.contains("tokens:"));
+        assert!(!yaml.contains("cost:"));
+        assert!(!yaml.contains("output_snippet:"));
+    }
+
+    #[test]
+    fn run_record_full_round_trip() {
+        let now = Utc::now();
+        let record = RunRecord {
+            attempt: 3,
+            started_at: now,
+            finished_at: Some(now),
+            duration_secs: Some(12.5),
+            agent: Some("agent-42".to_string()),
+            result: RunResult::Fail,
+            exit_code: Some(1),
+            tokens: Some(5000),
+            cost: Some(0.03),
+            output_snippet: Some("FAILED: assertion error".to_string()),
+        };
+
+        let yaml = serde_yaml::to_string(&record).unwrap();
+        let restored: RunRecord = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(record, restored);
+    }
+
+    #[test]
+    fn history_empty_not_serialized() {
+        let bean = Bean::new("1", "No history");
+        let yaml = serde_yaml::to_string(&bean).unwrap();
+        assert!(!yaml.contains("history:"));
+    }
+
+    #[test]
+    fn history_round_trip_yaml() {
+        let now = Utc::now();
+        let mut bean = Bean::new("1", "With history");
+        bean.history = vec![
+            RunRecord {
+                attempt: 1,
+                started_at: now,
+                finished_at: Some(now),
+                duration_secs: Some(5.2),
+                agent: Some("agent-1".to_string()),
+                result: RunResult::Fail,
+                exit_code: Some(1),
+                tokens: None,
+                cost: None,
+                output_snippet: Some("error: test failed".to_string()),
+            },
+            RunRecord {
+                attempt: 2,
+                started_at: now,
+                finished_at: Some(now),
+                duration_secs: Some(3.1),
+                agent: Some("agent-1".to_string()),
+                result: RunResult::Pass,
+                exit_code: Some(0),
+                tokens: Some(12000),
+                cost: Some(0.05),
+                output_snippet: None,
+            },
+        ];
+
+        let yaml = serde_yaml::to_string(&bean).unwrap();
+        assert!(yaml.contains("history:"));
+
+        let restored: Bean = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(restored.history.len(), 2);
+        assert_eq!(restored.history[0].result, RunResult::Fail);
+        assert_eq!(restored.history[1].result, RunResult::Pass);
+        assert_eq!(restored.history[0].attempt, 1);
+        assert_eq!(restored.history[1].attempt, 2);
+        assert_eq!(restored.history, bean.history);
+    }
+
+    #[test]
+    fn history_deserialized_from_yaml() {
+        let yaml = r#"
+id: "1"
+title: From YAML
+status: open
+priority: 2
+created_at: "2026-01-01T00:00:00Z"
+updated_at: "2026-01-01T00:00:00Z"
+history:
+  - attempt: 1
+    started_at: "2026-01-01T00:01:00Z"
+    duration_secs: 10.0
+    result: timeout
+    exit_code: 124
+  - attempt: 2
+    started_at: "2026-01-01T00:05:00Z"
+    finished_at: "2026-01-01T00:05:03Z"
+    duration_secs: 3.0
+    agent: agent-7
+    result: pass
+    exit_code: 0
+"#;
+        let bean: Bean = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(bean.history.len(), 2);
+        assert_eq!(bean.history[0].result, RunResult::Timeout);
+        assert_eq!(bean.history[0].exit_code, Some(124));
+        assert_eq!(bean.history[1].result, RunResult::Pass);
+        assert_eq!(bean.history[1].agent, Some("agent-7".to_string()));
+    }
+
+    // =====================================================================
+    // on_fail serialization tests
+    // =====================================================================
+
+    #[test]
+    fn on_fail_none_not_serialized() {
+        let bean = Bean::new("1", "No fail action");
+        let yaml = serde_yaml::to_string(&bean).unwrap();
+        assert!(!yaml.contains("on_fail"));
+    }
+
+    #[test]
+    fn on_fail_retry_round_trip() {
+        let mut bean = Bean::new("1", "With retry");
+        bean.on_fail = Some(OnFailAction::Retry {
+            max: Some(5),
+            delay_secs: Some(10),
+        });
+
+        let yaml = serde_yaml::to_string(&bean).unwrap();
+        assert!(yaml.contains("on_fail"));
+        assert!(yaml.contains("action: retry"));
+        assert!(yaml.contains("max: 5"));
+        assert!(yaml.contains("delay_secs: 10"));
+
+        let restored: Bean = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(restored.on_fail, bean.on_fail);
+    }
+
+    #[test]
+    fn on_fail_retry_minimal_round_trip() {
+        let mut bean = Bean::new("1", "Retry minimal");
+        bean.on_fail = Some(OnFailAction::Retry {
+            max: None,
+            delay_secs: None,
+        });
+
+        let yaml = serde_yaml::to_string(&bean).unwrap();
+        assert!(yaml.contains("action: retry"));
+        // Optional fields should be omitted
+        assert!(!yaml.contains("max:"));
+        assert!(!yaml.contains("delay_secs:"));
+
+        let restored: Bean = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(restored.on_fail, bean.on_fail);
+    }
+
+    #[test]
+    fn on_fail_escalate_round_trip() {
+        let mut bean = Bean::new("1", "With escalate");
+        bean.on_fail = Some(OnFailAction::Escalate {
+            priority: Some(0),
+            message: Some("Needs attention".to_string()),
+        });
+
+        let yaml = serde_yaml::to_string(&bean).unwrap();
+        assert!(yaml.contains("action: escalate"));
+        assert!(yaml.contains("priority: 0"));
+        assert!(yaml.contains("Needs attention"));
+
+        let restored: Bean = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(restored.on_fail, bean.on_fail);
+    }
+
+    #[test]
+    fn on_fail_escalate_minimal_round_trip() {
+        let mut bean = Bean::new("1", "Escalate minimal");
+        bean.on_fail = Some(OnFailAction::Escalate {
+            priority: None,
+            message: None,
+        });
+
+        let yaml = serde_yaml::to_string(&bean).unwrap();
+        assert!(yaml.contains("action: escalate"));
+        // The on_fail block should not contain priority or message
+        // (the bean itself has a top-level priority field, so check within on_fail)
+        let on_fail_section = yaml.split("on_fail:").nth(1).unwrap();
+        let on_fail_end = on_fail_section
+            .find("\non_close:")
+            .or_else(|| on_fail_section.find("\nhistory:"))
+            .unwrap_or(on_fail_section.len());
+        let on_fail_block = &on_fail_section[..on_fail_end];
+        assert!(
+            !on_fail_block.contains("priority:"),
+            "on_fail block should not contain priority"
+        );
+        assert!(
+            !on_fail_block.contains("message:"),
+            "on_fail block should not contain message"
+        );
+
+        let restored: Bean = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(restored.on_fail, bean.on_fail);
+    }
+
+    #[test]
+    fn on_fail_deserialized_from_yaml() {
+        let yaml = r#"
+id: "1"
+title: From YAML
+status: open
+priority: 2
+created_at: "2026-01-01T00:00:00Z"
+updated_at: "2026-01-01T00:00:00Z"
+on_fail:
+  action: retry
+  max: 3
+  delay_secs: 30
+"#;
+        let bean: Bean = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(
+            bean.on_fail,
+            Some(OnFailAction::Retry {
+                max: Some(3),
+                delay_secs: Some(30),
+            })
+        );
+    }
+
+    #[test]
+    fn on_fail_escalate_deserialized_from_yaml() {
+        let yaml = r#"
+id: "1"
+title: Escalate YAML
+status: open
+priority: 2
+created_at: "2026-01-01T00:00:00Z"
+updated_at: "2026-01-01T00:00:00Z"
+on_fail:
+  action: escalate
+  priority: 0
+  message: "Critical failure"
+"#;
+        let bean: Bean = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(
+            bean.on_fail,
+            Some(OnFailAction::Escalate {
+                priority: Some(0),
+                message: Some("Critical failure".to_string()),
+            })
+        );
+    }
+
+    #[test]
+    fn history_with_cancelled_result() {
+        let now = Utc::now();
+        let record = RunRecord {
+            attempt: 1,
+            started_at: now,
+            finished_at: None,
+            duration_secs: None,
+            agent: None,
+            result: RunResult::Cancelled,
+            exit_code: None,
+            tokens: None,
+            cost: None,
+            output_snippet: None,
+        };
+
+        let yaml = serde_yaml::to_string(&record).unwrap();
+        assert!(yaml.contains("cancelled"));
+        let restored: RunRecord = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(restored.result, RunResult::Cancelled);
+    }
+
+    // =====================================================================
+    // outputs field tests
+    // =====================================================================
+
+    #[test]
+    fn outputs_none_not_serialized() {
+        let bean = Bean::new("1", "No outputs");
+        let yaml = serde_yaml::to_string(&bean).unwrap();
+        assert!(
+            !yaml.contains("outputs:"),
+            "outputs field should be omitted when None, got:\n{yaml}"
+        );
+    }
+
+    #[test]
+    fn outputs_round_trip_nested_object() {
+        let mut bean = Bean::new("1", "With outputs");
+        bean.outputs = Some(serde_json::json!({
+            "test_results": {
+                "passed": 42,
+                "failed": 0,
+                "skipped": 3
+            },
+            "coverage": 87.5
+        }));
+
+        let yaml = serde_yaml::to_string(&bean).unwrap();
+        assert!(yaml.contains("outputs"));
+
+        let restored: Bean = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(restored.outputs, bean.outputs);
+        let out = restored.outputs.unwrap();
+        assert_eq!(out["test_results"]["passed"], 42);
+        assert_eq!(out["coverage"], 87.5);
+    }
+
+    #[test]
+    fn outputs_round_trip_array() {
+        let mut bean = Bean::new("1", "Array outputs");
+        bean.outputs = Some(serde_json::json!(["artifact1.tar.gz", "artifact2.zip"]));
+
+        let yaml = serde_yaml::to_string(&bean).unwrap();
+        let restored: Bean = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(restored.outputs, bean.outputs);
+        let arr = restored.outputs.unwrap();
+        assert_eq!(arr.as_array().unwrap().len(), 2);
+        assert_eq!(arr[0], "artifact1.tar.gz");
+    }
+
+    #[test]
+    fn outputs_round_trip_simple_values() {
+        // String value
+        let mut bean = Bean::new("1", "String output");
+        bean.outputs = Some(serde_json::json!("just a string"));
+        let yaml = serde_yaml::to_string(&bean).unwrap();
+        let restored: Bean = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(restored.outputs, bean.outputs);
+
+        // Number value
+        bean.outputs = Some(serde_json::json!(42));
+        let yaml = serde_yaml::to_string(&bean).unwrap();
+        let restored: Bean = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(restored.outputs, bean.outputs);
+
+        // Boolean value
+        bean.outputs = Some(serde_json::json!(true));
+        let yaml = serde_yaml::to_string(&bean).unwrap();
+        let restored: Bean = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(restored.outputs, bean.outputs);
+    }
+
+    #[test]
+    fn max_loops_defaults_to_none() {
+        let bean = Bean::new("1", "No max_loops");
+        assert_eq!(bean.max_loops, None);
+        let yaml = serde_yaml::to_string(&bean).unwrap();
+        assert!(!yaml.contains("max_loops:"));
+    }
+
+    #[test]
+    fn max_loops_overrides_config_when_set() {
+        let mut bean = Bean::new("1", "With max_loops");
+        bean.max_loops = Some(5);
+
+        let yaml = serde_yaml::to_string(&bean).unwrap();
+        assert!(yaml.contains("max_loops: 5"));
+
+        let restored: Bean = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(restored.max_loops, Some(5));
+    }
+
+    #[test]
+    fn max_loops_effective_returns_bean_value_when_set() {
+        let mut bean = Bean::new("1", "Override");
+        bean.max_loops = Some(20);
+        assert_eq!(bean.effective_max_loops(10), 20);
+    }
+
+    #[test]
+    fn max_loops_effective_returns_config_value_when_none() {
+        let bean = Bean::new("1", "Default");
+        assert_eq!(bean.effective_max_loops(10), 10);
+        assert_eq!(bean.effective_max_loops(42), 42);
+    }
+
+    #[test]
+    fn max_loops_zero_means_unlimited() {
+        let mut bean = Bean::new("1", "Unlimited");
+        bean.max_loops = Some(0);
+        assert_eq!(bean.effective_max_loops(10), 0);
+
+        // Config-level zero also works
+        let bean2 = Bean::new("2", "Config unlimited");
+        assert_eq!(bean2.effective_max_loops(0), 0);
+    }
+
+    #[test]
+    fn outputs_deserialized_from_yaml() {
+        let yaml = r#"
+id: "1"
+title: Outputs YAML
+status: open
+priority: 2
+created_at: "2026-01-01T00:00:00Z"
+updated_at: "2026-01-01T00:00:00Z"
+outputs:
+  binary: /tmp/build/app
+  size_bytes: 1048576
+  checksums:
+    sha256: abc123
+"#;
+        let bean: Bean = serde_yaml::from_str(yaml).unwrap();
+        assert!(bean.outputs.is_some());
+        let out = bean.outputs.unwrap();
+        assert_eq!(out["binary"], "/tmp/build/app");
+        assert_eq!(out["size_bytes"], 1048576);
+        assert_eq!(out["checksums"]["sha256"], "abc123");
     }
 }

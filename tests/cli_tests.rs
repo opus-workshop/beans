@@ -18,6 +18,11 @@ fn setup_test_env() -> (TempDir, std::path::PathBuf) {
         auto_close_parent: true,
         max_tokens: 30000,
         run: None,
+        plan: None,
+        max_loops: 10,
+        max_concurrent: 4,
+        poll_interval: 30,
+        extends: vec![],
     };
     config.save(&beans_dir).unwrap();
 
@@ -42,6 +47,7 @@ fn create_claim_without_criteria_shows_error() {
         parent: None,
         produces: None,
         requires: None,
+        on_fail: None,
         pass_ok: true,
         claim: true,
         by: Some("agent-1".to_string()),
@@ -78,6 +84,7 @@ fn create_claim_with_acceptance_succeeds() {
         parent: None,
         produces: None,
         requires: None,
+        on_fail: None,
         pass_ok: true,
         claim: true,
         by: None,
@@ -105,6 +112,7 @@ fn create_claim_with_verify_succeeds() {
         parent: None,
         produces: None,
         requires: None,
+        on_fail: None,
         pass_ok: true,
         claim: true,
         by: None,
@@ -132,13 +140,17 @@ fn create_without_claim_no_criteria_succeeds() {
         parent: None,
         produces: None,
         requires: None,
+        on_fail: None,
         pass_ok: true,
         claim: false,
         by: None,
     };
 
     let result = cmd_create(&beans_dir, args);
-    assert!(result.is_ok(), "PASS: create without --claim needs no criteria");
+    assert!(
+        result.is_ok(),
+        "PASS: create without --claim needs no criteria"
+    );
 }
 
 #[test]
@@ -160,6 +172,7 @@ fn create_claim_with_parent_no_criteria_succeeds() {
         parent: None,
         produces: None,
         requires: None,
+        on_fail: None,
         pass_ok: true,
         claim: false,
         by: None,
@@ -181,11 +194,15 @@ fn create_claim_with_parent_no_criteria_succeeds() {
         parent: Some("1".to_string()),
         produces: None,
         requires: None,
+        on_fail: None,
         pass_ok: true,
         claim: true,
         by: Some("agent-2".to_string()),
     };
 
     let result = cmd_create(&beans_dir, child_args);
-    assert!(result.is_ok(), "PASS: --claim --parent exempt from criteria check");
+    assert!(
+        result.is_ok(),
+        "PASS: --claim --parent exempt from criteria check"
+    );
 }

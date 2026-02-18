@@ -4,7 +4,57 @@ use clap::{Parser, Subcommand};
 #[command(
     name = "bn",
     about = "Task tracker for coding agents",
-    version
+    version,
+    help_template = "\
+{about-with-newline}
+Usage: {usage}
+
+Commands:
+  TASKS
+    init         Initialize .beans/ in the current directory
+    create       Create a new bean [aliases: new]
+    quick        Quick-create: create a bean and immediately claim it [aliases: q]
+    show         Display full bean details [aliases: view]
+    list         List beans with filtering [aliases: ls]
+    edit         Edit bean in $EDITOR
+    update       Update bean fields
+    claim        Claim a bean for work (sets status to in_progress)
+    close        Close one or more beans (runs verify gate first)
+    verify       Run a bean's verify command without closing
+    reopen       Reopen a closed bean
+    delete       Delete a bean and clean up references
+
+  QUERY
+    status       Show project status: claimed, ready, and blocked beans
+    ready        Show beans ready to work on (no blocking dependencies)
+    blocked      Show beans blocked by unresolved dependencies
+    tree         Show hierarchical tree of beans
+    graph        Display dependency graph
+    context      Output context for a bean (files referenced in description)
+
+  AGENTS
+    run          Dispatch ready beans to agents
+    plan         Interactively plan a large bean into children
+    agents       Show running and recently completed agents
+    logs         View agent output from log files
+
+  DEPENDENCIES
+    dep          Manage dependencies between beans
+    adopt        Adopt existing beans as children of a parent
+
+  MAINTENANCE
+    tidy         Archive closed beans, release stale in-progress beans
+    sync         Force rebuild index from YAML files
+    doctor       Health check -- orphans, cycles, index freshness
+    stats        Project statistics
+    config       Manage project configuration
+    trust        Manage hook trust (enable/disable hook execution)
+    unarchive    Unarchive a bean (move from archive back to main beans directory)
+    resolve      Resolve a field conflict on a bean
+
+  help         Print this message or the help of the given subcommand(s)
+
+{options}"
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -13,14 +63,36 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
+    // -- TASKS --
     /// Initialize .beans/ in the current directory
+    #[command(display_order = 1)]
     Init {
         /// Project name (auto-detected from directory if omitted)
         name: Option<String>,
+
+        /// Use a known agent preset (pi, claude, aider)
+        #[arg(long)]
+        agent: Option<String>,
+
+        /// Custom run command template (use {id} for bean ID)
+        #[arg(long)]
+        run: Option<String>,
+
+        /// Custom plan command template (use {id} for bean ID)
+        #[arg(long)]
+        plan: Option<String>,
+
+        /// Reconfigure agent on existing project
+        #[arg(long)]
+        setup: bool,
+
+        /// Skip agent setup
+        #[arg(long)]
+        no_agent: bool,
     },
 
     /// Create a new bean
-    #[command(visible_alias = "new")]
+    #[command(visible_alias = "new", display_order = 2)]
     Create {
         /// Bean title
         title: Option<String>,
@@ -77,6 +149,10 @@ pub enum Command {
         #[arg(long)]
         requires: Option<String>,
 
+        /// Action on verify failure: retry, retry:N, escalate, escalate:P0
+        #[arg(long)]
+        on_fail: Option<String>,
+
         /// Skip fail-first check (allow verify to already pass)
         #[arg(long, short = 'p')]
         pass_ok: bool,
@@ -92,10 +168,18 @@ pub enum Command {
         /// Spawn an agent to work on this bean (requires --verify)
         #[arg(long)]
         run: bool,
+
+        /// Launch interactive wizard (prompts for all fields step-by-step)
+        #[arg(long, short = 'i')]
+        interactive: bool,
+
+        /// Output created bean as JSON (for piping)
+        #[arg(long)]
+        json: bool,
     },
 
     /// Display full bean details
-    #[command(visible_alias = "view")]
+    #[command(visible_alias = "view", display_order = 4)]
     Show {
         /// Bean ID
         id: String,
@@ -107,10 +191,14 @@ pub enum Command {
         /// One-line summary
         #[arg(long)]
         short: bool,
+
+        /// Show all history entries (default: last 10)
+        #[arg(long)]
+        history: bool,
     },
 
     /// List beans with filtering
-    #[command(visible_alias = "ls")]
+    #[command(visible_alias = "ls", display_order = 5)]
     List {
         /// Filter by status (open, in_progress, closed)
         #[arg(long)]
@@ -139,15 +227,25 @@ pub enum Command {
         /// JSON output
         #[arg(long)]
         json: bool,
+
+        /// Output only bean IDs (one per line, for piping)
+        #[arg(long, conflicts_with = "json")]
+        ids: bool,
+
+        /// Custom output format (e.g. '{id}\t{title}\t{status}')
+        #[arg(long, conflicts_with_all = ["json", "ids"])]
+        format: Option<String>,
     },
 
     /// Edit bean in $EDITOR
+    #[command(display_order = 6)]
     Edit {
         /// Bean ID
         id: String,
     },
 
     /// Update bean fields
+    #[command(display_order = 7)]
     Update {
         /// Bean ID
         id: String,
@@ -194,9 +292,10 @@ pub enum Command {
     },
 
     /// Close one or more beans (runs verify gate first)
+    #[command(display_order = 9)]
     Close {
-        /// Bean IDs
-        #[arg(required = true)]
+        /// Bean IDs (or use --stdin to read from pipe)
+        #[arg(required_unless_present = "stdin")]
         ids: Vec<String>,
 
         /// Close reason
@@ -206,32 +305,47 @@ pub enum Command {
         /// Skip verify command (force close)
         #[arg(long)]
         force: bool,
+
+        /// Read bean IDs from stdin (one per line)
+        #[arg(long)]
+        stdin: bool,
     },
 
     /// Run a bean's verify command without closing
+    #[command(display_order = 10)]
     Verify {
         /// Bean ID
         id: String,
+
+        /// Output result as JSON
+        #[arg(long)]
+        json: bool,
     },
 
     /// Reopen a closed bean
+    #[command(display_order = 11)]
     Reopen {
         /// Bean ID
         id: String,
     },
 
     /// Delete a bean and clean up references
+    #[command(display_order = 12)]
     Delete {
         /// Bean ID
         id: String,
     },
 
+    // -- DEPENDENCIES --
     /// Manage dependencies between beans
+    #[command(display_order = 30)]
     Dep {
         #[command(subcommand)]
         command: DepCommand,
     },
+    // -- QUERY --
     /// Show beans ready to work on (no blocking dependencies)
+    #[command(display_order = 21)]
     Ready {
         /// JSON output
         #[arg(long)]
@@ -239,6 +353,7 @@ pub enum Command {
     },
 
     /// Show beans blocked by unresolved dependencies
+    #[command(display_order = 22)]
     Blocked {
         /// JSON output
         #[arg(long)]
@@ -246,6 +361,7 @@ pub enum Command {
     },
 
     /// Show project status: claimed, ready, and blocked beans
+    #[command(display_order = 20)]
     Status {
         /// JSON output
         #[arg(long)]
@@ -253,28 +369,38 @@ pub enum Command {
     },
 
     /// Output context for a bean (files referenced in description)
+    #[command(display_order = 25)]
     Context {
         /// Bean ID
         id: String,
+
+        /// Output as JSON (file paths and contents)
+        #[arg(long)]
+        json: bool,
     },
 
     /// Show hierarchical tree of beans
+    #[command(display_order = 23)]
     Tree {
         /// Root bean ID (shows full tree if omitted)
         id: Option<String>,
     },
 
     /// Display dependency graph
+    #[command(display_order = 24)]
     Graph {
         /// Output format: ascii (default), mermaid, dot
         #[arg(long, default_value = "ascii")]
         format: String,
     },
 
+    // -- MAINTENANCE --
     /// Force rebuild index from YAML files
+    #[command(display_order = 41)]
     Sync,
 
     /// Archive closed beans, release stale in-progress beans, and rebuild the index
+    #[command(display_order = 40)]
     Tidy {
         /// Show what would happen without changing any files
         #[arg(long)]
@@ -282,9 +408,11 @@ pub enum Command {
     },
 
     /// Project statistics
+    #[command(display_order = 43)]
     Stats,
 
     /// Claim a bean for work (sets status to in_progress)
+    #[command(display_order = 8)]
     Claim {
         /// Bean ID
         id: String,
@@ -299,6 +427,7 @@ pub enum Command {
     },
 
     /// Health check -- orphans, cycles, index freshness
+    #[command(display_order = 42)]
     Doctor {
         /// Automatically fix detected issues
         #[arg(long)]
@@ -306,6 +435,7 @@ pub enum Command {
     },
 
     /// Manage hook trust (enable/disable hook execution)
+    #[command(display_order = 44)]
     Trust {
         /// Revoke trust (disable hooks)
         #[arg(long)]
@@ -317,13 +447,14 @@ pub enum Command {
     },
 
     /// Unarchive a bean (move from archive back to main beans directory)
+    #[command(display_order = 45)]
     Unarchive {
         /// Bean ID to unarchive
         id: String,
     },
 
     /// Quick-create: create a bean and immediately claim it
-    #[command(visible_alias = "q")]
+    #[command(visible_alias = "q", display_order = 3)]
     Quick {
         /// Bean title
         title: String,
@@ -364,12 +495,17 @@ pub enum Command {
         #[arg(long)]
         parent: Option<String>,
 
+        /// Action on verify failure: retry, retry:N, escalate, escalate:P0
+        #[arg(long)]
+        on_fail: Option<String>,
+
         /// Skip fail-first check (allow verify to already pass)
         #[arg(long, short = 'p')]
         pass_ok: bool,
     },
 
     /// Adopt existing beans as children of a parent
+    #[command(display_order = 31)]
     Adopt {
         /// Parent bean ID
         parent: String,
@@ -380,6 +516,7 @@ pub enum Command {
     },
 
     /// Resolve a field conflict on a bean
+    #[command(display_order = 46)]
     Resolve {
         /// Bean ID
         id: String,
@@ -391,7 +528,100 @@ pub enum Command {
         choice: usize,
     },
 
-    /// Manage project configuration
+    /// Dispatch ready beans to agents
+    Run {
+        /// Bean ID. Without ID, processes all ready beans.
+        id: Option<String>,
+
+        /// Max parallel agents
+        #[arg(short = 'j', long, default_value = "4")]
+        jobs: u32,
+
+        /// Show plan without spawning
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Keep running until no ready beans remain
+        #[arg(long, name = "loop")]
+        loop_mode: bool,
+
+        /// Also plan large beans autonomously
+        #[arg(long)]
+        auto_plan: bool,
+
+        /// Continue past failures
+        #[arg(long)]
+        keep_going: bool,
+
+        /// Max time per agent in minutes
+        #[arg(long, default_value = "30")]
+        timeout: u32,
+
+        /// Kill agent if no output for N minutes
+        #[arg(long, default_value = "5")]
+        idle_timeout: u32,
+
+        /// Watch mode: continuously monitor .beans/ and spawn agents (background daemon)
+        #[arg(long)]
+        watch: bool,
+
+        /// Run watch daemon in the foreground (requires --watch)
+        #[arg(long, requires = "watch")]
+        foreground: bool,
+
+        /// Stop a running watch daemon
+        #[arg(long, conflicts_with_all = ["watch", "foreground"])]
+        stop: bool,
+    },
+
+    /// Interactively plan a large bean into children
+    Plan {
+        /// Bean ID to plan (omit to pick automatically)
+        id: Option<String>,
+
+        /// Suggest a split strategy (feature, layer, phase, file)
+        #[arg(long)]
+        strategy: Option<String>,
+
+        /// Non-interactive autonomous planning
+        #[arg(long)]
+        auto: bool,
+
+        /// Plan even if bean is below max_tokens
+        #[arg(long)]
+        force: bool,
+
+        /// Show proposed split without creating
+        #[arg(long)]
+        dry_run: bool,
+    },
+
+    /// Show running and recently completed agents
+    #[command(display_order = 37)]
+    Agents {
+        /// JSON output
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// View agent output from log files
+    #[command(display_order = 38)]
+    Logs {
+        /// Bean ID
+        id: String,
+
+        /// Follow output (tail -f)
+        #[arg(short, long)]
+        follow: bool,
+
+        /// Show all runs, not just latest
+        #[arg(long)]
+        all: bool,
+    },
+
+    // -- AGENTS --
+    /// Manage project configuration (set run/plan templates)
+    #[command(display_order = 35)]
     Config {
         #[command(subcommand)]
         command: ConfigCommand,

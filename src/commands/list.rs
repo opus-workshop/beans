@@ -28,6 +28,8 @@ pub fn cmd_list(
     assignee_filter: Option<&str>,
     all: bool,
     json: bool,
+    ids: bool,
+    format_str: Option<&str>,
     beans_dir: &Path,
 ) -> Result<()> {
     let index = Index::load_or_rebuild(beans_dir)?;
@@ -37,7 +39,7 @@ pub fn cmd_list(
 
     // Start with beans from the main index
     let mut filtered = index.beans.clone();
-    
+
     // Include archived beans when querying for closed status or using --all
     let include_archived = status_filter == Some(Status::Closed) || all;
     if include_archived {
@@ -93,6 +95,26 @@ pub fn cmd_list(
     if json {
         let json_str = serde_json::to_string_pretty(&filtered)?;
         println!("{}", json_str);
+    } else if ids {
+        // Just IDs, one per line — ideal for piping
+        for entry in &filtered {
+            println!("{}", entry.id);
+        }
+    } else if let Some(fmt) = format_str {
+        // Custom format string: {id}, {title}, {status}, {priority}, {parent}
+        for entry in &filtered {
+            let line = fmt
+                .replace("{id}", &entry.id)
+                .replace("{title}", &entry.title)
+                .replace("{status}", &format!("{}", entry.status))
+                .replace("{priority}", &format!("P{}", entry.priority))
+                .replace("{parent}", entry.parent.as_deref().unwrap_or(""))
+                .replace("{assignee}", entry.assignee.as_deref().unwrap_or(""))
+                .replace("{labels}", &entry.labels.join(","))
+                .replace("\\t", "\t")
+                .replace("\\n", "\n");
+            println!("{}", line);
+        }
     } else {
         // Build combined index for tree rendering (includes archived if needed)
         let combined_index = if include_archived {
@@ -104,7 +126,7 @@ pub fn cmd_list(
         } else {
             index.clone()
         };
-        
+
         // Tree format with status indicators
         let tree = render_tree(&filtered, &combined_index);
         println!("{}", tree);
@@ -196,9 +218,9 @@ fn is_blocked(entry: &IndexEntry, index: &Index) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::util::title_to_slug;
     use std::fs;
     use tempfile::TempDir;
-    use crate::util::title_to_slug;
 
     fn setup_test_beans() -> (TempDir, std::path::PathBuf) {
         let dir = TempDir::new().unwrap();
@@ -220,17 +242,21 @@ mod tests {
         let slug3 = title_to_slug(&bean3.title);
         let slug3_1 = title_to_slug(&bean3_1.title);
 
-        bean1.to_file(beans_dir.join(format!("1-{}.md", slug1))).unwrap();
-        bean2.to_file(beans_dir.join(format!("2-{}.md", slug2))).unwrap();
-        bean3.to_file(beans_dir.join(format!("3-{}.md", slug3))).unwrap();
-        bean3_1.to_file(beans_dir.join(format!("3.1-{}.md", slug3_1))).unwrap();
+        bean1
+            .to_file(beans_dir.join(format!("1-{}.md", slug1)))
+            .unwrap();
+        bean2
+            .to_file(beans_dir.join(format!("2-{}.md", slug2)))
+            .unwrap();
+        bean3
+            .to_file(beans_dir.join(format!("3-{}.md", slug3)))
+            .unwrap();
+        bean3_1
+            .to_file(beans_dir.join(format!("3.1-{}.md", slug3_1)))
+            .unwrap();
 
         // Create config
-        fs::write(
-            beans_dir.join("config.yaml"),
-            "project: test\nnext_id: 4\n",
-        )
-        .unwrap();
+        fs::write(beans_dir.join("config.yaml"), "project: test\nnext_id: 4\n").unwrap();
 
         (dir, beans_dir)
     }
@@ -277,7 +303,9 @@ mod tests {
             updated_at: chrono::Utc::now(),
             produces: Vec::new(),
             requires: Vec::new(),
-            has_verify: true, claimed_by: None,
+            has_verify: true,
+            claimed_by: None,
+            attempts: 0,
         };
         let index = Index {
             beans: vec![entry.clone()],
@@ -299,7 +327,9 @@ mod tests {
             updated_at: chrono::Utc::now(),
             produces: Vec::new(),
             requires: Vec::new(),
-            has_verify: true, claimed_by: None,
+            has_verify: true,
+            claimed_by: None,
+            attempts: 0,
         };
         let index = Index {
             beans: vec![entry.clone()],
@@ -321,7 +351,9 @@ mod tests {
             updated_at: chrono::Utc::now(),
             produces: Vec::new(),
             requires: Vec::new(),
-            has_verify: true, claimed_by: None,
+            has_verify: true,
+            claimed_by: None,
+            attempts: 0,
         };
         let index = Index {
             beans: vec![entry.clone()],

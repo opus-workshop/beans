@@ -4,7 +4,7 @@ use std::process::Command as ShellCommand;
 use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 
-use crate::bean::{Bean, Status, validate_priority};
+use crate::bean::{validate_priority, Bean, OnFailAction, Status};
 use crate::commands::create::assign_child_id;
 use crate::config::Config;
 use crate::hooks::{execute_hook, HookEvent};
@@ -25,6 +25,8 @@ pub struct QuickArgs {
     pub requires: Option<String>,
     /// Parent bean ID (creates child bean under parent)
     pub parent: Option<String>,
+    /// Action on verify failure
+    pub on_fail: Option<OnFailAction>,
     /// Skip fail-first check (allow verify to already pass)
     pub pass_ok: bool,
 }
@@ -51,17 +53,18 @@ pub fn cmd_quick(beans_dir: &Path, args: QuickArgs) -> Result<()> {
     // Use --pass-ok / -p to skip this check
     if !args.pass_ok {
         if let Some(verify_cmd) = args.verify.as_ref() {
-            let project_root = beans_dir.parent()
+            let project_root = beans_dir
+                .parent()
                 .ok_or_else(|| anyhow!("Cannot determine project root"))?;
-            
+
             println!("Running verify (must fail): {}", verify_cmd);
-            
+
             let status = ShellCommand::new("sh")
                 .args(["-c", verify_cmd])
                 .current_dir(project_root)
                 .status()
                 .with_context(|| format!("Failed to execute verify command: {}", verify_cmd))?;
-            
+
             if status.success() {
                 anyhow::bail!(
                     "Cannot create bean: verify command already passes!\n\n\
@@ -73,7 +76,7 @@ pub fn cmd_quick(beans_dir: &Path, args: QuickArgs) -> Result<()> {
                      Use --pass-ok / -p to skip this check."
                 );
             }
-            
+
             println!("✓ Verify failed as expected - test is real");
         }
     }
@@ -141,6 +144,11 @@ pub fn cmd_quick(beans_dir: &Path, args: QuickArgs) -> Result<()> {
             .collect();
     }
 
+    // Set on_fail action
+    if let Some(on_fail) = args.on_fail {
+        bean.on_fail = Some(on_fail);
+    }
+
     // Get the project directory (parent of beans_dir which is .beans)
     let project_dir = beans_dir
         .parent()
@@ -163,12 +171,18 @@ pub fn cmd_quick(beans_dir: &Path, args: QuickArgs) -> Result<()> {
     index.save(beans_dir)?;
 
     let claimer = args.by.as_deref().unwrap_or("anonymous");
-    println!("Created and claimed bean {}: {} (by {})", bean_id, args.title, claimer);
+    println!(
+        "Created and claimed bean {}: {} (by {})",
+        bean_id, args.title, claimer
+    );
 
     // Suggest verify command if none was provided
     if !has_verify {
         if let Some(suggested) = suggest_verify_command(project_dir) {
-            println!("Tip: Consider adding a verify command: --verify \"{}\"", suggested);
+            println!(
+                "Tip: Consider adding a verify command: --verify \"{}\"",
+                suggested
+            );
         }
     }
 
@@ -197,6 +211,11 @@ mod tests {
             auto_close_parent: true,
             max_tokens: 30000,
             run: None,
+            plan: None,
+            max_loops: 10,
+            max_concurrent: 4,
+            poll_interval: 30,
+            extends: vec![],
         };
         config.save(&beans_dir).unwrap();
 
@@ -218,6 +237,7 @@ mod tests {
             produces: None,
             requires: None,
             parent: None,
+            on_fail: None,
             pass_ok: true,
         };
 
@@ -251,6 +271,7 @@ mod tests {
             produces: None,
             requires: None,
             parent: None,
+            on_fail: None,
             pass_ok: true,
         };
 
@@ -278,6 +299,7 @@ mod tests {
             produces: None,
             requires: None,
             parent: None,
+            on_fail: None,
             pass_ok: true,
         };
 
@@ -303,6 +325,7 @@ mod tests {
             produces: None,
             requires: None,
             parent: None,
+            on_fail: None,
             pass_ok: true,
         };
         cmd_quick(&beans_dir, args1).unwrap();
@@ -319,6 +342,7 @@ mod tests {
             produces: None,
             requires: None,
             parent: None,
+            on_fail: None,
             pass_ok: true,
         };
         cmd_quick(&beans_dir, args2).unwrap();
@@ -345,6 +369,7 @@ mod tests {
             produces: None,
             requires: None,
             parent: None,
+            on_fail: None,
             pass_ok: true,
         };
 
@@ -373,6 +398,7 @@ mod tests {
             produces: Some("FooStruct,bar_function".to_string()),
             requires: Some("BazTrait".to_string()),
             parent: None,
+            on_fail: None,
             pass_ok: true,
         };
 
@@ -404,6 +430,7 @@ mod tests {
             produces: None,
             requires: None,
             parent: None,
+            on_fail: None,
             pass_ok: false, // default: fail-first enforced
         };
 
@@ -428,6 +455,7 @@ mod tests {
             produces: None,
             requires: None,
             parent: None,
+            on_fail: None,
             pass_ok: false, // default: fail-first enforced
         };
 
@@ -458,6 +486,7 @@ mod tests {
             produces: None,
             requires: None,
             parent: None,
+            on_fail: None,
             pass_ok: true,
         };
 
@@ -488,6 +517,7 @@ mod tests {
             produces: None,
             requires: None,
             parent: None,
+            on_fail: None,
             pass_ok: false,
         };
 

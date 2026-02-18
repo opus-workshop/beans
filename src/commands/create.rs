@@ -6,7 +6,7 @@ use anyhow::{anyhow, Context, Result};
 
 use chrono::Utc;
 
-use crate::bean::{Bean, validate_priority};
+use crate::bean::{validate_priority, Bean, OnFailAction};
 use crate::commands::claim::cmd_claim;
 use crate::config::Config;
 use crate::hooks::{execute_hook, HookEvent};
@@ -30,6 +30,8 @@ pub struct CreateArgs {
     pub parent: Option<String>,
     pub produces: Option<String>,
     pub requires: Option<String>,
+    /// Action on verify failure
+    pub on_fail: Option<OnFailAction>,
     /// Skip fail-first check (allow verify to already pass)
     pub pass_ok: bool,
     /// Claim the bean immediately after creation
@@ -69,7 +71,7 @@ pub fn assign_child_id(beans_dir: &Path, parent_id: &str) -> Result<String> {
                 }
             }
         }
-        
+
         // Also support legacy format for backward compatibility: {parent_id}.{N}.yaml
         if let Some(name_without_ext) = filename.strip_suffix(".yaml") {
             if let Some(name_without_parent) = name_without_ext.strip_prefix(parent_id) {
@@ -85,6 +87,59 @@ pub fn assign_child_id(beans_dir: &Path, parent_id: &str) -> Result<String> {
     }
 
     Ok(format!("{}.{}", parent_id, max_child + 1))
+}
+
+/// Parse an `--on-fail` CLI string into an `OnFailAction`.
+///
+/// Accepted formats:
+/// - `retry` → Retry { max: None, delay_secs: None }
+/// - `retry:5` → Retry { max: Some(5), delay_secs: None }
+/// - `escalate` → Escalate { priority: None, message: None }
+/// - `escalate:P0` or `escalate:0` → Escalate { priority: Some(0), message: None }
+pub fn parse_on_fail(s: &str) -> Result<OnFailAction> {
+    let (action, arg) = match s.split_once(':') {
+        Some((a, b)) => (a, Some(b)),
+        None => (s, None),
+    };
+
+    match action {
+        "retry" => {
+            let max = arg.map(|a| a.parse::<u32>()).transpose().map_err(|_| {
+                anyhow!(
+                    "Invalid retry max: '{}'. Expected a number (e.g. retry:5)",
+                    arg.unwrap_or("")
+                )
+            })?;
+            Ok(OnFailAction::Retry {
+                max,
+                delay_secs: None,
+            })
+        }
+        "escalate" => {
+            let priority = match arg {
+                Some(a) => {
+                    let stripped = a
+                        .strip_prefix('P')
+                        .or_else(|| a.strip_prefix('p'))
+                        .unwrap_or(a);
+                    let p = stripped.parse::<u8>().map_err(|_| {
+                        anyhow!("Invalid escalate priority: '{}'. Expected P0-P4 or 0-4", a)
+                    })?;
+                    validate_priority(p)?;
+                    Some(p)
+                }
+                None => None,
+            };
+            Ok(OnFailAction::Escalate {
+                priority,
+                message: None,
+            })
+        }
+        _ => Err(anyhow!(
+            "Unknown on-fail action: '{}'. Expected 'retry' or 'escalate'",
+            action
+        )),
+    }
 }
 
 /// Create a new bean.
@@ -112,17 +167,18 @@ pub fn cmd_create(beans_dir: &Path, args: CreateArgs) -> Result<String> {
     // Use --pass-ok / -p to skip this check
     if !args.pass_ok {
         if let Some(verify_cmd) = args.verify.as_ref() {
-            let project_root = beans_dir.parent()
+            let project_root = beans_dir
+                .parent()
                 .ok_or_else(|| anyhow!("Cannot determine project root"))?;
-            
-            println!("Running verify (must fail): {}", verify_cmd);
-            
+
+            eprintln!("Running verify (must fail): {}", verify_cmd);
+
             let status = ShellCommand::new("sh")
                 .args(["-c", verify_cmd])
                 .current_dir(project_root)
                 .status()
                 .with_context(|| format!("Failed to execute verify command: {}", verify_cmd))?;
-            
+
             if status.success() {
                 anyhow::bail!(
                     "Cannot create bean: verify command already passes!\n\n\
@@ -134,8 +190,8 @@ pub fn cmd_create(beans_dir: &Path, args: CreateArgs) -> Result<String> {
                      Use --pass-ok / -p to skip this check."
                 );
             }
-            
-            println!("✓ Verify failed as expected - test is real");
+
+            eprintln!("✓ Verify failed as expected - test is real");
         }
     }
 
@@ -200,10 +256,7 @@ pub fn cmd_create(beans_dir: &Path, args: CreateArgs) -> Result<String> {
 
     // Parse dependencies
     if let Some(deps_str) = args.deps {
-        bean.dependencies = deps_str
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .collect();
+        bean.dependencies = deps_str.split(',').map(|s| s.trim().to_string()).collect();
     }
 
     // Parse produces
@@ -220,6 +273,11 @@ pub fn cmd_create(beans_dir: &Path, args: CreateArgs) -> Result<String> {
             .split(',')
             .map(|s| s.trim().to_string())
             .collect();
+    }
+
+    // Set on_fail action
+    if let Some(on_fail) = args.on_fail {
+        bean.on_fail = Some(on_fail);
     }
 
     // Get the project directory (parent of beans_dir which is .beans)
@@ -248,19 +306,24 @@ pub fn cmd_create(beans_dir: &Path, args: CreateArgs) -> Result<String> {
     let index = Index::build(beans_dir)?;
     index.save(beans_dir)?;
 
-    // Show token size feedback with assessment
+    // Show token size feedback with assessment (stderr — keeps stdout clean for --json)
     let max_tokens = config.max_tokens;
     if tokens <= max_tokens as u64 {
-        println!("Created bean {}: {} ({}k tokens ✓)", bean_id, args.title, tokens / 1000);
+        eprintln!(
+            "Created bean {}: {} ({}k tokens ✓)",
+            bean_id,
+            args.title,
+            tokens / 1000
+        );
     } else {
-        println!(
+        eprintln!(
             "Created bean {}: {} ({}k tokens ⚠️ exceeds {}k limit)",
             bean_id,
             args.title,
             tokens / 1000,
             max_tokens / 1000
         );
-        println!(
+        eprintln!(
             "  This appears to be a GOAL. Create child SPECS with --parent {}",
             bean_id
         );
@@ -269,7 +332,10 @@ pub fn cmd_create(beans_dir: &Path, args: CreateArgs) -> Result<String> {
     // Suggest verify command if none was provided
     if !has_verify {
         if let Some(suggested) = suggest_verify_command(project_dir) {
-            println!("Tip: Consider adding a verify command: --verify \"{}\"", suggested);
+            eprintln!(
+                "Tip: Consider adding a verify command: --verify \"{}\"",
+                suggested
+            );
         }
     }
 
@@ -303,6 +369,11 @@ mod tests {
             auto_close_parent: true,
             max_tokens: 30000,
             run: None,
+            plan: None,
+            max_loops: 10,
+            max_concurrent: 4,
+            poll_interval: 30,
+            extends: vec![],
         };
         config.save(&beans_dir).unwrap();
 
@@ -327,6 +398,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            on_fail: None,
             pass_ok: true,
             claim: false,
             by: None,
@@ -363,13 +435,17 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            on_fail: None,
             pass_ok: true,
             claim: false,
             by: None,
         };
 
         let result = cmd_create(&beans_dir, args);
-        assert!(result.is_ok(), "Should allow bean without verify or acceptance");
+        assert!(
+            result.is_ok(),
+            "Should allow bean without verify or acceptance"
+        );
 
         let bean_path = beans_dir.join("1-goal-bean.md");
         assert!(bean_path.exists());
@@ -398,6 +474,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            on_fail: None,
             pass_ok: true,
             claim: false,
             by: None,
@@ -419,6 +496,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            on_fail: None,
             pass_ok: true,
             claim: false,
             by: None,
@@ -451,6 +529,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            on_fail: None,
             pass_ok: true,
             claim: false,
             by: None,
@@ -472,6 +551,7 @@ mod tests {
             parent: Some("1".to_string()),
             produces: None,
             requires: None,
+            on_fail: None,
             pass_ok: true,
             claim: false,
             by: None,
@@ -503,6 +583,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            on_fail: None,
             pass_ok: true,
             claim: false,
             by: None,
@@ -523,11 +604,12 @@ mod tests {
                 assignee: None,
                 deps: None,
                 parent: Some("1".to_string()),
-            produces: None,
-            requires: None,
-            pass_ok: true,
-            claim: false,
-            by: None,
+                produces: None,
+                requires: None,
+                on_fail: None,
+                pass_ok: true,
+                claim: false,
+                by: None,
             };
             cmd_create(&beans_dir, child_args).unwrap();
         }
@@ -562,6 +644,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            on_fail: None,
             pass_ok: true,
             claim: false,
             by: None,
@@ -599,6 +682,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            on_fail: None,
             pass_ok: true,
             claim: false,
             by: None,
@@ -634,9 +718,15 @@ mod tests {
         let bean2 = Bean::new("parent.2", "Child 2");
         let bean5 = Bean::new("parent.5", "Child 5");
 
-        bean1.to_file(&beans_dir.join("parent.1-child-1.md")).unwrap();
-        bean2.to_file(&beans_dir.join("parent.2-child-2.md")).unwrap();
-        bean5.to_file(&beans_dir.join("parent.5-child-5.md")).unwrap();
+        bean1
+            .to_file(&beans_dir.join("parent.1-child-1.md"))
+            .unwrap();
+        bean2
+            .to_file(&beans_dir.join("parent.2-child-2.md"))
+            .unwrap();
+        bean5
+            .to_file(&beans_dir.join("parent.5-child-5.md"))
+            .unwrap();
 
         let id = assign_child_id(&beans_dir, "parent").unwrap();
         assert_eq!(id, "parent.6");
@@ -660,6 +750,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            on_fail: None,
             pass_ok: true,
             claim: false,
             by: None,
@@ -668,7 +759,10 @@ mod tests {
         let result = cmd_create(&beans_dir, args);
         assert!(result.is_err(), "Should reject priority > 4");
         let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("priority"), "Error should mention priority");
+        assert!(
+            err_msg.contains("priority"),
+            "Error should mention priority"
+        );
     }
 
     #[test]
@@ -688,11 +782,12 @@ mod tests {
                 assignee: None,
                 deps: None,
                 parent: None,
-            produces: None,
-            requires: None,
-            pass_ok: true,
-            claim: false,
-            by: None,
+                produces: None,
+                requires: None,
+                on_fail: None,
+                pass_ok: true,
+                claim: false,
+                by: None,
             };
 
             let result = cmd_create(&beans_dir, args);
@@ -735,6 +830,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            on_fail: None,
             pass_ok: true,
             claim: false,
             by: None,
@@ -742,7 +838,10 @@ mod tests {
 
         // Bean should be created
         let result = cmd_create(&beans_dir, args);
-        assert!(result.is_ok(), "Creation should succeed with accepting pre-create hook");
+        assert!(
+            result.is_ok(),
+            "Creation should succeed with accepting pre-create hook"
+        );
 
         // Verify bean was created
         let bean_path = beans_dir.join("1-bean-with-accepting-hook.md");
@@ -780,6 +879,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            on_fail: None,
             pass_ok: true,
             claim: false,
             by: None,
@@ -787,7 +887,10 @@ mod tests {
 
         // Bean creation should fail
         let result = cmd_create(&beans_dir, args);
-        assert!(result.is_err(), "Creation should fail with rejecting pre-create hook");
+        assert!(
+            result.is_err(),
+            "Creation should fail with rejecting pre-create hook"
+        );
 
         let err_msg = result.unwrap_err().to_string();
         assert!(
@@ -820,7 +923,10 @@ mod tests {
         let marker_file_str = marker_file.to_string_lossy().to_string();
 
         // Create hook that writes to marker file
-        let hook_script = format!("#!/bin/bash\necho 'post-create executed' >> '{}'\nexit 0", marker_file_str);
+        let hook_script = format!(
+            "#!/bin/bash\necho 'post-create executed' >> '{}'\nexit 0",
+            marker_file_str
+        );
         fs::write(&hook_path, hook_script).unwrap();
 
         #[cfg(unix)]
@@ -840,6 +946,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            on_fail: None,
             pass_ok: true,
             claim: false,
             by: None,
@@ -854,7 +961,10 @@ mod tests {
         assert!(bean_path.exists(), "Bean file should exist");
 
         // Verify post-create hook ran (marker file exists)
-        assert!(marker_file.exists(), "Post-create hook should have run and created marker file");
+        assert!(
+            marker_file.exists(),
+            "Post-create hook should have run and created marker file"
+        );
     }
 
     #[test]
@@ -888,6 +998,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            on_fail: None,
             pass_ok: true,
             claim: false,
             by: None,
@@ -895,11 +1006,17 @@ mod tests {
 
         // Bean creation should STILL succeed (post-create failures are non-blocking)
         let result = cmd_create(&beans_dir, args);
-        assert!(result.is_ok(), "Creation should succeed even if post-create hook fails");
+        assert!(
+            result.is_ok(),
+            "Creation should succeed even if post-create hook fails"
+        );
 
         // Verify bean WAS created
         let bean_path = beans_dir.join("1-bean-with-failing-post-create-hook.md");
-        assert!(bean_path.exists(), "Bean file should exist even when post-create hook fails");
+        assert!(
+            bean_path.exists(),
+            "Bean file should exist even when post-create hook fails"
+        );
     }
 
     #[test]
@@ -931,6 +1048,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            on_fail: None,
             pass_ok: true,
             claim: false,
             by: None,
@@ -938,11 +1056,17 @@ mod tests {
 
         // Bean creation should succeed (untrusted hooks are skipped)
         let result = cmd_create(&beans_dir, args);
-        assert!(result.is_ok(), "Creation should succeed when hooks are untrusted");
+        assert!(
+            result.is_ok(),
+            "Creation should succeed when hooks are untrusted"
+        );
 
         // Verify bean WAS created
         let bean_path = beans_dir.join("1-bean-with-untrusted-hook.md");
-        assert!(bean_path.exists(), "Bean file should exist when hooks are untrusted");
+        assert!(
+            bean_path.exists(),
+            "Bean file should exist when hooks are untrusted"
+        );
     }
 
     #[test]
@@ -963,6 +1087,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            on_fail: None,
             pass_ok: false, // default: fail-first enforced
             claim: false,
             by: None,
@@ -992,6 +1117,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            on_fail: None,
             pass_ok: false, // default: fail-first enforced
             claim: false,
             by: None,
@@ -1027,6 +1153,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            on_fail: None,
             pass_ok: true,
             claim: false,
             by: None,
@@ -1062,6 +1189,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            on_fail: None,
             pass_ok: false,
             claim: false,
             by: None,
@@ -1098,6 +1226,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            on_fail: None,
             pass_ok: true,
             claim: true,
             by: Some("agent-1".to_string()),
@@ -1134,6 +1263,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            on_fail: None,
             pass_ok: true,
             claim: true,
             by: None,
@@ -1166,6 +1296,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            on_fail: None,
             pass_ok: true,
             claim: false,
             by: None,
@@ -1199,6 +1330,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            on_fail: None,
             pass_ok: true,
             claim: false,
             by: None,
@@ -1220,6 +1352,7 @@ mod tests {
             parent: Some("1".to_string()),
             produces: None,
             requires: None,
+            on_fail: None,
             pass_ok: true,
             claim: true,
             by: Some("agent-2".to_string()),
@@ -1256,13 +1389,17 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            on_fail: None,
             pass_ok: true,
             claim: true,
             by: Some("agent-1".to_string()),
         };
 
         let result = cmd_create(&beans_dir, args);
-        assert!(result.is_err(), "Should reject --claim without --acceptance or --verify");
+        assert!(
+            result.is_err(),
+            "Should reject --claim without --acceptance or --verify"
+        );
         let err_msg = result.unwrap_err().to_string();
         assert!(
             err_msg.contains("validation criteria"),
@@ -1289,6 +1426,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            on_fail: None,
             pass_ok: true,
             claim: true,
             by: None,
@@ -1316,6 +1454,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            on_fail: None,
             pass_ok: true,
             claim: true,
             by: None,
@@ -1344,6 +1483,7 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            on_fail: None,
             pass_ok: true,
             claim: false,
             by: None,
@@ -1366,13 +1506,17 @@ mod tests {
             parent: Some("1".to_string()),
             produces: None,
             requires: None,
+            on_fail: None,
             pass_ok: true,
             claim: true,
             by: Some("agent-1".to_string()),
         };
 
         let result = cmd_create(&beans_dir, child_args);
-        assert!(result.is_ok(), "Should allow --claim --parent without --acceptance or --verify");
+        assert!(
+            result.is_ok(),
+            "Should allow --claim --parent without --acceptance or --verify"
+        );
     }
 
     #[test]
@@ -1394,12 +1538,112 @@ mod tests {
             parent: None,
             produces: None,
             requires: None,
+            on_fail: None,
             pass_ok: true,
             claim: false,
             by: None,
         };
 
         let result = cmd_create(&beans_dir, args);
-        assert!(result.is_ok(), "Should allow create without --claim and without criteria");
+        assert!(
+            result.is_ok(),
+            "Should allow create without --claim and without criteria"
+        );
+    }
+
+    // =========================================================================
+    // parse_on_fail Tests
+    // =========================================================================
+
+    #[test]
+    fn parse_on_fail_retry_bare() {
+        let action = parse_on_fail("retry").unwrap();
+        assert_eq!(
+            action,
+            OnFailAction::Retry {
+                max: None,
+                delay_secs: None
+            }
+        );
+    }
+
+    #[test]
+    fn parse_on_fail_retry_with_max() {
+        let action = parse_on_fail("retry:5").unwrap();
+        assert_eq!(
+            action,
+            OnFailAction::Retry {
+                max: Some(5),
+                delay_secs: None
+            }
+        );
+    }
+
+    #[test]
+    fn parse_on_fail_escalate_bare() {
+        let action = parse_on_fail("escalate").unwrap();
+        assert_eq!(
+            action,
+            OnFailAction::Escalate {
+                priority: None,
+                message: None
+            }
+        );
+    }
+
+    #[test]
+    fn parse_on_fail_escalate_with_priority_uppercase() {
+        let action = parse_on_fail("escalate:P0").unwrap();
+        assert_eq!(
+            action,
+            OnFailAction::Escalate {
+                priority: Some(0),
+                message: None
+            }
+        );
+    }
+
+    #[test]
+    fn parse_on_fail_escalate_with_priority_lowercase() {
+        let action = parse_on_fail("escalate:p1").unwrap();
+        assert_eq!(
+            action,
+            OnFailAction::Escalate {
+                priority: Some(1),
+                message: None
+            }
+        );
+    }
+
+    #[test]
+    fn parse_on_fail_escalate_with_priority_number() {
+        let action = parse_on_fail("escalate:3").unwrap();
+        assert_eq!(
+            action,
+            OnFailAction::Escalate {
+                priority: Some(3),
+                message: None
+            }
+        );
+    }
+
+    #[test]
+    fn parse_on_fail_rejects_invalid_action() {
+        let result = parse_on_fail("unknown");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Unknown on-fail"));
+    }
+
+    #[test]
+    fn parse_on_fail_rejects_invalid_retry_max() {
+        let result = parse_on_fail("retry:abc");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_on_fail_rejects_priority_out_of_range() {
+        let result = parse_on_fail("escalate:P5");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("priority"));
     }
 }

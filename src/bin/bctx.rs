@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 
 use bn::bean::Bean;
-use bn::ctx_assembler::{extract_paths, assemble_context};
+use bn::ctx_assembler::{assemble_context, extract_paths};
 use bn::discovery::find_beans_dir;
 
 #[derive(Parser)]
@@ -38,29 +38,31 @@ fn run() -> Result<()> {
         PathBuf::from(input)
     } else {
         // Treat as bean ID - find the bean file
-        let beans_dir = find_beans_dir(&env::current_dir()?)
-            .context("Could not find .beans/ directory")?;
+        let beans_dir =
+            find_beans_dir(&env::current_dir()?).context("Could not find .beans/ directory")?;
         bn::discovery::find_bean_file(&beans_dir, input)
             .context(format!("Could not find bean with ID: {}", input))?
     };
 
     // Read and parse the bean
-    let bean = Bean::from_file(&bean_path)
-        .context(format!("Failed to parse bean from: {}", bean_path.display()))?;
+    let bean = Bean::from_file(&bean_path).context(format!(
+        "Failed to parse bean from: {}",
+        bean_path.display()
+    ))?;
 
     // Get the base directory for resolving relative paths
     // Always resolve from the project root (where .beans/ is located)
     let base_dir_owned = if input.contains('/') || input.contains('.') && input.ends_with(".md") {
         // File path was provided - need to find project root
-        let beans_dir = find_beans_dir(&env::current_dir()?)
-            .context("Could not find .beans/ directory")?;
-        beans_dir.parent().ok_or_else(|| {
-            anyhow::anyhow!("Invalid .beans/ path: {}", beans_dir.display())
-        })?.to_path_buf()
+        let beans_dir =
+            find_beans_dir(&env::current_dir()?).context("Could not find .beans/ directory")?;
+        beans_dir
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("Invalid .beans/ path: {}", beans_dir.display()))?
+            .to_path_buf()
     } else {
         // Bean ID was provided - use current directory as project root
-        env::current_dir()
-            .context("Failed to get current directory")?
+        env::current_dir().context("Failed to get current directory")?
     };
 
     // Extract file paths from the bean description
@@ -68,8 +70,7 @@ fn run() -> Result<()> {
     let paths = extract_paths(description);
 
     // Assemble the context from the extracted files
-    let context = assemble_context(paths, &base_dir_owned)
-        .context("Failed to assemble context")?;
+    let context = assemble_context(paths, &base_dir_owned).context("Failed to assemble context")?;
 
     // Output the assembled markdown to stdout
     print!("{}", context);

@@ -1,7 +1,7 @@
 use regex::Regex;
-use std::path::Path;
 use std::fs;
 use std::io;
+use std::path::Path;
 use std::sync::LazyLock;
 
 // Compiled once, reused across all calls
@@ -164,7 +164,7 @@ pub fn assemble_context(paths: Vec<String>, base_dir: &Path) -> io::Result<Strin
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_paths, read_file, format_file_block, assemble_context, detect_language};
+    use super::{assemble_context, detect_language, extract_paths, format_file_block, read_file};
     use std::fs;
     use tempfile::TempDir;
 
@@ -200,15 +200,28 @@ mod tests {
 
     #[test]
     fn test_various_extensions() {
-        let description = "Check src/config.rs, tests/test.ts, docs/guide.md, package.json, and Cargo.toml";
+        let description =
+            "Check src/config.rs, tests/test.ts, docs/guide.md, package.json, and Cargo.toml";
         let result = extract_paths(description);
-        assert_eq!(result, vec!["src/config.rs", "tests/test.ts", "docs/guide.md", "package.json", "Cargo.toml"]);
+        assert_eq!(
+            result,
+            vec![
+                "src/config.rs",
+                "tests/test.ts",
+                "docs/guide.md",
+                "package.json",
+                "Cargo.toml"
+            ]
+        );
     }
 
     #[test]
     fn test_paths_with_hyphens() {
         let result = extract_paths("See src/my-module.rs and tests/integration-test.rs");
-        assert_eq!(result, vec!["src/my-module.rs", "tests/integration-test.rs"]);
+        assert_eq!(
+            result,
+            vec!["src/my-module.rs", "tests/integration-test.rs"]
+        );
     }
 
     #[test]
@@ -272,7 +285,10 @@ mod tests {
     #[test]
     fn test_yml_extension() {
         let result = extract_paths("Edit .github/workflows/ci.yml and docker-compose.yml");
-        assert_eq!(result, vec![".github/workflows/ci.yml", "docker-compose.yml"]);
+        assert_eq!(
+            result,
+            vec![".github/workflows/ci.yml", "docker-compose.yml"]
+        );
     }
 
     #[test]
@@ -470,10 +486,7 @@ mod tests {
         let test_file = temp_dir.path().join("test.rs");
         fs::write(&test_file, "fn main() {}").unwrap();
 
-        let result = assemble_context(
-            vec!["test.rs".to_string()],
-            temp_dir.path(),
-        ).unwrap();
+        let result = assemble_context(vec!["test.rs".to_string()], temp_dir.path()).unwrap();
 
         assert!(result.contains("## File: test.rs"));
         assert!(result.contains("```rust"));
@@ -493,7 +506,8 @@ mod tests {
         let result = assemble_context(
             vec!["file1.rs".to_string(), "file2.py".to_string()],
             temp_dir.path(),
-        ).unwrap();
+        )
+        .unwrap();
 
         assert!(result.contains("## File: file1.rs"));
         assert!(result.contains("```rust"));
@@ -514,7 +528,8 @@ mod tests {
         let result = assemble_context(
             vec!["exists.rs".to_string(), "missing.rs".to_string()],
             temp_dir.path(),
-        ).unwrap();
+        )
+        .unwrap();
 
         // Should contain existing file
         assert!(result.contains("## File: exists.rs"));
@@ -528,10 +543,7 @@ mod tests {
     fn test_assemble_context_empty_paths() {
         let temp_dir = TempDir::new().unwrap();
 
-        let result = assemble_context(
-            vec![],
-            temp_dir.path(),
-        ).unwrap();
+        let result = assemble_context(vec![], temp_dir.path()).unwrap();
 
         assert_eq!(result.trim(), "");
     }
@@ -549,10 +561,7 @@ mod tests {
 }"#;
         fs::write(&test_file, content).unwrap();
 
-        let result = assemble_context(
-            vec!["test.json".to_string()],
-            temp_dir.path(),
-        ).unwrap();
+        let result = assemble_context(vec!["test.json".to_string()], temp_dir.path()).unwrap();
 
         assert!(result.contains(content));
     }

@@ -175,9 +175,7 @@ pub fn is_main_worktree() -> Result<bool> {
 /// - `Err` if git commands fail
 pub fn commit_worktree_changes(message: &str) -> Result<bool> {
     // Stage all changes
-    let add_output = Command::new("git")
-        .args(["add", "-A"])
-        .output()?;
+    let add_output = Command::new("git").args(["add", "-A"]).output()?;
 
     if !add_output.status.success() {
         return Err(anyhow!(
@@ -286,10 +284,7 @@ fn parse_conflict_files(stdout: &str, stderr: &str) -> Vec<String> {
                 let rest = &line[colon_idx + 2..].trim();
                 // Get first word which might be the filename
                 if let Some(word) = rest.split_whitespace().next() {
-                    if !word.is_empty()
-                        && word != "Merge"
-                        && !files.contains(&word.to_string())
-                    {
+                    if !word.is_empty() && word != "Merge" && !files.contains(&word.to_string()) {
                         files.push(word.to_string());
                     }
                 }
@@ -314,11 +309,7 @@ pub fn cleanup_worktree(info: &WorktreeInfo) -> Result<()> {
     // Remove the worktree
     let remove_output = Command::new("git")
         .args(["-C", main_path.to_str().unwrap_or(".")])
-        .args([
-            "worktree",
-            "remove",
-            worktree_path.to_str().unwrap_or("."),
-        ])
+        .args(["worktree", "remove", worktree_path.to_str().unwrap_or(".")])
         .output()?;
 
     if !remove_output.status.success() {
@@ -452,7 +443,8 @@ branch refs/heads/feature-x
 
         #[test]
         fn test_parse_conflict_files_content_conflict() {
-            let stdout = "Auto-merging src/lib.rs\nCONFLICT (content): Merge conflict in src/lib.rs\n";
+            let stdout =
+                "Auto-merging src/lib.rs\nCONFLICT (content): Merge conflict in src/lib.rs\n";
             let stderr = "";
             let files = parse_conflict_files(stdout, stderr);
             assert_eq!(files, vec!["src/lib.rs"]);

@@ -33,9 +33,10 @@ pub fn cmd_unarchive(beans_dir: &Path, id: &str) -> Result<()> {
     }
 
     // Get the slug from the bean (should be set)
-    let slug = bean.slug.clone().unwrap_or_else(|| {
-        crate::util::title_to_slug(&bean.title)
-    });
+    let slug = bean
+        .slug
+        .clone()
+        .unwrap_or_else(|| crate::util::title_to_slug(&bean.title));
 
     // Compute the target path in main beans directory
     let target_path = beans_dir.join(format!("{}-{}.md", id, slug));
@@ -62,9 +63,9 @@ pub fn cmd_unarchive(beans_dir: &Path, id: &str) -> Result<()> {
         .with_context(|| format!("Failed to save unarchived bean: {}", id))?;
 
     // Rebuild index
-    let index = Index::build(beans_dir)
-        .with_context(|| "Failed to rebuild index")?;
-    index.save(beans_dir)
+    let index = Index::build(beans_dir).with_context(|| "Failed to rebuild index")?;
+    index
+        .save(beans_dir)
         .with_context(|| "Failed to save index")?;
 
     println!("Unarchived bean {}: {}", id, bean.title);
@@ -92,10 +93,7 @@ mod tests {
         year: &str,
         month: &str,
     ) -> std::path::PathBuf {
-        let archive_dir = beans_dir
-            .join("archive")
-            .join(year)
-            .join(month);
+        let archive_dir = beans_dir.join("archive").join(year).join(month);
         fs::create_dir_all(&archive_dir).unwrap();
 
         let mut bean = Bean::new(id, title);
@@ -136,13 +134,8 @@ mod tests {
         let (_dir, beans_dir) = setup_test_beans_dir();
 
         // Create an archived bean with a specific title/slug
-        let archived_path = create_archived_bean(
-            &beans_dir,
-            "12",
-            "Complex Bean Title",
-            "2026",
-            "01",
-        );
+        let archived_path =
+            create_archived_bean(&beans_dir, "12", "Complex Bean Title", "2026", "01");
 
         cmd_unarchive(&beans_dir, "12").unwrap();
 
@@ -263,10 +256,19 @@ mod tests {
         // Verify all data is preserved
         assert_eq!(unarchived_bean.id, "1");
         assert_eq!(unarchived_bean.title, "Complex Task");
-        assert_eq!(unarchived_bean.description, Some("This is a detailed description".to_string()));
-        assert_eq!(unarchived_bean.acceptance, Some("- Acceptance 1\n- Acceptance 2".to_string()));
+        assert_eq!(
+            unarchived_bean.description,
+            Some("This is a detailed description".to_string())
+        );
+        assert_eq!(
+            unarchived_bean.acceptance,
+            Some("- Acceptance 1\n- Acceptance 2".to_string())
+        );
         assert_eq!(unarchived_bean.priority, 1);
-        assert_eq!(unarchived_bean.labels, vec!["label1".to_string(), "label2".to_string()]);
+        assert_eq!(
+            unarchived_bean.labels,
+            vec!["label1".to_string(), "label2".to_string()]
+        );
         assert!(!unarchived_bean.is_archived);
     }
 

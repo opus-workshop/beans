@@ -4,21 +4,27 @@ use std::process::Command as ShellCommand;
 use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 
-use crate::bean::{Bean, Status};
+use crate::bean::{Bean, OnCloseAction, OnFailAction, RunRecord, RunResult, Status};
 use crate::config::Config;
-use crate::discovery::{archive_path_for_bean, find_bean_file};
+use crate::discovery::{archive_path_for_bean, find_archived_bean, find_bean_file};
+use crate::hooks::{execute_hook, HookEvent};
 use crate::index::Index;
 use crate::util::title_to_slug;
-use crate::hooks::{execute_hook, HookEvent};
 
 #[cfg(test)]
 use std::fs;
+
+/// Maximum stdout size to capture as outputs (64 KB).
+const MAX_OUTPUT_BYTES: usize = 64 * 1024;
 
 /// Result of running a verify command
 struct VerifyResult {
     success: bool,
     exit_code: Option<i32>,
-    output: String,
+    stdout: String,
+    #[allow(dead_code)]
+    stderr: String,
+    output: String, // combined stdout+stderr, for backward compat
 }
 
 /// Run a verify command for a bean.
@@ -38,15 +44,21 @@ fn run_verify(beans_dir: &Path, verify_cmd: &str) -> Result<VerifyResult> {
         .output()
         .with_context(|| format!("Failed to execute verify command: {}", verify_cmd))?;
 
+    let stdout_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stderr_str = String::from_utf8_lossy(&output.stderr).trim().to_string();
     let combined_output = format!(
         "{}{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
-    ).trim().to_string();
+    )
+    .trim()
+    .to_string();
 
     Ok(VerifyResult {
         success: output.status.success(),
         exit_code: output.status.code(),
+        stdout: stdout_str,
+        stderr: stderr_str,
         output: combined_output,
     })
 }
@@ -55,14 +67,14 @@ fn run_verify(beans_dir: &Path, verify_cmd: &str) -> Result<VerifyResult> {
 /// If output has fewer than 2*N lines, return it unchanged.
 fn truncate_output(output: &str, max_lines: usize) -> String {
     let lines: Vec<&str> = output.lines().collect();
-    
+
     if lines.len() <= max_lines * 2 {
         return output.to_string();
     }
-    
+
     let first = &lines[..max_lines];
     let last = &lines[lines.len() - max_lines..];
-    
+
     format!(
         "{}\n\n... ({} lines omitted) ...\n\n{}",
         first.join("\n"),
@@ -78,7 +90,7 @@ fn format_failure_note(attempt: u32, exit_code: Option<i32>, output: &str) -> St
     let exit_str = exit_code
         .map(|c| format!("Exit code: {}\n", c))
         .unwrap_or_default();
-    
+
     format!(
         "\n## Attempt {} — {}\n{}\n```\n{}\n```\n",
         attempt, timestamp, exit_str, truncated
@@ -158,9 +170,12 @@ fn auto_close_parent(beans_dir: &Path, parent_id: &str) -> Result<()> {
         .with_context(|| format!("Failed to save parent bean: {}", parent_id))?;
 
     // Archive the closed bean
-    let slug = bean.slug.clone()
+    let slug = bean
+        .slug
+        .clone()
         .unwrap_or_else(|| title_to_slug(&bean.title));
-    let ext = bean_path.extension()
+    let ext = bean_path
+        .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("md");
     let today = chrono::Local::now().naive_local().date();
@@ -168,8 +183,12 @@ fn auto_close_parent(beans_dir: &Path, parent_id: &str) -> Result<()> {
 
     // Create archive directories if needed
     if let Some(parent) = archive_path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("Failed to create archive directories for bean {}", parent_id))?;
+        std::fs::create_dir_all(parent).with_context(|| {
+            format!(
+                "Failed to create archive directories for bean {}",
+                parent_id
+            )
+        })?;
     }
 
     // Move the bean file to archive
@@ -191,6 +210,35 @@ fn auto_close_parent(beans_dir: &Path, parent_id: &str) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Walk up the parent chain to find the root ancestor of a bean.
+///
+/// Returns the ID of the topmost parent (the bean with no parent).
+/// If the bean itself has no parent, returns its own ID.
+/// Handles archived parents gracefully by checking both active and archived beans.
+fn find_root_parent(beans_dir: &Path, bean: &Bean) -> Result<String> {
+    let mut current_id = match &bean.parent {
+        None => return Ok(bean.id.clone()),
+        Some(pid) => pid.clone(),
+    };
+
+    loop {
+        let path = find_bean_file(beans_dir, &current_id)
+            .or_else(|_| find_archived_bean(beans_dir, &current_id));
+
+        match path {
+            Ok(p) => {
+                let b = Bean::from_file(&p)
+                    .with_context(|| format!("Failed to load parent bean: {}", current_id))?;
+                match b.parent {
+                    Some(parent_id) => current_id = parent_id,
+                    None => return Ok(current_id),
+                }
+            }
+            Err(_) => return Ok(current_id), // Can't find parent, assume it's root
+        }
+    }
 }
 
 /// Close one or more beans.
@@ -215,20 +263,21 @@ pub fn cmd_close(
     let mut rejected_beans = Vec::new();
 
     for id in &ids {
-        let bean_path = find_bean_file(beans_dir, id)
-            .with_context(|| format!("Bean not found: {}", id))?;
+        let bean_path =
+            find_bean_file(beans_dir, id).with_context(|| format!("Bean not found: {}", id))?;
 
-        let mut bean = Bean::from_file(&bean_path)
-            .with_context(|| format!("Failed to load bean: {}", id))?;
+        let mut bean =
+            Bean::from_file(&bean_path).with_context(|| format!("Failed to load bean: {}", id))?;
 
         // Execute pre-close hook BEFORE verify command
         // hooks.rs expects the project root (parent of .beans), not the .beans dir itself
         let project_root = beans_dir
             .parent()
             .ok_or_else(|| anyhow!("Cannot determine project root from beans dir"))?;
-        
-        let pre_close_result = execute_hook(HookEvent::PreClose, &bean, project_root, reason.clone());
-        
+
+        let pre_close_result =
+            execute_hook(HookEvent::PreClose, &bean, project_root, reason.clone());
+
         let pre_close_passed = match pre_close_result {
             Ok(hook_passed) => {
                 // Hook executed successfully, use its result
@@ -252,15 +301,24 @@ pub fn cmd_close(
             if force {
                 println!("Skipping verify for bean {} (--force)", id);
             } else {
+                // Record timing for history
+                let started_at = Utc::now();
+
                 // Run the verify command
                 let verify_result = run_verify(beans_dir, verify_cmd)?;
+
+                let finished_at = Utc::now();
+                let duration_secs = (finished_at - started_at).num_milliseconds() as f64 / 1000.0;
+
+                // Read agent name from env var (deli/bw set this when spawning)
+                let agent = std::env::var("BEANS_AGENT").ok();
 
                 if !verify_result.success {
                     // Increment attempts
                     bean.attempts += 1;
                     bean.updated_at = Utc::now();
 
-                    // Append failure to notes for future agents
+                    // Append failure to notes for future agents (backward compat)
                     let failure_note = format_failure_note(
                         bean.attempts,
                         verify_result.exit_code,
@@ -269,6 +327,124 @@ pub fn cmd_close(
                     match &mut bean.notes {
                         Some(notes) => notes.push_str(&failure_note),
                         None => bean.notes = Some(failure_note),
+                    }
+
+                    // Record structured history entry
+                    let output_snippet = if verify_result.output.is_empty() {
+                        None
+                    } else {
+                        Some(truncate_output(&verify_result.output, 20))
+                    };
+                    bean.history.push(RunRecord {
+                        attempt: bean.attempts,
+                        started_at,
+                        finished_at: Some(finished_at),
+                        duration_secs: Some(duration_secs),
+                        agent: agent.clone(),
+                        result: RunResult::Fail,
+                        exit_code: verify_result.exit_code,
+                        tokens: None,
+                        cost: None,
+                        output_snippet,
+                    });
+
+                    // Circuit breaker: check if subtree attempts exceed max_loops
+                    let root_id = find_root_parent(beans_dir, &bean)?;
+                    let config_max = Config::load(beans_dir).map(|c| c.max_loops).unwrap_or(10);
+                    let max_loops_limit = if root_id == bean.id {
+                        bean.effective_max_loops(config_max)
+                    } else {
+                        let root_path = find_bean_file(beans_dir, &root_id)
+                            .or_else(|_| find_archived_bean(beans_dir, &root_id));
+                        match root_path {
+                            Ok(p) => Bean::from_file(&p)
+                                .map(|b| b.effective_max_loops(config_max))
+                                .unwrap_or(config_max),
+                            Err(_) => config_max,
+                        }
+                    };
+
+                    if max_loops_limit > 0 {
+                        // Save bean first so subtree count is accurate
+                        bean.to_file(&bean_path)
+                            .with_context(|| format!("Failed to save bean: {}", id))?;
+
+                        let subtree_total =
+                            crate::graph::count_subtree_attempts(beans_dir, &root_id)?;
+                        if subtree_total >= max_loops_limit {
+                            // Trip circuit breaker
+                            if !bean.labels.contains(&"circuit-breaker".to_string()) {
+                                bean.labels.push("circuit-breaker".to_string());
+                            }
+                            bean.priority = 0;
+                            bean.to_file(&bean_path)
+                                .with_context(|| format!("Failed to save bean: {}", id))?;
+
+                            eprintln!(
+                                "⚡ Circuit breaker tripped for bean {} \
+                                 (subtree total {} >= max_loops {} across root {})",
+                                id, subtree_total, max_loops_limit, root_id
+                            );
+                            eprintln!(
+                                "Bean {} escalated to P0 with 'circuit-breaker' label. \
+                                 Manual intervention required.",
+                                id
+                            );
+                            continue;
+                        }
+                    }
+
+                    // Process on_fail action
+                    if let Some(ref on_fail) = bean.on_fail {
+                        match on_fail {
+                            OnFailAction::Retry { max, delay_secs } => {
+                                let max_retries = max.unwrap_or(bean.max_attempts);
+                                if bean.attempts < max_retries {
+                                    println!(
+                                        "on_fail: will retry (attempt {}/{})",
+                                        bean.attempts, max_retries
+                                    );
+                                    if let Some(delay) = delay_secs {
+                                        println!(
+                                            "on_fail: retry delay {}s (enforced by orchestrator)",
+                                            delay
+                                        );
+                                    }
+                                    // Release claim so bw/deli can pick it up
+                                    bean.claimed_by = None;
+                                    bean.claimed_at = None;
+                                } else {
+                                    println!("on_fail: max retries ({}) exhausted", max_retries);
+                                }
+                            }
+                            OnFailAction::Escalate { priority, message } => {
+                                if let Some(p) = priority {
+                                    let old_priority = bean.priority;
+                                    bean.priority = *p;
+                                    println!(
+                                        "on_fail: escalated priority P{} → P{}",
+                                        old_priority, p
+                                    );
+                                }
+                                if let Some(msg) = message {
+                                    // Append escalation message to notes
+                                    let note = format!(
+                                        "\n## Escalated — {}\n{}",
+                                        Utc::now().format("%Y-%m-%dT%H:%M:%SZ"),
+                                        msg
+                                    );
+                                    match &mut bean.notes {
+                                        Some(notes) => notes.push_str(&note),
+                                        None => bean.notes = Some(note),
+                                    }
+                                    println!("on_fail: {}", msg);
+                                }
+                                // Add escalated label
+                                if !bean.labels.contains(&"escalated".to_string()) {
+                                    bean.labels.push("escalated".to_string());
+                                }
+                            }
+                        }
                     }
 
                     bean.to_file(&bean_path)
@@ -295,6 +471,48 @@ pub fn cmd_close(
                     continue;
                 }
 
+                // Record success in history
+                bean.history.push(RunRecord {
+                    attempt: bean.attempts + 1,
+                    started_at,
+                    finished_at: Some(finished_at),
+                    duration_secs: Some(duration_secs),
+                    agent,
+                    result: RunResult::Pass,
+                    exit_code: verify_result.exit_code,
+                    tokens: None,
+                    cost: None,
+                    output_snippet: None,
+                });
+
+                // Capture stdout as bean outputs
+                let stdout = &verify_result.stdout;
+                if !stdout.is_empty() {
+                    if stdout.len() > MAX_OUTPUT_BYTES {
+                        let truncated = &stdout[..MAX_OUTPUT_BYTES];
+                        eprintln!(
+                            "Warning: verify stdout ({} bytes) exceeds 64KB, truncating",
+                            stdout.len()
+                        );
+                        bean.outputs = Some(serde_json::json!({
+                            "text": truncated,
+                            "truncated": true,
+                            "original_bytes": stdout.len()
+                        }));
+                    } else {
+                        match serde_json::from_str::<serde_json::Value>(stdout.trim()) {
+                            Ok(json) => {
+                                bean.outputs = Some(json);
+                            }
+                            Err(_) => {
+                                bean.outputs = Some(serde_json::json!({
+                                    "text": stdout.trim()
+                                }));
+                            }
+                        }
+                    }
+                }
+
                 println!("Verify passed for bean {}", id);
             }
         }
@@ -309,9 +527,12 @@ pub fn cmd_close(
             .with_context(|| format!("Failed to save bean: {}", id))?;
 
         // Archive the closed bean
-        let slug = bean.slug.clone()
+        let slug = bean
+            .slug
+            .clone()
             .unwrap_or_else(|| title_to_slug(&bean.title));
-        let ext = bean_path.extension()
+        let ext = bean_path
+            .extension()
             .and_then(|e| e.to_str())
             .unwrap_or("md");
         let today = chrono::Local::now().naive_local().date();
@@ -334,6 +555,39 @@ pub fn cmd_close(
 
         println!("Closed bean {}: {}", id, bean.title);
         any_closed = true;
+
+        // Fire post-close hook (failure warns but does NOT revert the close)
+        match execute_hook(HookEvent::PostClose, &bean, project_root, reason.clone()) {
+            Ok(false) => {
+                eprintln!("Warning: post-close hook returned non-zero for bean {}", id);
+            }
+            Err(e) => {
+                eprintln!("Warning: post-close hook error for bean {}: {}", id, e);
+            }
+            Ok(true) => {}
+        }
+
+        // Process on_close actions (after post-close hook)
+        for action in &bean.on_close {
+            match action {
+                OnCloseAction::Run { command } => {
+                    let status = std::process::Command::new("sh")
+                        .args(["-c", command.as_str()])
+                        .current_dir(project_root)
+                        .status();
+                    match status {
+                        Ok(s) if !s.success() => {
+                            eprintln!("on_close run command failed: {}", command)
+                        }
+                        Err(e) => eprintln!("on_close run command error: {}", e),
+                        _ => {}
+                    }
+                }
+                OnCloseAction::Notify { message } => {
+                    println!("[bean {}] {}", id, message);
+                }
+            }
+        }
 
         // Check if parent should be auto-closed
         if let Some(parent_id) = &bean.parent {
@@ -359,9 +613,9 @@ pub fn cmd_close(
 
     // Rebuild index once after all updates (even if some failed verification)
     if any_closed || !ids.is_empty() {
-        let index = Index::build(beans_dir)
-            .with_context(|| "Failed to rebuild index")?;
-        index.save(beans_dir)
+        let index = Index::build(beans_dir).with_context(|| "Failed to rebuild index")?;
+        index
+            .save(beans_dir)
             .with_context(|| "Failed to save index")?;
     }
 
@@ -371,8 +625,8 @@ pub fn cmd_close(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
     use crate::util::title_to_slug;
+    use tempfile::TempDir;
 
     fn setup_test_beans_dir() -> (TempDir, std::path::PathBuf) {
         let dir = TempDir::new().unwrap();
@@ -386,7 +640,8 @@ mod tests {
         let (_dir, beans_dir) = setup_test_beans_dir();
         let bean = Bean::new("1", "Task");
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
         cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
 
@@ -404,9 +659,16 @@ mod tests {
         let (_dir, beans_dir) = setup_test_beans_dir();
         let bean = Bean::new("1", "Task");
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
-        cmd_close(&beans_dir, vec!["1".to_string()], Some("Fixed".to_string()), false).unwrap();
+        cmd_close(
+            &beans_dir,
+            vec!["1".to_string()],
+            Some("Fixed".to_string()),
+            false,
+        )
+        .unwrap();
 
         // Bean should be archived
         let archived = crate::discovery::find_archived_bean(&beans_dir, "1").unwrap();
@@ -425,11 +687,23 @@ mod tests {
         let slug1 = title_to_slug(&bean1.title);
         let slug2 = title_to_slug(&bean2.title);
         let slug3 = title_to_slug(&bean3.title);
-        bean1.to_file(beans_dir.join(format!("1-{}.md", slug1))).unwrap();
-        bean2.to_file(beans_dir.join(format!("2-{}.md", slug2))).unwrap();
-        bean3.to_file(beans_dir.join(format!("3-{}.md", slug3))).unwrap();
+        bean1
+            .to_file(beans_dir.join(format!("1-{}.md", slug1)))
+            .unwrap();
+        bean2
+            .to_file(beans_dir.join(format!("2-{}.md", slug2)))
+            .unwrap();
+        bean3
+            .to_file(beans_dir.join(format!("3-{}.md", slug3)))
+            .unwrap();
 
-        cmd_close(&beans_dir, vec!["1".to_string(), "2".to_string(), "3".to_string()], None, false).unwrap();
+        cmd_close(
+            &beans_dir,
+            vec!["1".to_string(), "2".to_string(), "3".to_string()],
+            None,
+            false,
+        )
+        .unwrap();
 
         for id in &["1", "2", "3"] {
             // All beans should be archived
@@ -462,8 +736,12 @@ mod tests {
         let bean2 = Bean::new("2", "Task 2");
         let slug1 = title_to_slug(&bean1.title);
         let slug2 = title_to_slug(&bean2.title);
-        bean1.to_file(beans_dir.join(format!("1-{}.md", slug1))).unwrap();
-        bean2.to_file(beans_dir.join(format!("2-{}.md", slug2))).unwrap();
+        bean1
+            .to_file(beans_dir.join(format!("1-{}.md", slug1)))
+            .unwrap();
+        bean2
+            .to_file(beans_dir.join(format!("2-{}.md", slug2)))
+            .unwrap();
 
         cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
 
@@ -472,7 +750,7 @@ mod tests {
         assert_eq!(index.beans.len(), 1);
         let entry2 = index.beans.iter().find(|e| e.id == "2").unwrap();
         assert_eq!(entry2.status, Status::Open);
-        
+
         // Verify bean 1 was archived and still closed
         let archived = crate::discovery::find_archived_bean(&beans_dir, "1").unwrap();
         let bean1_archived = Bean::from_file(&archived).unwrap();
@@ -485,7 +763,8 @@ mod tests {
         let bean = Bean::new("1", "Task");
         let original_updated_at = bean.updated_at;
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
         std::thread::sleep(std::time::Duration::from_millis(10));
 
@@ -503,7 +782,8 @@ mod tests {
         let mut bean = Bean::new("1", "Task with verify");
         bean.verify = Some("true".to_string());
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
         cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
 
@@ -522,11 +802,13 @@ mod tests {
         bean.verify = Some("false".to_string());
         bean.attempts = 0;
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
         cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
 
-        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert_eq!(updated.status, Status::Open); // Not closed
         assert_eq!(updated.attempts, 1); // Incremented
         assert!(updated.closed_at.is_none());
@@ -539,29 +821,34 @@ mod tests {
         bean.verify = Some("false".to_string());
         bean.attempts = 0;
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
         // First attempt
         cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
-        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert_eq!(updated.attempts, 1);
         assert_eq!(updated.status, Status::Open);
 
         // Second attempt
         cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
-        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert_eq!(updated.attempts, 2);
         assert_eq!(updated.status, Status::Open);
 
         // Third attempt - no limit, keeps incrementing
         cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
-        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert_eq!(updated.attempts, 3);
         assert_eq!(updated.status, Status::Open);
 
         // Fourth attempt - still works, no max
         cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
-        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert_eq!(updated.attempts, 4);
         assert_eq!(updated.status, Status::Open);
     }
@@ -574,13 +861,15 @@ mod tests {
         bean.verify = Some("echo 'test error output' && exit 1".to_string());
         bean.notes = Some("Original notes".to_string());
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
         cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
 
-        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         let notes = updated.notes.unwrap();
-        
+
         // Original notes preserved
         assert!(notes.contains("Original notes"));
         // Failure appended
@@ -596,13 +885,15 @@ mod tests {
         bean.verify = Some("echo 'failure' && exit 1".to_string());
         // No notes set
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
         cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
 
-        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         let notes = updated.notes.unwrap();
-        
+
         assert!(notes.contains("## Attempt 1"));
         assert!(notes.contains("failure"));
     }
@@ -613,7 +904,8 @@ mod tests {
         let bean = Bean::new("1", "Task without verify");
         // No verify command set
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
         cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
 
@@ -632,7 +924,8 @@ mod tests {
         // This verify command would normally fail
         bean.verify = Some("false".to_string());
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
         // Close with force=true should skip verify and close anyway
         cmd_close(&beans_dir, vec!["1".to_string()], None, true).unwrap();
@@ -652,7 +945,8 @@ mod tests {
         // Shell operators like && should work in verify commands
         bean.verify = Some("true && true".to_string());
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
         cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
 
@@ -670,12 +964,14 @@ mod tests {
         // Pipe exit code is determined by last command: false returns 1
         bean.verify = Some("true | false".to_string());
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
         let _ = cmd_close(&beans_dir, vec!["1".to_string()], None, false);
 
         // Verify fails because `false` returns exit code 1
-        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert_eq!(updated.status, Status::Open); // Not closed
         assert_eq!(updated.attempts, 1); // Attempts incremented
     }
@@ -706,7 +1002,8 @@ mod tests {
 
         let bean = Bean::new("1", "Task with passing hook");
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
         // Close should succeed
         cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
@@ -740,7 +1037,8 @@ mod tests {
 
         let bean = Bean::new("1", "Task with failing hook");
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
         // Close should still succeed (returns Ok), but bean not closed
         cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
@@ -780,12 +1078,24 @@ mod tests {
         let slug1 = title_to_slug(&bean1.title);
         let slug2 = title_to_slug(&bean2.title);
         let slug3 = title_to_slug(&bean3.title);
-        bean1.to_file(beans_dir.join(format!("1-{}.md", slug1))).unwrap();
-        bean2.to_file(beans_dir.join(format!("2-{}.md", slug2))).unwrap();
-        bean3.to_file(beans_dir.join(format!("3-{}.md", slug3))).unwrap();
+        bean1
+            .to_file(beans_dir.join(format!("1-{}.md", slug1)))
+            .unwrap();
+        bean2
+            .to_file(beans_dir.join(format!("2-{}.md", slug2)))
+            .unwrap();
+        bean3
+            .to_file(beans_dir.join(format!("3-{}.md", slug3)))
+            .unwrap();
 
         // Close all three (hook passes for all)
-        cmd_close(&beans_dir, vec!["1".to_string(), "2".to_string(), "3".to_string()], None, false).unwrap();
+        cmd_close(
+            &beans_dir,
+            vec!["1".to_string(), "2".to_string(), "3".to_string()],
+            None,
+            false,
+        )
+        .unwrap();
 
         // All should be archived
         for id in &["1", "2", "3"] {
@@ -816,7 +1126,8 @@ mod tests {
 
         let bean = Bean::new("1", "Task with untrusted hook");
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
         // Close should succeed (hooks are untrusted so they're skipped)
         cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
@@ -832,13 +1143,14 @@ mod tests {
     fn test_close_with_missing_hook_silently_succeeds() {
         let (dir, beans_dir) = setup_test_beans_dir();
         let project_root = dir.path();
-        
+
         // Enable trust but don't create hook - pass project root, not .beans dir
         crate::hooks::create_trust(project_root).unwrap();
 
         let bean = Bean::new("1", "Task with missing hook");
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
         // Close should succeed (missing hooks silently pass)
         cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
@@ -872,10 +1184,17 @@ mod tests {
 
         let bean = Bean::new("1", "Task with reason");
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
         // Close with a reason
-        cmd_close(&beans_dir, vec!["1".to_string()], Some("Completed".to_string()), false).unwrap();
+        cmd_close(
+            &beans_dir,
+            vec!["1".to_string()],
+            Some("Completed".to_string()),
+            false,
+        )
+        .unwrap();
 
         // Verify bean is closed with reason
         let archived = crate::discovery::find_archived_bean(&beans_dir, "1").unwrap();
@@ -912,12 +1231,24 @@ mod tests {
         let slug1 = title_to_slug(&bean1.title);
         let slug2 = title_to_slug(&bean2.title);
         let slug3 = title_to_slug(&bean3.title);
-        bean1.to_file(beans_dir.join(format!("1-{}.md", slug1))).unwrap();
-        bean2.to_file(beans_dir.join(format!("2-{}.md", slug2))).unwrap();
-        bean3.to_file(beans_dir.join(format!("3-{}.md", slug3))).unwrap();
+        bean1
+            .to_file(beans_dir.join(format!("1-{}.md", slug1)))
+            .unwrap();
+        bean2
+            .to_file(beans_dir.join(format!("2-{}.md", slug2)))
+            .unwrap();
+        bean3
+            .to_file(beans_dir.join(format!("3-{}.md", slug3)))
+            .unwrap();
 
         // Try to close all three
-        cmd_close(&beans_dir, vec!["1".to_string(), "2".to_string(), "3".to_string()], None, false).unwrap();
+        cmd_close(
+            &beans_dir,
+            vec!["1".to_string(), "2".to_string(), "3".to_string()],
+            None,
+            false,
+        )
+        .unwrap();
 
         // Bean 1 should be archived
         let archived1 = crate::discovery::find_archived_bean(&beans_dir, "1");
@@ -939,6 +1270,87 @@ mod tests {
     }
 
     // =====================================================================
+    // Post-Close Hook Tests
+    // =====================================================================
+
+    #[test]
+    fn test_post_close_hook_fires_after_successful_close() {
+        let (dir, beans_dir) = setup_test_beans_dir();
+        let project_root = dir.path();
+        let hooks_dir = beans_dir.join("hooks");
+        fs::create_dir_all(&hooks_dir).unwrap();
+
+        // Enable trust
+        crate::hooks::create_trust(project_root).unwrap();
+
+        // Create a post-close hook that writes a marker file
+        let marker = project_root.join("post-close-fired");
+        let hook_path = hooks_dir.join("post-close");
+        fs::write(
+            &hook_path,
+            format!("#!/bin/bash\ntouch {}\nexit 0", marker.display()),
+        )
+        .unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&hook_path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let bean = Bean::new("1", "Task with post-close hook");
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
+
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+
+        // Marker file should exist, proving the post-close hook fired
+        assert!(marker.exists(), "post-close hook should have fired");
+
+        // Bean should still be archived
+        let archived = crate::discovery::find_archived_bean(&beans_dir, "1").unwrap();
+        let updated = Bean::from_file(&archived).unwrap();
+        assert_eq!(updated.status, Status::Closed);
+        assert!(updated.is_archived);
+    }
+
+    #[test]
+    fn test_post_close_hook_failure_does_not_prevent_close() {
+        let (dir, beans_dir) = setup_test_beans_dir();
+        let project_root = dir.path();
+        let hooks_dir = beans_dir.join("hooks");
+        fs::create_dir_all(&hooks_dir).unwrap();
+
+        // Enable trust
+        crate::hooks::create_trust(project_root).unwrap();
+
+        // Create a post-close hook that FAILS (exits 1)
+        let hook_path = hooks_dir.join("post-close");
+        fs::write(&hook_path, "#!/bin/bash\nexit 1").unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&hook_path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let bean = Bean::new("1", "Task with failing post-close hook");
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
+
+        // Close should succeed even though post-close hook fails
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+
+        // Bean should still be archived and closed
+        let archived = crate::discovery::find_archived_bean(&beans_dir, "1").unwrap();
+        let updated = Bean::from_file(&archived).unwrap();
+        assert_eq!(updated.status, Status::Closed);
+        assert!(updated.is_archived);
+    }
+
+    // =====================================================================
     // Auto-Close Parent Tests
     // =====================================================================
 
@@ -946,7 +1358,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let beans_dir = dir.path().join(".beans");
         fs::create_dir(&beans_dir).unwrap();
-        
+
         // Create config with auto_close_parent enabled
         let config = crate::config::Config {
             project: "test".to_string(),
@@ -954,9 +1366,14 @@ mod tests {
             auto_close_parent: true,
             max_tokens: 30000,
             run: None,
+            plan: None,
+            max_loops: 10,
+            max_concurrent: 4,
+            poll_interval: 30,
+            extends: vec![],
         };
         config.save(&beans_dir).unwrap();
-        
+
         (dir, beans_dir)
     }
 
@@ -967,22 +1384,28 @@ mod tests {
         // Create parent bean
         let parent = Bean::new("1", "Parent Task");
         let parent_slug = title_to_slug(&parent.title);
-        parent.to_file(beans_dir.join(format!("1-{}.md", parent_slug))).unwrap();
+        parent
+            .to_file(beans_dir.join(format!("1-{}.md", parent_slug)))
+            .unwrap();
 
         // Create child beans
         let mut child1 = Bean::new("1.1", "Child 1");
         child1.parent = Some("1".to_string());
         let child1_slug = title_to_slug(&child1.title);
-        child1.to_file(beans_dir.join(format!("1.1-{}.md", child1_slug))).unwrap();
+        child1
+            .to_file(beans_dir.join(format!("1.1-{}.md", child1_slug)))
+            .unwrap();
 
         let mut child2 = Bean::new("1.2", "Child 2");
         child2.parent = Some("1".to_string());
         let child2_slug = title_to_slug(&child2.title);
-        child2.to_file(beans_dir.join(format!("1.2-{}.md", child2_slug))).unwrap();
+        child2
+            .to_file(beans_dir.join(format!("1.2-{}.md", child2_slug)))
+            .unwrap();
 
         // Close first child - parent should NOT auto-close yet
         cmd_close(&beans_dir, vec!["1.1".to_string()], None, false).unwrap();
-        
+
         // Parent should still be open
         let parent_still_open = crate::discovery::find_bean_file(&beans_dir, "1");
         assert!(parent_still_open.is_ok());
@@ -997,7 +1420,11 @@ mod tests {
         assert!(parent_archived.is_ok(), "Parent should be auto-archived");
         let parent_result = Bean::from_file(&parent_archived.unwrap()).unwrap();
         assert_eq!(parent_result.status, Status::Closed);
-        assert!(parent_result.close_reason.as_ref().unwrap().contains("Auto-closed"));
+        assert!(parent_result
+            .close_reason
+            .as_ref()
+            .unwrap()
+            .contains("Auto-closed"));
     }
 
     #[test]
@@ -1007,18 +1434,24 @@ mod tests {
         // Create parent bean
         let parent = Bean::new("1", "Parent Task");
         let parent_slug = title_to_slug(&parent.title);
-        parent.to_file(beans_dir.join(format!("1-{}.md", parent_slug))).unwrap();
+        parent
+            .to_file(beans_dir.join(format!("1-{}.md", parent_slug)))
+            .unwrap();
 
         // Create child beans
         let mut child1 = Bean::new("1.1", "Child 1");
         child1.parent = Some("1".to_string());
         let child1_slug = title_to_slug(&child1.title);
-        child1.to_file(beans_dir.join(format!("1.1-{}.md", child1_slug))).unwrap();
+        child1
+            .to_file(beans_dir.join(format!("1.1-{}.md", child1_slug)))
+            .unwrap();
 
         let mut child2 = Bean::new("1.2", "Child 2");
         child2.parent = Some("1".to_string());
         let child2_slug = title_to_slug(&child2.title);
-        child2.to_file(beans_dir.join(format!("1.2-{}.md", child2_slug))).unwrap();
+        child2
+            .to_file(beans_dir.join(format!("1.2-{}.md", child2_slug)))
+            .unwrap();
 
         // Close first child only
         cmd_close(&beans_dir, vec!["1.1".to_string()], None, false).unwrap();
@@ -1035,7 +1468,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let beans_dir = dir.path().join(".beans");
         fs::create_dir(&beans_dir).unwrap();
-        
+
         // Create config with auto_close_parent DISABLED
         let config = crate::config::Config {
             project: "test".to_string(),
@@ -1043,19 +1476,28 @@ mod tests {
             auto_close_parent: false,
             max_tokens: 30000,
             run: None,
+            plan: None,
+            max_loops: 10,
+            max_concurrent: 4,
+            poll_interval: 30,
+            extends: vec![],
         };
         config.save(&beans_dir).unwrap();
 
         // Create parent bean
         let parent = Bean::new("1", "Parent Task");
         let parent_slug = title_to_slug(&parent.title);
-        parent.to_file(beans_dir.join(format!("1-{}.md", parent_slug))).unwrap();
+        parent
+            .to_file(beans_dir.join(format!("1-{}.md", parent_slug)))
+            .unwrap();
 
         // Create single child bean
         let mut child = Bean::new("1.1", "Only Child");
         child.parent = Some("1".to_string());
         let child_slug = title_to_slug(&child.title);
-        child.to_file(beans_dir.join(format!("1.1-{}.md", child_slug))).unwrap();
+        child
+            .to_file(beans_dir.join(format!("1.1-{}.md", child_slug)))
+            .unwrap();
 
         // Close the child
         cmd_close(&beans_dir, vec!["1.1".to_string()], None, false).unwrap();
@@ -1074,19 +1516,25 @@ mod tests {
         // Create grandparent bean
         let grandparent = Bean::new("1", "Grandparent");
         let gp_slug = title_to_slug(&grandparent.title);
-        grandparent.to_file(beans_dir.join(format!("1-{}.md", gp_slug))).unwrap();
+        grandparent
+            .to_file(beans_dir.join(format!("1-{}.md", gp_slug)))
+            .unwrap();
 
         // Create parent bean (child of grandparent)
         let mut parent = Bean::new("1.1", "Parent");
         parent.parent = Some("1".to_string());
         let p_slug = title_to_slug(&parent.title);
-        parent.to_file(beans_dir.join(format!("1.1-{}.md", p_slug))).unwrap();
+        parent
+            .to_file(beans_dir.join(format!("1.1-{}.md", p_slug)))
+            .unwrap();
 
         // Create grandchild bean (child of parent)
         let mut grandchild = Bean::new("1.1.1", "Grandchild");
         grandchild.parent = Some("1.1".to_string());
         let gc_slug = title_to_slug(&grandchild.title);
-        grandchild.to_file(beans_dir.join(format!("1.1.1-{}.md", gc_slug))).unwrap();
+        grandchild
+            .to_file(beans_dir.join(format!("1.1.1-{}.md", gc_slug)))
+            .unwrap();
 
         // Close the grandchild - should cascade up
         cmd_close(&beans_dir, vec!["1.1.1".to_string()], None, false).unwrap();
@@ -1103,10 +1551,18 @@ mod tests {
 
         // Check auto-close reasons
         let p_bean = Bean::from_file(&p_archived.unwrap()).unwrap();
-        assert!(p_bean.close_reason.as_ref().unwrap().contains("Auto-closed"));
+        assert!(p_bean
+            .close_reason
+            .as_ref()
+            .unwrap()
+            .contains("Auto-closed"));
 
         let gp_bean = Bean::from_file(&gp_archived.unwrap()).unwrap();
-        assert!(gp_bean.close_reason.as_ref().unwrap().contains("Auto-closed"));
+        assert!(gp_bean
+            .close_reason
+            .as_ref()
+            .unwrap()
+            .contains("Auto-closed"));
     }
 
     #[test]
@@ -1116,7 +1572,8 @@ mod tests {
         // Create a standalone bean (no parent)
         let bean = Bean::new("1", "Standalone Task");
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
         // Close the bean - should work fine with no parent
         cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
@@ -1135,18 +1592,24 @@ mod tests {
         // Create parent bean
         let parent = Bean::new("1", "Parent Task");
         let parent_slug = title_to_slug(&parent.title);
-        parent.to_file(beans_dir.join(format!("1-{}.md", parent_slug))).unwrap();
+        parent
+            .to_file(beans_dir.join(format!("1-{}.md", parent_slug)))
+            .unwrap();
 
         // Create two child beans
         let mut child1 = Bean::new("1.1", "Child 1");
         child1.parent = Some("1".to_string());
         let child1_slug = title_to_slug(&child1.title);
-        child1.to_file(beans_dir.join(format!("1.1-{}.md", child1_slug))).unwrap();
+        child1
+            .to_file(beans_dir.join(format!("1.1-{}.md", child1_slug)))
+            .unwrap();
 
         let mut child2 = Bean::new("1.2", "Child 2");
         child2.parent = Some("1".to_string());
         let child2_slug = title_to_slug(&child2.title);
-        child2.to_file(beans_dir.join(format!("1.2-{}.md", child2_slug))).unwrap();
+        child2
+            .to_file(beans_dir.join(format!("1.2-{}.md", child2_slug)))
+            .unwrap();
 
         // Close first child (will be archived)
         cmd_close(&beans_dir, vec!["1.1".to_string()], None, false).unwrap();
@@ -1160,7 +1623,10 @@ mod tests {
 
         // Parent should be archived
         let parent_archived = crate::discovery::find_archived_bean(&beans_dir, "1");
-        assert!(parent_archived.is_ok(), "Parent should be auto-archived when all children (including archived) are closed");
+        assert!(
+            parent_archived.is_ok(),
+            "Parent should be auto-archived when all children (including archived) are closed"
+        );
     }
 
     // =====================================================================
@@ -1189,7 +1655,7 @@ mod tests {
         let lines: Vec<String> = (1..=150).map(|i| format!("line{}", i)).collect();
         let output = lines.join("\n");
         let result = truncate_output(&output, 50);
-        
+
         assert!(result.contains("line1"));
         assert!(result.contains("line50"));
         assert!(!result.contains("line51"));
@@ -1202,10 +1668,1040 @@ mod tests {
     #[test]
     fn test_format_failure_note() {
         let note = format_failure_note(1, Some(1), "error message");
-        
+
         assert!(note.contains("## Attempt 1"));
         assert!(note.contains("Exit code: 1"));
         assert!(note.contains("error message"));
         assert!(note.contains("```")); // Fenced code block
+    }
+
+    // =====================================================================
+    // on_close Action Tests
+    // =====================================================================
+
+    #[test]
+    fn on_close_run_action_executes_command() {
+        let (dir, beans_dir) = setup_test_beans_dir();
+        let project_root = dir.path();
+        let marker = project_root.join("on_close_ran");
+
+        let mut bean = Bean::new("1", "Task with on_close run");
+        bean.on_close = vec![OnCloseAction::Run {
+            command: format!("touch {}", marker.display()),
+        }];
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
+
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+
+        assert!(marker.exists(), "on_close run command should have executed");
+    }
+
+    #[test]
+    fn on_close_notify_action_prints_message() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+
+        let mut bean = Bean::new("1", "Task with on_close notify");
+        bean.on_close = vec![OnCloseAction::Notify {
+            message: "All done!".to_string(),
+        }];
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
+
+        // Should not error — notify just prints
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+
+        // Bean should still be archived
+        let archived = crate::discovery::find_archived_bean(&beans_dir, "1").unwrap();
+        let updated = Bean::from_file(&archived).unwrap();
+        assert_eq!(updated.status, Status::Closed);
+    }
+
+    #[test]
+    fn on_close_run_failure_does_not_prevent_close() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+
+        let mut bean = Bean::new("1", "Task with failing on_close");
+        bean.on_close = vec![OnCloseAction::Run {
+            command: "false".to_string(), // exits 1
+        }];
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
+
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+
+        // Bean should still be archived despite on_close failure
+        let archived = crate::discovery::find_archived_bean(&beans_dir, "1").unwrap();
+        let updated = Bean::from_file(&archived).unwrap();
+        assert_eq!(updated.status, Status::Closed);
+        assert!(updated.is_archived);
+    }
+
+    #[test]
+    fn on_close_multiple_actions_all_run() {
+        let (dir, beans_dir) = setup_test_beans_dir();
+        let project_root = dir.path();
+        let marker1 = project_root.join("on_close_1");
+        let marker2 = project_root.join("on_close_2");
+
+        let mut bean = Bean::new("1", "Task with multiple on_close");
+        bean.on_close = vec![
+            OnCloseAction::Run {
+                command: format!("touch {}", marker1.display()),
+            },
+            OnCloseAction::Notify {
+                message: "Between actions".to_string(),
+            },
+            OnCloseAction::Run {
+                command: format!("touch {}", marker2.display()),
+            },
+        ];
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
+
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+
+        assert!(marker1.exists(), "First on_close run should have executed");
+        assert!(marker2.exists(), "Second on_close run should have executed");
+    }
+
+    #[test]
+    fn on_close_runs_in_project_root() {
+        let (dir, beans_dir) = setup_test_beans_dir();
+        let project_root = dir.path();
+
+        let mut bean = Bean::new("1", "Task with pwd check");
+        // Write the working directory to a file so we can verify it
+        let pwd_file = project_root.join("on_close_pwd");
+        bean.on_close = vec![OnCloseAction::Run {
+            command: format!("pwd > {}", pwd_file.display()),
+        }];
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
+
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+
+        let pwd_output = fs::read_to_string(&pwd_file).unwrap();
+        // Resolve symlinks for macOS /private/var/... vs /var/...
+        let expected = std::fs::canonicalize(project_root).unwrap();
+        let actual = std::fs::canonicalize(pwd_output.trim()).unwrap();
+        assert_eq!(actual, expected);
+    }
+
+    // =====================================================================
+    // History Recording Tests
+    // =====================================================================
+
+    #[test]
+    fn history_failure_creates_run_record() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+        let mut bean = Bean::new("1", "Task with failing verify");
+        bean.verify = Some("echo 'some error' && exit 1".to_string());
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
+
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        assert_eq!(updated.history.len(), 1);
+        let record = &updated.history[0];
+        assert_eq!(record.result, RunResult::Fail);
+        assert_eq!(record.attempt, 1);
+        assert_eq!(record.exit_code, Some(1));
+        assert!(record.output_snippet.is_some());
+        assert!(record
+            .output_snippet
+            .as_ref()
+            .unwrap()
+            .contains("some error"));
+    }
+
+    #[test]
+    fn history_success_creates_run_record() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+        let mut bean = Bean::new("1", "Task with passing verify");
+        bean.verify = Some("true".to_string());
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
+
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+
+        let archived = crate::discovery::find_archived_bean(&beans_dir, "1").unwrap();
+        let updated = Bean::from_file(&archived).unwrap();
+        assert_eq!(updated.history.len(), 1);
+        let record = &updated.history[0];
+        assert_eq!(record.result, RunResult::Pass);
+        assert_eq!(record.attempt, 1);
+        assert!(record.output_snippet.is_none());
+    }
+
+    #[test]
+    fn history_has_correct_duration() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+        let mut bean = Bean::new("1", "Task with timed verify");
+        // sleep 0.1 to ensure measurable duration
+        bean.verify = Some("sleep 0.1 && true".to_string());
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
+
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+
+        let archived = crate::discovery::find_archived_bean(&beans_dir, "1").unwrap();
+        let updated = Bean::from_file(&archived).unwrap();
+        assert_eq!(updated.history.len(), 1);
+        let record = &updated.history[0];
+        assert!(record.finished_at.is_some());
+        assert!(record.duration_secs.is_some());
+        let dur = record.duration_secs.unwrap();
+        assert!(dur >= 0.05, "Duration should be >= 0.05s, got {}", dur);
+        // Verify finished_at > started_at
+        assert!(record.finished_at.unwrap() >= record.started_at);
+    }
+
+    #[test]
+    fn history_records_exit_code() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+        let mut bean = Bean::new("1", "Task with exit code 42");
+        bean.verify = Some("exit 42".to_string());
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
+
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        assert_eq!(updated.history.len(), 1);
+        assert_eq!(updated.history[0].exit_code, Some(42));
+        assert_eq!(updated.history[0].result, RunResult::Fail);
+    }
+
+    #[test]
+    fn history_multiple_attempts_accumulate() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+        let mut bean = Bean::new("1", "Task with multiple failures");
+        bean.verify = Some("false".to_string());
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
+
+        // Three failed attempts
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        assert_eq!(updated.history.len(), 3);
+        assert_eq!(updated.history[0].attempt, 1);
+        assert_eq!(updated.history[1].attempt, 2);
+        assert_eq!(updated.history[2].attempt, 3);
+        for record in &updated.history {
+            assert_eq!(record.result, RunResult::Fail);
+        }
+    }
+
+    #[test]
+    fn history_agent_from_env_var() {
+        // Set env var before close, then verify it's captured
+        // NOTE: env var tests are inherently racy with parallel execution,
+        // but set_var + close + remove_var in sequence is the best we can do.
+        std::env::set_var("BEANS_AGENT", "test-agent-42");
+
+        let (_dir, beans_dir) = setup_test_beans_dir();
+        let mut bean = Bean::new("1", "Task with agent env");
+        bean.verify = Some("true".to_string());
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
+
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+
+        // Clean up env var immediately
+        std::env::remove_var("BEANS_AGENT");
+
+        let archived = crate::discovery::find_archived_bean(&beans_dir, "1").unwrap();
+        let updated = Bean::from_file(&archived).unwrap();
+        assert_eq!(updated.history.len(), 1);
+        assert_eq!(updated.history[0].agent, Some("test-agent-42".to_string()));
+    }
+
+    #[test]
+    fn history_no_record_without_verify() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+        let bean = Bean::new("1", "Task without verify");
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
+
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+
+        let archived = crate::discovery::find_archived_bean(&beans_dir, "1").unwrap();
+        let updated = Bean::from_file(&archived).unwrap();
+        assert!(
+            updated.history.is_empty(),
+            "No history when no verify command"
+        );
+    }
+
+    #[test]
+    fn history_no_record_when_force_skip() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+        let mut bean = Bean::new("1", "Task force closed");
+        bean.verify = Some("false".to_string());
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
+
+        cmd_close(&beans_dir, vec!["1".to_string()], None, true).unwrap();
+
+        let archived = crate::discovery::find_archived_bean(&beans_dir, "1").unwrap();
+        let updated = Bean::from_file(&archived).unwrap();
+        assert!(
+            updated.history.is_empty(),
+            "No history when verify skipped with --force"
+        );
+    }
+
+    #[test]
+    fn history_failure_then_success_accumulates() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+        let mut bean = Bean::new("1", "Task that eventually passes");
+        bean.verify = Some("false".to_string());
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
+
+        // First attempt fails
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+
+        // Change verify to pass
+        let mut updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        updated.verify = Some("true".to_string());
+        updated
+            .to_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap())
+            .unwrap();
+
+        // Second attempt succeeds
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+
+        let archived = crate::discovery::find_archived_bean(&beans_dir, "1").unwrap();
+        let final_bean = Bean::from_file(&archived).unwrap();
+        assert_eq!(final_bean.history.len(), 2);
+        assert_eq!(final_bean.history[0].result, RunResult::Fail);
+        assert_eq!(final_bean.history[0].attempt, 1);
+        assert_eq!(final_bean.history[1].result, RunResult::Pass);
+        assert_eq!(final_bean.history[1].attempt, 2);
+    }
+
+    // =====================================================================
+    // on_fail Action Tests
+    // =====================================================================
+
+    #[test]
+    fn on_fail_retry_releases_claim_when_under_max() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+        let mut bean = Bean::new("1", "Task with retry on_fail");
+        bean.verify = Some("false".to_string());
+        bean.on_fail = Some(OnFailAction::Retry {
+            max: Some(5),
+            delay_secs: None,
+        });
+        bean.claimed_by = Some("agent-1".to_string());
+        bean.claimed_at = Some(Utc::now());
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
+
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        assert_eq!(updated.status, Status::Open);
+        assert_eq!(updated.attempts, 1);
+        // Claim should be released for retry
+        assert!(updated.claimed_by.is_none());
+        assert!(updated.claimed_at.is_none());
+    }
+
+    #[test]
+    fn on_fail_retry_keeps_claim_when_at_max() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+        let mut bean = Bean::new("1", "Task exhausted retries");
+        bean.verify = Some("false".to_string());
+        bean.on_fail = Some(OnFailAction::Retry {
+            max: Some(2),
+            delay_secs: None,
+        });
+        bean.attempts = 1; // Next failure will be attempt 2 == max
+        bean.claimed_by = Some("agent-1".to_string());
+        bean.claimed_at = Some(Utc::now());
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
+
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        assert_eq!(updated.attempts, 2);
+        // Claim should NOT be released (max exhausted)
+        assert_eq!(updated.claimed_by, Some("agent-1".to_string()));
+        assert!(updated.claimed_at.is_some());
+    }
+
+    #[test]
+    fn on_fail_retry_max_defaults_to_max_attempts() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+        let mut bean = Bean::new("1", "Task with default max");
+        bean.verify = Some("false".to_string());
+        bean.max_attempts = 3;
+        bean.on_fail = Some(OnFailAction::Retry {
+            max: None, // Should default to bean.max_attempts (3)
+            delay_secs: None,
+        });
+        bean.claimed_by = Some("agent-1".to_string());
+        bean.claimed_at = Some(Utc::now());
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
+
+        // First attempt (1 < 3) — should release
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        assert_eq!(updated.attempts, 1);
+        assert!(updated.claimed_by.is_none());
+
+        // Re-claim and fail again (2 < 3) — should release
+        let mut bean2 =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        bean2.claimed_by = Some("agent-2".to_string());
+        bean2.claimed_at = Some(Utc::now());
+        bean2
+            .to_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap())
+            .unwrap();
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        assert_eq!(updated.attempts, 2);
+        assert!(updated.claimed_by.is_none());
+
+        // Re-claim and fail again (3 >= 3) — should NOT release
+        let mut bean3 =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        bean3.claimed_by = Some("agent-3".to_string());
+        bean3.claimed_at = Some(Utc::now());
+        bean3
+            .to_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap())
+            .unwrap();
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        assert_eq!(updated.attempts, 3);
+        assert_eq!(updated.claimed_by, Some("agent-3".to_string()));
+    }
+
+    #[test]
+    fn on_fail_retry_with_delay_releases_claim() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+        let mut bean = Bean::new("1", "Task with delay");
+        bean.verify = Some("false".to_string());
+        bean.on_fail = Some(OnFailAction::Retry {
+            max: Some(3),
+            delay_secs: Some(30),
+        });
+        bean.claimed_by = Some("agent-1".to_string());
+        bean.claimed_at = Some(Utc::now());
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
+
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        assert_eq!(updated.attempts, 1);
+        // Claim released even with delay (delay is enforced by orchestrator)
+        assert!(updated.claimed_by.is_none());
+        assert!(updated.claimed_at.is_none());
+    }
+
+    #[test]
+    fn on_fail_escalate_updates_priority() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+        let mut bean = Bean::new("1", "Task to escalate");
+        bean.verify = Some("false".to_string());
+        bean.priority = 2;
+        bean.on_fail = Some(OnFailAction::Escalate {
+            priority: Some(0),
+            message: None,
+        });
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
+
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        assert_eq!(updated.priority, 0);
+        assert!(updated.labels.contains(&"escalated".to_string()));
+    }
+
+    #[test]
+    fn on_fail_escalate_appends_message_to_notes() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+        let mut bean = Bean::new("1", "Task with escalation message");
+        bean.verify = Some("false".to_string());
+        bean.notes = Some("Existing notes".to_string());
+        bean.on_fail = Some(OnFailAction::Escalate {
+            priority: None,
+            message: Some("Needs human review".to_string()),
+        });
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
+
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        let notes = updated.notes.unwrap();
+        assert!(notes.contains("Existing notes"));
+        assert!(notes.contains("## Escalated"));
+        assert!(notes.contains("Needs human review"));
+        assert!(updated.labels.contains(&"escalated".to_string()));
+    }
+
+    #[test]
+    fn on_fail_escalate_adds_label() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+        let mut bean = Bean::new("1", "Task to label");
+        bean.verify = Some("false".to_string());
+        bean.on_fail = Some(OnFailAction::Escalate {
+            priority: None,
+            message: None,
+        });
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
+
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        assert!(updated.labels.contains(&"escalated".to_string()));
+    }
+
+    #[test]
+    fn on_fail_escalate_no_duplicate_label() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+        let mut bean = Bean::new("1", "Task already escalated");
+        bean.verify = Some("false".to_string());
+        bean.labels = vec!["escalated".to_string()];
+        bean.on_fail = Some(OnFailAction::Escalate {
+            priority: None,
+            message: None,
+        });
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
+
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        let count = updated
+            .labels
+            .iter()
+            .filter(|l| l.as_str() == "escalated")
+            .count();
+        assert_eq!(count, 1, "Should not duplicate 'escalated' label");
+    }
+
+    #[test]
+    fn on_fail_none_existing_behavior_unchanged() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+        let mut bean = Bean::new("1", "Task with no on_fail");
+        bean.verify = Some("false".to_string());
+        bean.claimed_by = Some("agent-1".to_string());
+        bean.claimed_at = Some(Utc::now());
+        // on_fail is None by default
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
+
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        assert_eq!(updated.status, Status::Open);
+        assert_eq!(updated.attempts, 1);
+        // Claim should remain (no on_fail to release it)
+        assert_eq!(updated.claimed_by, Some("agent-1".to_string()));
+        assert!(updated.labels.is_empty());
+    }
+
+    // =====================================================================
+    // Output Capture Tests
+    // =====================================================================
+
+    #[test]
+    fn output_capture_json_stdout_stored_as_outputs() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+        let mut bean = Bean::new("1", "Task with JSON output");
+        bean.verify = Some(r#"echo '{"passed":42,"failed":0}'"#.to_string());
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
+
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+
+        let archived = crate::discovery::find_archived_bean(&beans_dir, "1").unwrap();
+        let updated = Bean::from_file(&archived).unwrap();
+        assert_eq!(updated.status, Status::Closed);
+        let outputs = updated.outputs.expect("outputs should be set");
+        assert_eq!(outputs["passed"], 42);
+        assert_eq!(outputs["failed"], 0);
+    }
+
+    #[test]
+    fn output_capture_non_json_stdout_stored_as_text() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+        let mut bean = Bean::new("1", "Task with plain text output");
+        bean.verify = Some("echo 'hello world'".to_string());
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
+
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+
+        let archived = crate::discovery::find_archived_bean(&beans_dir, "1").unwrap();
+        let updated = Bean::from_file(&archived).unwrap();
+        let outputs = updated.outputs.expect("outputs should be set");
+        assert_eq!(outputs["text"], "hello world");
+    }
+
+    #[test]
+    fn output_capture_empty_stdout_no_outputs() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+        let mut bean = Bean::new("1", "Task with no stdout");
+        bean.verify = Some("true".to_string());
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
+
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+
+        let archived = crate::discovery::find_archived_bean(&beans_dir, "1").unwrap();
+        let updated = Bean::from_file(&archived).unwrap();
+        assert!(
+            updated.outputs.is_none(),
+            "empty stdout should not set outputs"
+        );
+    }
+
+    #[test]
+    fn output_capture_large_stdout_truncated() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+        let mut bean = Bean::new("1", "Task with large output");
+        // Generate >64KB of stdout using printf (faster than many echos)
+        bean.verify = Some("python3 -c \"print('x' * 70000)\"".to_string());
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
+
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+
+        let archived = crate::discovery::find_archived_bean(&beans_dir, "1").unwrap();
+        let updated = Bean::from_file(&archived).unwrap();
+        let outputs = updated
+            .outputs
+            .expect("outputs should be set for large output");
+        assert_eq!(outputs["truncated"], true);
+        assert!(outputs["original_bytes"].as_u64().unwrap() > 64 * 1024);
+        // The text should be truncated to 64KB
+        let text = outputs["text"].as_str().unwrap();
+        assert!(text.len() <= 64 * 1024);
+    }
+
+    #[test]
+    fn output_capture_stderr_not_captured_as_outputs() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+        let mut bean = Bean::new("1", "Task with stderr only");
+        // Write to stderr only, nothing to stdout
+        bean.verify = Some("echo 'error info' >&2".to_string());
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
+
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+
+        let archived = crate::discovery::find_archived_bean(&beans_dir, "1").unwrap();
+        let updated = Bean::from_file(&archived).unwrap();
+        assert!(
+            updated.outputs.is_none(),
+            "stderr-only output should not set outputs"
+        );
+    }
+
+    #[test]
+    fn output_capture_failure_unchanged() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+        let mut bean = Bean::new("1", "Task that fails with output");
+        bean.verify = Some(r#"echo '{"result":"data"}' && exit 1"#.to_string());
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
+
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        assert_eq!(updated.status, Status::Open);
+        assert!(
+            updated.outputs.is_none(),
+            "failed verify should not capture outputs"
+        );
+    }
+
+    #[test]
+    fn output_capture_json_array() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+        let mut bean = Bean::new("1", "Task with JSON array output");
+        bean.verify = Some(r#"echo '["a","b","c"]'"#.to_string());
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
+
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+
+        let archived = crate::discovery::find_archived_bean(&beans_dir, "1").unwrap();
+        let updated = Bean::from_file(&archived).unwrap();
+        let outputs = updated.outputs.expect("outputs should be set");
+        let arr = outputs.as_array().unwrap();
+        assert_eq!(arr.len(), 3);
+        assert_eq!(arr[0], "a");
+    }
+
+    #[test]
+    fn output_capture_mixed_stdout_stderr() {
+        let (_dir, beans_dir) = setup_test_beans_dir();
+        let mut bean = Bean::new("1", "Task with mixed output");
+        // stdout has JSON, stderr has logs — only stdout should be captured
+        bean.verify = Some(r#"echo '{"key":"value"}' && echo 'debug log' >&2"#.to_string());
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
+
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+
+        let archived = crate::discovery::find_archived_bean(&beans_dir, "1").unwrap();
+        let updated = Bean::from_file(&archived).unwrap();
+        let outputs = updated.outputs.expect("outputs should capture stdout only");
+        assert_eq!(outputs["key"], "value");
+        // stderr content should NOT be in outputs
+        assert!(
+            outputs.get("text").is_none()
+                || !outputs["text"].as_str().unwrap_or("").contains("debug log")
+        );
+    }
+
+    // =====================================================================
+    // Circuit Breaker (max_loops) Tests
+    // =====================================================================
+
+    /// Helper: set up beans dir with config specifying max_loops.
+    fn setup_beans_dir_with_max_loops(max_loops: u32) -> (TempDir, std::path::PathBuf) {
+        let dir = TempDir::new().unwrap();
+        let beans_dir = dir.path().join(".beans");
+        fs::create_dir(&beans_dir).unwrap();
+
+        let config = crate::config::Config {
+            project: "test".to_string(),
+            next_id: 100,
+            auto_close_parent: true,
+            max_tokens: 30000,
+            run: None,
+            plan: None,
+            max_loops,
+            max_concurrent: 4,
+            poll_interval: 30,
+            extends: vec![],
+        };
+        config.save(&beans_dir).unwrap();
+
+        (dir, beans_dir)
+    }
+
+    #[test]
+    fn max_loops_circuit_breaker_triggers_at_limit() {
+        let (_dir, beans_dir) = setup_beans_dir_with_max_loops(3);
+
+        // Create parent and child beans
+        let parent = Bean::new("1", "Parent");
+        let parent_slug = title_to_slug(&parent.title);
+        parent
+            .to_file(beans_dir.join(format!("1-{}.md", parent_slug)))
+            .unwrap();
+
+        let mut child1 = Bean::new("1.1", "Child with attempts");
+        child1.parent = Some("1".to_string());
+        child1.verify = Some("false".to_string());
+        child1.attempts = 2; // Already has 2 attempts
+        let child1_slug = title_to_slug(&child1.title);
+        child1
+            .to_file(beans_dir.join(format!("1.1-{}.md", child1_slug)))
+            .unwrap();
+
+        // Close child1 → attempts becomes 3, subtree total = 0+3 = 3 >= 3
+        cmd_close(&beans_dir, vec!["1.1".to_string()], None, false).unwrap();
+
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1.1").unwrap()).unwrap();
+        assert_eq!(updated.status, Status::Open);
+        assert_eq!(updated.attempts, 3);
+        assert!(
+            updated.labels.contains(&"circuit-breaker".to_string()),
+            "Circuit breaker label should be added"
+        );
+        assert_eq!(updated.priority, 0, "Priority should be escalated to P0");
+    }
+
+    #[test]
+    fn max_loops_circuit_breaker_does_not_trigger_below_limit() {
+        let (_dir, beans_dir) = setup_beans_dir_with_max_loops(5);
+
+        let parent = Bean::new("1", "Parent");
+        let parent_slug = title_to_slug(&parent.title);
+        parent
+            .to_file(beans_dir.join(format!("1-{}.md", parent_slug)))
+            .unwrap();
+
+        let mut child = Bean::new("1.1", "Child");
+        child.parent = Some("1".to_string());
+        child.verify = Some("false".to_string());
+        child.attempts = 1; // After fail: 2, subtree = 0+2 = 2 < 5
+        let child_slug = title_to_slug(&child.title);
+        child
+            .to_file(beans_dir.join(format!("1.1-{}.md", child_slug)))
+            .unwrap();
+
+        cmd_close(&beans_dir, vec!["1.1".to_string()], None, false).unwrap();
+
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1.1").unwrap()).unwrap();
+        assert_eq!(updated.attempts, 2);
+        assert!(
+            !updated.labels.contains(&"circuit-breaker".to_string()),
+            "Circuit breaker should NOT trigger below limit"
+        );
+        assert_ne!(updated.priority, 0, "Priority should not change");
+    }
+
+    #[test]
+    fn max_loops_zero_disables_circuit_breaker() {
+        let (_dir, beans_dir) = setup_beans_dir_with_max_loops(0);
+
+        let mut bean = Bean::new("1", "Unlimited retries");
+        bean.verify = Some("false".to_string());
+        bean.attempts = 100; // Many attempts — should not trip if max_loops=0
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
+
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        assert_eq!(updated.attempts, 101);
+        assert!(
+            !updated.labels.contains(&"circuit-breaker".to_string()),
+            "Circuit breaker should not trigger when max_loops=0"
+        );
+    }
+
+    #[test]
+    fn max_loops_per_bean_overrides_config() {
+        // Config has max_loops=100 (high), but root bean has max_loops=3 (low)
+        let (_dir, beans_dir) = setup_beans_dir_with_max_loops(100);
+
+        let mut parent = Bean::new("1", "Parent with low max_loops");
+        parent.max_loops = Some(3); // Override: only 3 allowed
+        let parent_slug = title_to_slug(&parent.title);
+        parent
+            .to_file(beans_dir.join(format!("1-{}.md", parent_slug)))
+            .unwrap();
+
+        let mut child = Bean::new("1.1", "Child");
+        child.parent = Some("1".to_string());
+        child.verify = Some("false".to_string());
+        child.attempts = 2; // After fail: 3, subtree = 0+3 = 3 >= 3
+        let child_slug = title_to_slug(&child.title);
+        child
+            .to_file(beans_dir.join(format!("1.1-{}.md", child_slug)))
+            .unwrap();
+
+        cmd_close(&beans_dir, vec!["1.1".to_string()], None, false).unwrap();
+
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1.1").unwrap()).unwrap();
+        assert!(
+            updated.labels.contains(&"circuit-breaker".to_string()),
+            "Per-bean max_loops should override config"
+        );
+        assert_eq!(updated.priority, 0);
+    }
+
+    #[test]
+    fn max_loops_circuit_breaker_skips_on_fail_retry() {
+        // Circuit breaker should prevent on_fail retry from releasing the claim
+        let (_dir, beans_dir) = setup_beans_dir_with_max_loops(2);
+
+        let mut bean = Bean::new("1", "Bean with retry that should be blocked");
+        bean.verify = Some("false".to_string());
+        bean.attempts = 1; // After fail: 2 >= max_loops=2 → circuit breaker
+        bean.on_fail = Some(OnFailAction::Retry {
+            max: Some(10),
+            delay_secs: None,
+        });
+        bean.claimed_by = Some("agent-1".to_string());
+        bean.claimed_at = Some(Utc::now());
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
+
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        // Circuit breaker should have tripped, preventing on_fail retry
+        assert!(updated.labels.contains(&"circuit-breaker".to_string()));
+        assert_eq!(updated.priority, 0);
+        // Claim should NOT be released (circuit breaker bypasses on_fail)
+        assert_eq!(
+            updated.claimed_by,
+            Some("agent-1".to_string()),
+            "on_fail retry should not release claim when circuit breaker trips"
+        );
+    }
+
+    #[test]
+    fn max_loops_counts_across_siblings() {
+        let (_dir, beans_dir) = setup_beans_dir_with_max_loops(5);
+
+        let parent = Bean::new("1", "Parent");
+        let parent_slug = title_to_slug(&parent.title);
+        parent
+            .to_file(beans_dir.join(format!("1-{}.md", parent_slug)))
+            .unwrap();
+
+        // Sibling 1.1 already has 2 attempts
+        let mut sibling = Bean::new("1.1", "Sibling");
+        sibling.parent = Some("1".to_string());
+        sibling.attempts = 2;
+        let sib_slug = title_to_slug(&sibling.title);
+        sibling
+            .to_file(beans_dir.join(format!("1.1-{}.md", sib_slug)))
+            .unwrap();
+
+        // Child 1.2 has 2 attempts, will increment to 3
+        // subtree total = 0 + 2 + 3 = 5 >= 5
+        let mut child = Bean::new("1.2", "Child");
+        child.parent = Some("1".to_string());
+        child.verify = Some("false".to_string());
+        child.attempts = 2;
+        let child_slug = title_to_slug(&child.title);
+        child
+            .to_file(beans_dir.join(format!("1.2-{}.md", child_slug)))
+            .unwrap();
+
+        cmd_close(&beans_dir, vec!["1.2".to_string()], None, false).unwrap();
+
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1.2").unwrap()).unwrap();
+        assert!(
+            updated.labels.contains(&"circuit-breaker".to_string()),
+            "Circuit breaker should count sibling attempts"
+        );
+        assert_eq!(updated.priority, 0);
+    }
+
+    #[test]
+    fn max_loops_standalone_bean_uses_own_max_loops() {
+        let (_dir, beans_dir) = setup_beans_dir_with_max_loops(100);
+
+        // Standalone bean (no parent) with its own max_loops
+        let mut bean = Bean::new("1", "Standalone");
+        bean.verify = Some("false".to_string());
+        bean.max_loops = Some(2);
+        bean.attempts = 1; // After fail: 2, subtree(self) = 2 >= 2
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
+
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        assert!(updated.labels.contains(&"circuit-breaker".to_string()));
+        assert_eq!(updated.priority, 0);
+    }
+
+    #[test]
+    fn max_loops_no_config_defaults_to_10() {
+        // No config file — should default max_loops to 10
+        let (_dir, beans_dir) = setup_test_beans_dir();
+
+        let mut bean = Bean::new("1", "No config");
+        bean.verify = Some("false".to_string());
+        bean.attempts = 9; // After fail: 10, subtree = 10 >= default 10
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
+
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        assert!(
+            updated.labels.contains(&"circuit-breaker".to_string()),
+            "Should use default max_loops=10"
+        );
+    }
+
+    #[test]
+    fn max_loops_no_duplicate_label() {
+        let (_dir, beans_dir) = setup_beans_dir_with_max_loops(1);
+
+        let mut bean = Bean::new("1", "Already has label");
+        bean.verify = Some("false".to_string());
+        bean.labels = vec!["circuit-breaker".to_string()];
+        bean.attempts = 0; // After fail: 1 >= 1
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
+
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        let count = updated
+            .labels
+            .iter()
+            .filter(|l| l.as_str() == "circuit-breaker")
+            .count();
+        assert_eq!(count, 1, "Should not duplicate 'circuit-breaker' label");
     }
 }

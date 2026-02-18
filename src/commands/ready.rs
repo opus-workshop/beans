@@ -32,11 +32,9 @@ pub fn cmd_ready(json: bool, beans_dir: &Path) -> Result<()> {
 
     // Sort by priority (ascending, so P0 first), then by id
     let mut sorted_ready = ready;
-    sorted_ready.sort_by(|a, b| {
-        match a.priority.cmp(&b.priority) {
-            std::cmp::Ordering::Equal => natural_cmp(&a.id, &b.id),
-            other => other,
-        }
+    sorted_ready.sort_by(|a, b| match a.priority.cmp(&b.priority) {
+        std::cmp::Ordering::Equal => natural_cmp(&a.id, &b.id),
+        other => other,
     });
 
     if json {
@@ -74,11 +72,9 @@ pub fn cmd_blocked(json: bool, beans_dir: &Path) -> Result<()> {
 
     // Sort by priority, then id (same as ready)
     let mut sorted_blocked = blocked;
-    sorted_blocked.sort_by(|a, b| {
-        match a.priority.cmp(&b.priority) {
-            std::cmp::Ordering::Equal => natural_cmp(&a.id, &b.id),
-            other => other,
-        }
+    sorted_blocked.sort_by(|a, b| match a.priority.cmp(&b.priority) {
+        std::cmp::Ordering::Equal => natural_cmp(&a.id, &b.id),
+        other => other,
     });
 
     if json {
@@ -91,7 +87,10 @@ pub fn cmd_blocked(json: bool, beans_dir: &Path) -> Result<()> {
         for entry in sorted_blocked {
             let blockers = resolve_blocked(entry, &index);
             let blockers_str = blockers.join(", ");
-            println!("{}  {}  ← blocked by: {}", entry.id, entry.title, blockers_str);
+            println!(
+                "{}  {}  ← blocked by: {}",
+                entry.id, entry.title, blockers_str
+            );
         }
     }
 
@@ -168,13 +167,11 @@ mod tests {
         bean3.to_file(beans_dir.join("3.yaml")).unwrap();
         bean4.to_file(beans_dir.join("4.yaml")).unwrap();
         bean2_closed.to_file(beans_dir.join("5.yaml")).unwrap();
-        closed_bean.to_file(beans_dir.join("closed-bean.yaml")).unwrap();
+        closed_bean
+            .to_file(beans_dir.join("closed-bean.yaml"))
+            .unwrap();
 
-        fs::write(
-            beans_dir.join("config.yaml"),
-            "project: test\nnext_id: 6\n",
-        )
-        .unwrap();
+        fs::write(beans_dir.join("config.yaml"), "project: test\nnext_id: 6\n").unwrap();
 
         (dir, beans_dir)
     }
@@ -270,7 +267,10 @@ mod tests {
 
         let entry = index.beans.iter().find(|e| e.id == "1.2").unwrap();
         let blocked = resolve_blocked(entry, &index);
-        assert!(blocked.is_empty(), "Should be unblocked since producer is closed");
+        assert!(
+            blocked.is_empty(),
+            "Should be unblocked since producer is closed"
+        );
     }
 
     #[test]
@@ -325,7 +325,9 @@ mod tests {
             .beans
             .iter()
             .filter(|entry| {
-                entry.has_verify && entry.status == Status::Open && resolve_blocked(entry, &index).is_empty()
+                entry.has_verify
+                    && entry.status == Status::Open
+                    && resolve_blocked(entry, &index).is_empty()
             })
             .collect();
 
@@ -381,11 +383,9 @@ mod tests {
         let index = Index::load_or_rebuild(&beans_dir).unwrap();
 
         let mut ready: Vec<&IndexEntry> = index.beans.iter().collect();
-        ready.sort_by(|a, b| {
-            match a.priority.cmp(&b.priority) {
-                std::cmp::Ordering::Equal => natural_cmp(&a.id, &b.id),
-                other => other,
-            }
+        ready.sort_by(|a, b| match a.priority.cmp(&b.priority) {
+            std::cmp::Ordering::Equal => natural_cmp(&a.id, &b.id),
+            other => other,
         });
 
         // Should be: 2 (P1), 1 (P2), 3 (P2)

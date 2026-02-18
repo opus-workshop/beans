@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 
 use anyhow::{anyhow, Result};
 
@@ -70,7 +71,10 @@ pub fn build_dependency_tree(index: &Index, id: &str) -> Result<String> {
     let mut reverse_graph: HashMap<String, Vec<String>> = HashMap::new();
     for (id, deps) in &graph {
         for dep in deps {
-            reverse_graph.entry(dep.clone()).or_default().push(id.clone());
+            reverse_graph
+                .entry(dep.clone())
+                .or_default()
+                .push(id.clone());
         }
     }
 
@@ -80,14 +84,7 @@ pub fn build_dependency_tree(index: &Index, id: &str) -> Result<String> {
 
     // DFS to build tree
     let mut visited = HashSet::new();
-    build_tree_recursive(
-        &mut output,
-        id,
-        &reverse_graph,
-        &id_map,
-        &mut visited,
-        "",
-    );
+    build_tree_recursive(&mut output, id, &reverse_graph, &id_map, &mut visited, "");
 
     Ok(output)
 }
@@ -109,7 +106,11 @@ fn build_tree_recursive(
         for (i, dependent_id) in dependents.iter().enumerate() {
             let is_last_dependent = i == dependents.len() - 1;
 
-            let connector = if is_last_dependent { "└── " } else { "├── " };
+            let connector = if is_last_dependent {
+                "└── "
+            } else {
+                "├── "
+            };
             output.push_str(prefix);
             output.push_str(connector);
 
@@ -141,11 +142,7 @@ fn build_tree_recursive(
 /// Shows all dependencies rooted at beans with no parents.
 pub fn build_full_graph(index: &Index) -> Result<String> {
     // Find root beans (those with no parent)
-    let root_beans: Vec<_> = index
-        .beans
-        .iter()
-        .filter(|e| e.parent.is_none())
-        .collect();
+    let root_beans: Vec<_> = index.beans.iter().filter(|e| e.parent.is_none()).collect();
 
     if root_beans.is_empty() {
         return Ok("No beans found.".to_string());
@@ -157,7 +154,10 @@ pub fn build_full_graph(index: &Index) -> Result<String> {
     let mut reverse_graph: HashMap<String, Vec<String>> = HashMap::new();
     for entry in &index.beans {
         for dep in &entry.dependencies {
-            reverse_graph.entry(dep.clone()).or_default().push(entry.id.clone());
+            reverse_graph
+                .entry(dep.clone())
+                .or_default()
+                .push(entry.id.clone());
         }
     }
 
@@ -179,6 +179,43 @@ pub fn build_full_graph(index: &Index) -> Result<String> {
     }
 
     Ok(output)
+}
+
+/// Count total verify attempts across all descendants of a bean.
+///
+/// Includes the bean itself and archived descendants.
+/// Used by the circuit breaker to detect runaway retry loops across a subtree.
+#[must_use = "returns the total attempt count"]
+pub fn count_subtree_attempts(beans_dir: &Path, root_id: &str) -> Result<u32> {
+    let index = Index::build(beans_dir)?;
+    let archived = Index::collect_archived(beans_dir).unwrap_or_default();
+
+    // Combine active and archived beans
+    let mut all_beans = index.beans;
+    all_beans.extend(archived);
+
+    let mut total = 0u32;
+    let mut stack = vec![root_id.to_string()];
+    let mut visited = HashSet::new();
+
+    while let Some(id) = stack.pop() {
+        if !visited.insert(id.clone()) {
+            continue;
+        }
+        if let Some(entry) = all_beans.iter().find(|b| b.id == id) {
+            total += entry.attempts;
+            // Find children
+            for child in all_beans
+                .iter()
+                .filter(|b| b.parent.as_deref() == Some(id.as_str()))
+            {
+                if !visited.contains(&child.id) {
+                    stack.push(child.id.clone());
+                }
+            }
+        }
+    }
+    Ok(total)
 }
 
 /// Find all cycles in the dependency graph.
@@ -254,7 +291,8 @@ mod tests {
         for (id, deps) in specs {
             let mut bean = Bean::new(id, &format!("Task {}", id));
             bean.dependencies = deps.iter().map(|s| s.to_string()).collect();
-            bean.to_file(beans_dir.join(format!("{}.yaml", id))).unwrap();
+            bean.to_file(beans_dir.join(format!("{}.yaml", id)))
+                .unwrap();
         }
 
         (dir, beans_dir)
@@ -292,5 +330,114 @@ mod tests {
         let index = Index::build(&beans_dir).unwrap();
         assert!(!detect_cycle(&index, "1", "2").unwrap());
         assert!(!detect_cycle(&index, "2", "3").unwrap());
+    }
+
+    // =====================================================================
+    // Subtree Attempts Tests
+    // =====================================================================
+
+    /// Helper: create beans with parent + attempts for subtree tests.
+    /// Each spec: (id, parent, attempts)
+    fn setup_subtree_beans(specs: Vec<(&str, Option<&str>, u32)>) -> (TempDir, std::path::PathBuf) {
+        let dir = TempDir::new().unwrap();
+        let beans_dir = dir.path().join(".beans");
+        fs::create_dir(&beans_dir).unwrap();
+
+        for (id, parent, attempts) in specs {
+            let mut bean = Bean::new(id, &format!("Task {}", id));
+            bean.parent = parent.map(|s| s.to_string());
+            bean.attempts = attempts;
+            let slug = crate::util::title_to_slug(&bean.title);
+            bean.to_file(beans_dir.join(format!("{}-{}.md", id, slug)))
+                .unwrap();
+        }
+
+        (dir, beans_dir)
+    }
+
+    #[test]
+    fn subtree_attempts_single_bean_no_children() {
+        let (_dir, beans_dir) = setup_subtree_beans(vec![("1", None, 5)]);
+        let total = count_subtree_attempts(&beans_dir, "1").unwrap();
+        assert_eq!(total, 5);
+    }
+
+    #[test]
+    fn subtree_attempts_includes_root() {
+        let (_dir, beans_dir) = setup_subtree_beans(vec![
+            ("1", None, 3),
+            ("1.1", Some("1"), 2),
+            ("1.2", Some("1"), 1),
+        ]);
+        let total = count_subtree_attempts(&beans_dir, "1").unwrap();
+        // Root(3) + 1.1(2) + 1.2(1) = 6
+        assert_eq!(total, 6);
+    }
+
+    #[test]
+    fn subtree_attempts_sums_all_descendants() {
+        let (_dir, beans_dir) = setup_subtree_beans(vec![
+            ("1", None, 0),
+            ("1.1", Some("1"), 2),
+            ("1.2", Some("1"), 3),
+            ("1.1.1", Some("1.1"), 1),
+            ("1.1.2", Some("1.1"), 4),
+        ]);
+        let total = count_subtree_attempts(&beans_dir, "1").unwrap();
+        // 0 + 2 + 3 + 1 + 4 = 10
+        assert_eq!(total, 10);
+    }
+
+    #[test]
+    fn subtree_attempts_subtree_only() {
+        // Only counts descendants of the given root, not siblings
+        let (_dir, beans_dir) = setup_subtree_beans(vec![
+            ("1", None, 1),
+            ("1.1", Some("1"), 5),
+            ("2", None, 10),
+            ("2.1", Some("2"), 20),
+        ]);
+        let total = count_subtree_attempts(&beans_dir, "1").unwrap();
+        // Only 1(1) + 1.1(5) = 6, not including "2" tree
+        assert_eq!(total, 6);
+    }
+
+    #[test]
+    fn subtree_attempts_unknown_root_returns_zero() {
+        let (_dir, beans_dir) = setup_subtree_beans(vec![("1", None, 5)]);
+        let total = count_subtree_attempts(&beans_dir, "999").unwrap();
+        assert_eq!(total, 0);
+    }
+
+    #[test]
+    fn subtree_attempts_zero_attempts_everywhere() {
+        let (_dir, beans_dir) = setup_subtree_beans(vec![
+            ("1", None, 0),
+            ("1.1", Some("1"), 0),
+            ("1.2", Some("1"), 0),
+        ]);
+        let total = count_subtree_attempts(&beans_dir, "1").unwrap();
+        assert_eq!(total, 0);
+    }
+
+    #[test]
+    fn subtree_attempts_includes_archived_beans() {
+        let (_dir, beans_dir) = setup_subtree_beans(vec![("1", None, 1), ("1.2", Some("1"), 2)]);
+
+        // Create an archived child with attempts
+        let archive_dir = beans_dir.join("archive").join("2026").join("02");
+        fs::create_dir_all(&archive_dir).unwrap();
+        let mut archived_bean = Bean::new("1.1", "Archived Child");
+        archived_bean.parent = Some("1".to_string());
+        archived_bean.attempts = 3;
+        archived_bean.status = crate::bean::Status::Closed;
+        archived_bean.is_archived = true;
+        archived_bean
+            .to_file(archive_dir.join("1.1-archived-child.md"))
+            .unwrap();
+
+        let total = count_subtree_attempts(&beans_dir, "1").unwrap();
+        // Root(1) + active 1.2(2) + archived 1.1(3) = 6
+        assert_eq!(total, 6);
     }
 }

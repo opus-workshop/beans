@@ -14,6 +14,9 @@ pub fn cmd_config_get(beans_dir: &Path, key: &str) -> Result<()> {
         "auto_close_parent" => config.auto_close_parent.to_string(),
         "max_tokens" => config.max_tokens.to_string(),
         "run" => config.run.unwrap_or_default(),
+        "plan" => config.plan.unwrap_or_default(),
+        "max_concurrent" => config.max_concurrent.to_string(),
+        "poll_interval" => config.poll_interval.to_string(),
         _ => return Err(anyhow!("Unknown config key: {}", key)),
     };
 
@@ -35,14 +38,20 @@ pub fn cmd_config_set(beans_dir: &Path, key: &str, value: &str) -> Result<()> {
                 .map_err(|_| anyhow!("Invalid value for next_id: {}", value))?;
         }
         "auto_close_parent" => {
-            config.auto_close_parent = value
-                .parse()
-                .map_err(|_| anyhow!("Invalid value for auto_close_parent: {} (expected true/false)", value))?;
+            config.auto_close_parent = value.parse().map_err(|_| {
+                anyhow!(
+                    "Invalid value for auto_close_parent: {} (expected true/false)",
+                    value
+                )
+            })?;
         }
         "max_tokens" => {
-            config.max_tokens = value
-                .parse()
-                .map_err(|_| anyhow!("Invalid value for max_tokens: {} (expected positive integer)", value))?;
+            config.max_tokens = value.parse().map_err(|_| {
+                anyhow!(
+                    "Invalid value for max_tokens: {} (expected positive integer)",
+                    value
+                )
+            })?;
         }
         "run" => {
             if value.is_empty() || value == "none" || value == "unset" {
@@ -50,6 +59,29 @@ pub fn cmd_config_set(beans_dir: &Path, key: &str, value: &str) -> Result<()> {
             } else {
                 config.run = Some(value.to_string());
             }
+        }
+        "plan" => {
+            if value.is_empty() || value == "none" || value == "unset" {
+                config.plan = None;
+            } else {
+                config.plan = Some(value.to_string());
+            }
+        }
+        "max_concurrent" => {
+            config.max_concurrent = value.parse().map_err(|_| {
+                anyhow!(
+                    "Invalid value for max_concurrent: {} (expected positive integer)",
+                    value
+                )
+            })?;
+        }
+        "poll_interval" => {
+            config.poll_interval = value.parse().map_err(|_| {
+                anyhow!(
+                    "Invalid value for poll_interval: {} (expected positive integer)",
+                    value
+                )
+            })?;
         }
         _ => return Err(anyhow!("Unknown config key: {}", key)),
     }
@@ -87,7 +119,10 @@ mod tests {
         let dir = setup_test_dir();
         let result = cmd_config_get(dir.path(), "unknown_key");
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Unknown config key"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Unknown config key"));
     }
 
     #[test]
@@ -112,7 +147,10 @@ mod tests {
         let dir = setup_test_dir();
         let result = cmd_config_set(dir.path(), "unknown_key", "value");
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Unknown config key"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Unknown config key"));
     }
 
     #[test]
@@ -128,7 +166,10 @@ mod tests {
         cmd_config_set(dir.path(), "run", "claude -p 'implement bean {id}'").unwrap();
 
         let config = Config::load(dir.path()).unwrap();
-        assert_eq!(config.run, Some("claude -p 'implement bean {id}'".to_string()));
+        assert_eq!(
+            config.run,
+            Some("claude -p 'implement bean {id}'".to_string())
+        );
     }
 
     #[test]

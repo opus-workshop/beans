@@ -16,8 +16,8 @@ use std::path::Path;
 use std::process::Command;
 
 use crate::bean::Bean;
-use crate::index::Index;
 use crate::discovery::find_bean_file;
+use crate::index::Index;
 
 /// Validate bean content and persist it to disk with updated timestamp.
 ///
@@ -41,15 +41,15 @@ use crate::discovery::find_bean_file;
 /// ```
 pub fn validate_and_save(path: &Path, content: &str) -> Result<()> {
     // Parse content to validate schema
-    let mut bean = Bean::from_string(content)
-        .with_context(|| "Failed to parse bean: invalid YAML schema")?;
+    let mut bean =
+        Bean::from_string(content).with_context(|| "Failed to parse bean: invalid YAML schema")?;
 
     // Update the timestamp to current time
     bean.updated_at = Utc::now();
 
     // Serialize the validated bean back to YAML
-    let validated_yaml = serde_yaml::to_string(&bean)
-        .with_context(|| "Failed to serialize validated bean")?;
+    let validated_yaml =
+        serde_yaml::to_string(&bean).with_context(|| "Failed to serialize validated bean")?;
 
     // Write to disk
     fs::write(path, validated_yaml)
@@ -79,10 +79,10 @@ pub fn validate_and_save(path: &Path, content: &str) -> Result<()> {
 /// rebuild_index_after_edit(Path::new(".beans"))?;
 /// ```
 pub fn rebuild_index_after_edit(beans_dir: &Path) -> Result<()> {
-    let index = Index::build(beans_dir)
-        .with_context(|| "Failed to build index from bean files")?;
+    let index = Index::build(beans_dir).with_context(|| "Failed to build index from bean files")?;
 
-    index.save(beans_dir)
+    index
+        .save(beans_dir)
         .with_context(|| "Failed to save index to .beans/index.yaml")?;
 
     Ok(())
@@ -178,10 +178,7 @@ pub fn open_editor(path: &Path) -> Result<()> {
 
     // Ensure file exists before opening
     if !path.exists() {
-        return Err(anyhow!(
-            "File does not exist: {}",
-            path.display()
-        ));
+        return Err(anyhow!("File does not exist: {}", path.display()));
     }
 
     // Convert path to string for error messages
@@ -193,14 +190,12 @@ pub fn open_editor(path: &Path) -> Result<()> {
     let mut cmd = Command::new(&editor);
     cmd.arg(path_str);
 
-    let status = cmd
-        .status()
-        .with_context(|| {
-            anyhow!(
-                "Failed to launch editor '{}'. Make sure it is installed and in your PATH",
-                editor
-            )
-        })?;
+    let status = cmd.status().with_context(|| {
+        anyhow!(
+            "Failed to launch editor '{}'. Make sure it is installed and in your PATH",
+            editor
+        )
+    })?;
 
     // Check exit status
     if !status.success() {
@@ -235,12 +230,7 @@ pub fn open_editor(path: &Path) -> Result<()> {
 /// let backup = load_backup(Path::new(".beans/1-my-task.md"))?;
 /// ```
 pub fn load_backup(path: &Path) -> Result<Vec<u8>> {
-    fs::read(path).with_context(|| {
-        anyhow!(
-            "Failed to read file for backup: {}",
-            path.display()
-        )
-    })
+    fs::read(path).with_context(|| anyhow!("Failed to read file for backup: {}", path.display()))
 }
 
 /// Orchestrate the complete bn edit workflow for a bean.
@@ -276,8 +266,8 @@ pub fn load_backup(path: &Path) -> Result<Vec<u8>> {
 /// ```
 pub fn cmd_edit(beans_dir: &Path, id: &str) -> Result<()> {
     // Step 1: Find the bean file
-    let bean_path = find_bean_file(beans_dir, id)
-        .with_context(|| format!("Bean not found: {}", id))?;
+    let bean_path =
+        find_bean_file(beans_dir, id).with_context(|| format!("Bean not found: {}", id))?;
 
     // Step 2: Load the current bean content as backup
     let backup = load_backup(&bean_path)
@@ -336,8 +326,7 @@ pub fn cmd_edit(beans_dir: &Path, id: &str) -> Result<()> {
                 // Attempt rollback
                 match fs::write(&bean_path, &backup) {
                     Ok(()) => {
-                        return Err(editor_err)
-                            .context("Editor failed; backup restored");
+                        return Err(editor_err).context("Editor failed; backup restored");
                     }
                     Err(rollback_err) => {
                         return Err(anyhow!(
@@ -899,7 +888,10 @@ updated_at: "2026-01-26T15:00:00Z"
         bean.to_file(&original_path).unwrap();
 
         // Verify the file exists with correct naming
-        assert!(original_path.exists(), "Bean file should be named 1-my-task.md");
+        assert!(
+            original_path.exists(),
+            "Bean file should be named 1-my-task.md"
+        );
 
         // Load and modify
         let content = fs::read_to_string(&original_path).unwrap();
@@ -909,7 +901,10 @@ updated_at: "2026-01-26T15:00:00Z"
         validate_and_save(&original_path, &modified).unwrap();
 
         // Verify the file still exists and naming is preserved
-        assert!(original_path.exists(), "Naming should be preserved after edit");
+        assert!(
+            original_path.exists(),
+            "Naming should be preserved after edit"
+        );
 
         // Verify the bean was updated
         let updated_bean = Bean::from_file(&original_path).unwrap();

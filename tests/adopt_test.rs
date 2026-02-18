@@ -23,6 +23,11 @@ fn setup_test_env() -> (TempDir, std::path::PathBuf) {
         auto_close_parent: true,
         max_tokens: 30000,
         run: None,
+        plan: None,
+        max_loops: 10,
+        max_concurrent: 4,
+        poll_interval: 30,
+        extends: vec![],
     };
     config.save(&beans_dir).unwrap();
 
@@ -303,7 +308,10 @@ fn test_adopt_preserves_bean_fields() {
     // Verify all fields are preserved
     let adopted = Bean::from_file(beans_dir.join("100.1-complex-bean.md")).unwrap();
     assert_eq!(adopted.title, "Complex Bean");
-    assert_eq!(adopted.description, Some("A detailed description".to_string()));
+    assert_eq!(
+        adopted.description,
+        Some("A detailed description".to_string())
+    );
     assert_eq!(adopted.acceptance, Some("All criteria met".to_string()));
     assert_eq!(adopted.verify, Some("cargo test".to_string()));
     assert_eq!(adopted.priority, 1);

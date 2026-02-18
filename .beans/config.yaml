@@ -1,4 +1,9 @@
 project: beans
-next_id: 60
+next_id: 75
 auto_close_parent: true
 max_tokens: 30000
+run: pi @.beans/{id}-*.md "implement and bn close {id}"
+plan: test
+max_loops: 10
+max_concurrent: 4
+poll_interval: 30

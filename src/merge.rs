@@ -48,22 +48,52 @@ impl Bean {
         self.merge_scalar_option("slug", &base.slug, &right.slug, &mut result)?;
         self.merge_scalar("status", &base.status, &right.status, &mut result)?;
         self.merge_scalar("priority", &base.priority, &right.priority, &mut result)?;
-        self.merge_scalar_option("description", &base.description, &right.description, &mut result)?;
-        self.merge_scalar_option("acceptance", &base.acceptance, &right.acceptance, &mut result)?;
+        self.merge_scalar_option(
+            "description",
+            &base.description,
+            &right.description,
+            &mut result,
+        )?;
+        self.merge_scalar_option(
+            "acceptance",
+            &base.acceptance,
+            &right.acceptance,
+            &mut result,
+        )?;
         self.merge_scalar_option("design", &base.design, &right.design, &mut result)?;
         self.merge_scalar_option("assignee", &base.assignee, &right.assignee, &mut result)?;
         self.merge_scalar_option("parent", &base.parent, &right.parent, &mut result)?;
         self.merge_scalar_option("verify", &base.verify, &right.verify, &mut result)?;
-        self.merge_scalar("fail_first", &base.fail_first, &right.fail_first, &mut result)?;
-        self.merge_scalar("max_attempts", &base.max_attempts, &right.max_attempts, &mut result)?;
-        self.merge_scalar_option("close_reason", &base.close_reason, &right.close_reason, &mut result)?;
+        self.merge_scalar(
+            "fail_first",
+            &base.fail_first,
+            &right.fail_first,
+            &mut result,
+        )?;
+        self.merge_scalar(
+            "max_attempts",
+            &base.max_attempts,
+            &right.max_attempts,
+            &mut result,
+        )?;
+        self.merge_scalar_option(
+            "close_reason",
+            &base.close_reason,
+            &right.close_reason,
+            &mut result,
+        )?;
 
         // Append fields (notes always appends, no conflicts)
         self.merge_append_notes(&base.notes, &right.notes, &mut result);
 
         // Collection fields (set union for adds)
         self.merge_collection("labels", &base.labels, &right.labels, &mut result)?;
-        self.merge_collection("dependencies", &base.dependencies, &right.dependencies, &mut result)?;
+        self.merge_collection(
+            "dependencies",
+            &base.dependencies,
+            &right.dependencies,
+            &mut result,
+        )?;
         self.merge_collection("produces", &base.produces, &right.produces, &mut result)?;
         self.merge_collection("requires", &base.requires, &right.requires, &mut result)?;
 
@@ -234,7 +264,11 @@ impl Bean {
             merged.push_str(right_addition.trim_start_matches('\n'));
         }
 
-        self.notes = if merged.is_empty() { None } else { Some(merged) };
+        self.notes = if merged.is_empty() {
+            None
+        } else {
+            Some(merged)
+        };
         result.merged.push("notes".to_string());
     }
 
@@ -309,8 +343,11 @@ impl Bean {
         if merged != left_sorted {
             self.set_field_vec(field, merged)?;
             result.merged.push(field.to_string());
-        } else if left_added.is_empty() && right_added.is_empty() 
-               && left_removed.is_empty() && right_removed.is_empty() {
+        } else if left_added.is_empty()
+            && right_added.is_empty()
+            && left_removed.is_empty()
+            && right_removed.is_empty()
+        {
             // No changes at all
         } else {
             result.merged.push(field.to_string());
@@ -387,19 +424,23 @@ impl Bean {
         let val: Box<dyn Any> = Box::new(value);
         match field {
             "status" => {
-                self.status = *val.downcast::<Status>()
+                self.status = *val
+                    .downcast::<Status>()
                     .map_err(|_| anyhow::anyhow!("Type mismatch for field 'status'"))?;
             }
             "priority" => {
-                self.priority = *val.downcast::<u8>()
+                self.priority = *val
+                    .downcast::<u8>()
                     .map_err(|_| anyhow::anyhow!("Type mismatch for field 'priority'"))?;
             }
             "fail_first" => {
-                self.fail_first = *val.downcast::<bool>()
+                self.fail_first = *val
+                    .downcast::<bool>()
                     .map_err(|_| anyhow::anyhow!("Type mismatch for field 'fail_first'"))?;
             }
             "max_attempts" => {
-                self.max_attempts = *val.downcast::<u32>()
+                self.max_attempts = *val
+                    .downcast::<u32>()
                     .map_err(|_| anyhow::anyhow!("Type mismatch for field 'max_attempts'"))?;
             }
             _ => return Err(anyhow::anyhow!("Unknown scalar field: {}", field)),
@@ -425,40 +466,52 @@ impl Bean {
             .map_err(|_| anyhow::anyhow!("Type mismatch for field '{}'", field))
     }
 
-    fn set_field_option<T: Clone + 'static>(&mut self, field: &str, value: Option<T>) -> Result<()> {
+    fn set_field_option<T: Clone + 'static>(
+        &mut self,
+        field: &str,
+        value: Option<T>,
+    ) -> Result<()> {
         use std::any::Any;
         let val: Box<dyn Any> = Box::new(value);
         match field {
             "slug" => {
-                self.slug = *val.downcast::<Option<String>>()
+                self.slug = *val
+                    .downcast::<Option<String>>()
                     .map_err(|_| anyhow::anyhow!("Type mismatch for field 'slug'"))?;
             }
             "description" => {
-                self.description = *val.downcast::<Option<String>>()
+                self.description = *val
+                    .downcast::<Option<String>>()
                     .map_err(|_| anyhow::anyhow!("Type mismatch for field 'description'"))?;
             }
             "acceptance" => {
-                self.acceptance = *val.downcast::<Option<String>>()
+                self.acceptance = *val
+                    .downcast::<Option<String>>()
                     .map_err(|_| anyhow::anyhow!("Type mismatch for field 'acceptance'"))?;
             }
             "design" => {
-                self.design = *val.downcast::<Option<String>>()
+                self.design = *val
+                    .downcast::<Option<String>>()
                     .map_err(|_| anyhow::anyhow!("Type mismatch for field 'design'"))?;
             }
             "assignee" => {
-                self.assignee = *val.downcast::<Option<String>>()
+                self.assignee = *val
+                    .downcast::<Option<String>>()
                     .map_err(|_| anyhow::anyhow!("Type mismatch for field 'assignee'"))?;
             }
             "parent" => {
-                self.parent = *val.downcast::<Option<String>>()
+                self.parent = *val
+                    .downcast::<Option<String>>()
                     .map_err(|_| anyhow::anyhow!("Type mismatch for field 'parent'"))?;
             }
             "verify" => {
-                self.verify = *val.downcast::<Option<String>>()
+                self.verify = *val
+                    .downcast::<Option<String>>()
                     .map_err(|_| anyhow::anyhow!("Type mismatch for field 'verify'"))?;
             }
             "close_reason" => {
-                self.close_reason = *val.downcast::<Option<String>>()
+                self.close_reason = *val
+                    .downcast::<Option<String>>()
                     .map_err(|_| anyhow::anyhow!("Type mismatch for field 'close_reason'"))?;
             }
             _ => return Err(anyhow::anyhow!("Unknown optional field: {}", field)),

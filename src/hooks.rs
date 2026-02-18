@@ -17,6 +17,7 @@ pub enum HookEvent {
     PreUpdate,
     PostUpdate,
     PreClose,
+    PostClose,
 }
 
 impl HookEvent {
@@ -28,6 +29,7 @@ impl HookEvent {
             HookEvent::PreUpdate => "pre-update",
             HookEvent::PostUpdate => "post-update",
             HookEvent::PreClose => "pre-close",
+            HookEvent::PostClose => "post-close",
         }
     }
 }
@@ -67,7 +69,10 @@ impl HookPayload {
 
 /// Get the path to a hook script based on the event and project directory.
 pub fn get_hook_path(project_dir: &Path, event: HookEvent) -> PathBuf {
-    project_dir.join(".beans").join("hooks").join(event.as_str())
+    project_dir
+        .join(".beans")
+        .join("hooks")
+        .join(event.as_str())
 }
 
 /// Check if a hook file exists and is executable.
@@ -279,6 +284,7 @@ mod tests {
         assert_eq!(HookEvent::PreUpdate.as_str(), "pre-update");
         assert_eq!(HookEvent::PostUpdate.as_str(), "post-update");
         assert_eq!(HookEvent::PreClose.as_str(), "pre-close");
+        assert_eq!(HookEvent::PostClose.as_str(), "post-close");
     }
 
     #[test]
@@ -541,7 +547,8 @@ mod tests {
         assert!(is_trusted(project_dir));
 
         // Verify file contains metadata
-        let content = fs::read_to_string(project_dir.join(".beans").join(".hooks-trusted")).unwrap();
+        let content =
+            fs::read_to_string(project_dir.join(".beans").join(".hooks-trusted")).unwrap();
         assert!(content.contains("Hooks enabled"));
     }
 

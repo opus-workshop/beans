@@ -1,7 +1,7 @@
+use serde_yaml::{Mapping, Value};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
-use serde_yaml::{Value, Mapping};
 
 fn main() -> anyhow::Result<()> {
     println!("Starting bean migration from YAML to Markdown format...\n");
@@ -180,10 +180,7 @@ fn generate_slug(title: &str) -> String {
 }
 
 /// Format markdown with YAML frontmatter
-fn format_markdown_with_frontmatter(
-    frontmatter: &Mapping,
-    body: &str,
-) -> anyhow::Result<String> {
+fn format_markdown_with_frontmatter(frontmatter: &Mapping, body: &str) -> anyhow::Result<String> {
     let mut output = String::from("---\n");
 
     // Write frontmatter YAML

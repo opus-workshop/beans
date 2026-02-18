@@ -12,20 +12,42 @@ use crate::index::{count_bean_formats, Index};
 #[derive(Debug)]
 enum Issue {
     StaleIndex,
-    MixedFormats { md_count: usize, yaml_count: usize },
-    DuplicateId { id: String, files: Vec<String> },
-    OrphanedDependency { bean_id: String, missing_dep: String },
-    MissingParent { bean_id: String, parent_id: String },
-    ArchivedParent { bean_id: String, parent_id: String },
-    StaleIndexEntry { id: String },
-    Cycle { path: Vec<String> },
+    MixedFormats {
+        md_count: usize,
+        yaml_count: usize,
+    },
+    DuplicateId {
+        id: String,
+        files: Vec<String>,
+    },
+    OrphanedDependency {
+        bean_id: String,
+        missing_dep: String,
+    },
+    MissingParent {
+        bean_id: String,
+        parent_id: String,
+    },
+    ArchivedParent {
+        bean_id: String,
+        parent_id: String,
+    },
+    StaleIndexEntry {
+        id: String,
+    },
+    Cycle {
+        path: Vec<String>,
+    },
 }
 
 impl Issue {
     fn display(&self) -> String {
         match self {
             Issue::StaleIndex => "[!] Stale index - run 'bn sync' to rebuild".to_string(),
-            Issue::MixedFormats { md_count, yaml_count } => {
+            Issue::MixedFormats {
+                md_count,
+                yaml_count,
+            } => {
                 format!(
                     "[!] Mixed bean formats: {} .md files, {} .yaml files\n    \
                      This inflates bean count and causes confusion.\n    \
@@ -41,7 +63,10 @@ impl Issue {
                     files.join(", ")
                 )
             }
-            Issue::OrphanedDependency { bean_id, missing_dep } => {
+            Issue::OrphanedDependency {
+                bean_id,
+                missing_dep,
+            } => {
                 format!(
                     "[!] Orphaned dependency: {} depends on non-existent {}",
                     bean_id, missing_dep
@@ -69,10 +94,7 @@ impl Issue {
     }
 
     fn is_fixable(&self) -> bool {
-        matches!(
-            self,
-            Issue::StaleIndex | Issue::StaleIndexEntry { .. }
-        )
+        matches!(self, Issue::StaleIndex | Issue::StaleIndexEntry { .. })
     }
 }
 
@@ -169,7 +191,10 @@ pub fn cmd_doctor(beans_dir: &Path, fix: bool) -> Result<()> {
     // Check 2: Mixed bean formats (.yaml and .md)
     let (md_count, yaml_count) = count_bean_formats(beans_dir)?;
     if md_count > 0 && yaml_count > 0 {
-        issues.push(Issue::MixedFormats { md_count, yaml_count });
+        issues.push(Issue::MixedFormats {
+            md_count,
+            yaml_count,
+        });
     }
 
     // Check 3: Duplicate IDs
@@ -287,7 +312,10 @@ pub fn cmd_doctor(beans_dir: &Path, fix: bool) -> Result<()> {
         }
 
         // Rebuild index to fix stale issues
-        if issues.iter().any(|i| matches!(i, Issue::StaleIndex | Issue::StaleIndexEntry { .. })) {
+        if issues
+            .iter()
+            .any(|i| matches!(i, Issue::StaleIndex | Issue::StaleIndexEntry { .. }))
+        {
             match Index::build(beans_dir) {
                 Ok(idx) => {
                     idx.save(beans_dir)?;
@@ -307,10 +335,7 @@ pub fn cmd_doctor(beans_dir: &Path, fix: bool) -> Result<()> {
             println!("Fixed {} issue(s)", fixed_count);
         }
         if unfixable_count > 0 {
-            println!(
-                "{} issue(s) require manual intervention",
-                unfixable_count
-            );
+            println!("{} issue(s) require manual intervention", unfixable_count);
         }
     } else {
         println!(
@@ -419,7 +444,9 @@ mod tests {
         // .yaml file (legacy format)
         bean1.to_file(beans_dir.join("1.yaml")).unwrap();
         // .md file (new format)
-        bean2.to_file(beans_dir.join("2-task-two-in-md.md")).unwrap();
+        bean2
+            .to_file(beans_dir.join("2-task-two-in-md.md"))
+            .unwrap();
 
         // Doctor should succeed but detect the issue
         let result = cmd_doctor(&beans_dir, false);

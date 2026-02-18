@@ -40,6 +40,9 @@ pub struct IndexEntry {
     /// Agent or user currently holding a claim on this bean (e.g., "spro:12345" for agent with PID)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub claimed_by: Option<String>,
+    /// Number of verify attempts so far
+    #[serde(default)]
+    pub attempts: u32,
 }
 
 impl From<&Bean> for IndexEntry {
@@ -58,6 +61,7 @@ impl From<&Bean> for IndexEntry {
             requires: bean.requires.clone(),
             has_verify: bean.verify.is_some(),
             claimed_by: bean.claimed_by.clone(),
+            attempts: bean.attempts,
         }
     }
 }
@@ -79,10 +83,12 @@ fn is_bean_filename(filename: &str) -> bool {
     if EXCLUDED_FILES.contains(&filename) {
         return false;
     }
-    let ext = std::path::Path::new(filename).extension().and_then(|e| e.to_str());
+    let ext = std::path::Path::new(filename)
+        .extension()
+        .and_then(|e| e.to_str());
     match ext {
-        Some("md") => filename.contains('-'),  // New format: {id}-{slug}.md
-        Some("yaml") => true,                  // Legacy format: {id}.yaml
+        Some("md") => filename.contains('-'), // New format: {id}-{slug}.md
+        Some("yaml") => true,                 // Legacy format: {id}.yaml
         _ => false,
     }
 }
@@ -149,13 +155,13 @@ impl Index {
 
             let bean = Bean::from_file(&path)
                 .with_context(|| format!("Failed to parse bean: {}", path.display()))?;
-            
+
             // Track this ID's file for duplicate detection
             id_to_files
                 .entry(bean.id.clone())
                 .or_default()
                 .push(filename.to_string());
-            
+
             entries.push(IndexEntry::from(&bean));
         }
 
@@ -240,16 +246,15 @@ impl Index {
         let index_path = beans_dir.join("index.yaml");
         let contents = fs::read_to_string(&index_path)
             .with_context(|| format!("Failed to read {}", index_path.display()))?;
-        let index: Index = serde_yaml::from_str(&contents)
-            .with_context(|| "Failed to parse index.yaml")?;
+        let index: Index =
+            serde_yaml::from_str(&contents).with_context(|| "Failed to parse index.yaml")?;
         Ok(index)
     }
 
     /// Save the index to .beans/index.yaml.
     pub fn save(&self, beans_dir: &Path) -> Result<()> {
         let index_path = beans_dir.join("index.yaml");
-        let yaml = serde_yaml::to_string(self)
-            .with_context(|| "Failed to serialize index")?;
+        let yaml = serde_yaml::to_string(self).with_context(|| "Failed to serialize index")?;
         fs::write(&index_path, yaml)
             .with_context(|| format!("Failed to write {}", index_path.display()))?;
         Ok(())
@@ -275,7 +280,7 @@ impl Index {
     /// Recursively walk archive directory and collect bean entries
     fn walk_archive_dir(dir: &Path, entries: &mut Vec<IndexEntry>) -> Result<()> {
         use crate::bean::Bean;
-        
+
         if !dir.is_dir() {
             return Ok(());
         }
@@ -337,7 +342,11 @@ mod tests {
         bean3_1.to_file(beans_dir.join("3.1.yaml")).unwrap();
 
         // Create files that should be excluded
-        fs::write(beans_dir.join("config.yaml"), "project: test\nnext_id: 11\n").unwrap();
+        fs::write(
+            beans_dir.join("config.yaml"),
+            "project: test\nnext_id: 11\n",
+        )
+        .unwrap();
 
         (dir, beans_dir)
     }
@@ -407,7 +416,11 @@ mod tests {
 
         // Create index.yaml and bean.yaml — these should be excluded
         fs::write(beans_dir.join("index.yaml"), "beans: []\n").unwrap();
-        fs::write(beans_dir.join("bean.yaml"), "id: template\ntitle: Template\n").unwrap();
+        fs::write(
+            beans_dir.join("bean.yaml"),
+            "id: template\ntitle: Template\n",
+        )
+        .unwrap();
 
         let index = Index::build(&beans_dir).unwrap();
         assert_eq!(index.beans.len(), 4);
@@ -444,10 +457,18 @@ mod tests {
         fs::create_dir(&beans_dir).unwrap();
 
         // Create duplicates for two different IDs
-        Bean::new("1", "First A").to_file(beans_dir.join("1-a.md")).unwrap();
-        Bean::new("1", "First B").to_file(beans_dir.join("1-b.md")).unwrap();
-        Bean::new("2", "Second A").to_file(beans_dir.join("2-a.md")).unwrap();
-        Bean::new("2", "Second B").to_file(beans_dir.join("2-b.md")).unwrap();
+        Bean::new("1", "First A")
+            .to_file(beans_dir.join("1-a.md"))
+            .unwrap();
+        Bean::new("1", "First B")
+            .to_file(beans_dir.join("1-b.md"))
+            .unwrap();
+        Bean::new("2", "Second A")
+            .to_file(beans_dir.join("2-a.md"))
+            .unwrap();
+        Bean::new("2", "Second B")
+            .to_file(beans_dir.join("2-b.md"))
+            .unwrap();
 
         let result = Index::build(&beans_dir);
         assert!(result.is_err());
@@ -575,28 +596,29 @@ mod archive_tests {
         let dir = TempDir::new().unwrap();
         let beans_dir = dir.path().join(".beans");
         fs::create_dir(&beans_dir).unwrap();
-        
+
         // Create archive structure
         let archive_dir = beans_dir.join("archive").join("2026").join("02");
         fs::create_dir_all(&archive_dir).unwrap();
-        
+
         // Create an archived bean
         let mut bean = crate::bean::Bean::new("1", "Archived task");
         bean.status = crate::bean::Status::Closed;
-        bean.to_file(archive_dir.join("1-archived-task.md")).unwrap();
-        
+        bean.to_file(archive_dir.join("1-archived-task.md"))
+            .unwrap();
+
         let archived = Index::collect_archived(&beans_dir).unwrap();
         assert_eq!(archived.len(), 1);
         assert_eq!(archived[0].id, "1");
         assert_eq!(archived[0].status, crate::bean::Status::Closed);
     }
-    
+
     #[test]
     fn collect_archived_empty_when_no_archive() {
         let dir = TempDir::new().unwrap();
         let beans_dir = dir.path().join(".beans");
         fs::create_dir(&beans_dir).unwrap();
-        
+
         let archived = Index::collect_archived(&beans_dir).unwrap();
         assert!(archived.is_empty());
     }
@@ -676,7 +698,7 @@ mod format_count_tests {
 
         let (md_count, yaml_count) = count_bean_formats(&beans_dir).unwrap();
         assert_eq!(md_count, 1);
-        assert_eq!(yaml_count, 0);  // config.yaml and index.yaml are excluded
+        assert_eq!(yaml_count, 0); // config.yaml and index.yaml are excluded
     }
 
     #[test]

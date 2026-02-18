@@ -88,11 +88,8 @@ fn output_ascii_graph(index: &Index) -> Result<()> {
     }
 
     // Build lookup maps
-    let id_map: HashMap<&str, &IndexEntry> = index
-        .beans
-        .iter()
-        .map(|e| (e.id.as_str(), e))
-        .collect();
+    let id_map: HashMap<&str, &IndexEntry> =
+        index.beans.iter().map(|e| (e.id.as_str(), e)).collect();
 
     // Build parent → children map
     let mut children_map: HashMap<&str, Vec<&IndexEntry>> = HashMap::new();
@@ -133,11 +130,7 @@ fn output_ascii_graph(index: &Index) -> Result<()> {
     }
 
     // Find root beans (no parent)
-    let mut roots: Vec<&IndexEntry> = index
-        .beans
-        .iter()
-        .filter(|e| e.parent.is_none())
-        .collect();
+    let mut roots: Vec<&IndexEntry> = index.beans.iter().filter(|e| e.parent.is_none()).collect();
     roots.sort_by(|a, b| natural_cmp(&a.id, &b.id));
 
     // Track what we've printed to avoid duplicates
@@ -157,7 +150,7 @@ fn output_ascii_graph(index: &Index) -> Result<()> {
             &mut printed,
             "",
             true,
-            true,  // is_root
+            true, // is_root
         );
     }
 
@@ -166,7 +159,7 @@ fn output_ascii_graph(index: &Index) -> Result<()> {
         .beans
         .iter()
         .filter(|e| {
-            e.parent.is_some() 
+            e.parent.is_some()
                 && !id_map.contains_key(e.parent.as_ref().unwrap().as_str())
                 && !printed.contains(e.id.as_str())
         })
@@ -222,7 +215,8 @@ fn render_tree<'a>(
         if deps.is_empty() {
             String::new()
         } else {
-            let dep_list: Vec<&str> = deps.iter()
+            let dep_list: Vec<&str> = deps
+                .iter()
                 .filter(|d| {
                     // Only show non-parent deps (cross-cutting)
                     entry.parent.as_deref() != Some(**d)
@@ -271,7 +265,7 @@ fn render_tree<'a>(
             } else {
                 &format!("{}│   ", prefix)
             };
-            
+
             let blocks_str = non_child_blocks.join(", ");
             println!("{}──► blocks {}", child_prefix, blocks_str);
         }
@@ -280,7 +274,7 @@ fn render_tree<'a>(
     // Render children
     if let Some(children) = children {
         let new_prefix = if is_root {
-            String::new()  // Children of root get empty prefix
+            String::new() // Children of root get empty prefix
         } else if is_last {
             format!("{}    ", prefix)
         } else {
@@ -298,7 +292,7 @@ fn render_tree<'a>(
                 printed,
                 &new_prefix,
                 child_is_last,
-                false,  // children are not roots
+                false, // children are not roots
             );
         }
     }

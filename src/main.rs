@@ -1,24 +1,27 @@
 use std::env;
 
+use std::io::IsTerminal;
+
 use anyhow::Result;
 use clap::Parser;
 
 mod cli;
 
-use cli::{Cli, Command, ConfigCommand, DepCommand};
-use bn::commands::{
-    cmd_adopt, cmd_claim, cmd_close, cmd_config_get, cmd_config_set, cmd_context, cmd_create,
-    cmd_delete, cmd_dep_add, cmd_dep_cycles, cmd_dep_list, cmd_dep_remove, cmd_dep_tree, cmd_doctor,
-    cmd_edit, cmd_graph, cmd_init, cmd_list, cmd_quick, cmd_ready, cmd_blocked, cmd_release,
-    cmd_reopen, cmd_resolve, cmd_show, cmd_stats, cmd_status, cmd_sync, cmd_tidy, cmd_tree,
-    cmd_trust, cmd_unarchive, cmd_update, cmd_verify,
-};
 use bn::commands::create::CreateArgs;
+use bn::commands::plan::PlanArgs;
 use bn::commands::quick::QuickArgs;
+use bn::commands::{
+    cmd_adopt, cmd_agents, cmd_blocked, cmd_claim, cmd_close, cmd_config_get, cmd_config_set,
+    cmd_context, cmd_create, cmd_delete, cmd_dep_add, cmd_dep_cycles, cmd_dep_list, cmd_dep_remove,
+    cmd_dep_tree, cmd_doctor, cmd_edit, cmd_graph, cmd_init, cmd_list, cmd_logs, cmd_plan,
+    cmd_quick, cmd_ready, cmd_release, cmd_reopen, cmd_resolve, cmd_run, cmd_show, cmd_stats,
+    cmd_status, cmd_sync, cmd_tidy, cmd_tree, cmd_trust, cmd_unarchive, cmd_update, cmd_verify,
+};
 use bn::discovery::find_beans_dir;
 use bn::index::Index;
-use bn::selector::{SelectionContext, resolve_selector_string};
+use bn::selector::{resolve_selector_string, SelectionContext};
 use bn::util::validate_bean_id;
+use cli::{Cli, Command, ConfigCommand, DepCommand};
 
 // Helper to resolve a single bean ID (handles selectors)
 fn resolve_bean_id(id: &str, beans_dir: &std::path::Path) -> Result<String> {
@@ -29,7 +32,9 @@ fn resolve_bean_id(id: &str, beans_dir: &std::path::Path) -> Result<String> {
         current_user: None,
     };
     let resolved = resolve_selector_string(id, &context)?;
-    resolved.into_iter().next()
+    resolved
+        .into_iter()
+        .next()
         .ok_or_else(|| anyhow::anyhow!("Selector '{}' resolved to no beans", id))
 }
 
@@ -41,7 +46,7 @@ fn resolve_bean_ids(ids: Vec<String>, beans_dir: &std::path::Path) -> Result<Vec
         current_bean_id: None,
         current_user: None,
     };
-    
+
     let mut resolved_ids = Vec::new();
     for id in ids {
         let resolved = resolve_selector_string(&id, &context)?;
@@ -54,8 +59,26 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // Init is special - doesn't need beans_dir
-    if let Command::Init { name } = cli.command {
-        return cmd_init(None, name);
+    if let Command::Init {
+        name,
+        agent,
+        run,
+        plan,
+        setup,
+        no_agent,
+    } = cli.command
+    {
+        return cmd_init(
+            None,
+            bn::commands::init::InitArgs {
+                project_name: name,
+                agent,
+                run,
+                plan,
+                setup,
+                no_agent,
+            },
+        );
     }
 
     // All other commands need beans_dir
@@ -79,57 +102,117 @@ fn main() -> Result<()> {
             deps,
             produces,
             requires,
+            on_fail,
             pass_ok,
             claim,
             by,
             run,
+            interactive,
+            json,
         } => {
-            let title = title
-                .or(set_title)
-                .ok_or_else(|| anyhow::anyhow!("bn create: title is required"))?;
+            // Resolve "-" values from stdin
+            use bn::commands::stdin::resolve_stdin_opt;
+            let description = resolve_stdin_opt(description)?;
+            let acceptance = resolve_stdin_opt(acceptance)?;
+            let notes = resolve_stdin_opt(notes)?;
 
-            // --run requires --verify
-            if run && verify.is_none() {
-                anyhow::bail!(
-                    "--run requires --verify\n\n\
-                     Cannot spawn an agent without a test. If you can't write a verify command,\n\
-                     this is a GOAL that needs decomposition, not a SPEC ready for implementation."
-                );
+            let resolved_title = title.or(set_title);
+
+            // Determine if we should enter interactive mode:
+            // 1. Explicit -i / --interactive flag, OR
+            // 2. No title provided + stderr is a TTY + not --run
+            let use_interactive = interactive
+                || (resolved_title.is_none() && !run && std::io::stderr().is_terminal());
+
+            let (bean_id, run_after) = if use_interactive {
+                use bn::commands::interactive::{interactive_create, Prefill};
+
+                // Pass any CLI flags as prefill — they skip prompts
+                let prefill = Prefill {
+                    title: resolved_title,
+                    description,
+                    acceptance,
+                    notes,
+                    design,
+                    verify,
+                    parent,
+                    priority,
+                    labels,
+                    assignee,
+                    deps,
+                    produces,
+                    requires,
+                    pass_ok: if pass_ok { Some(true) } else { None },
+                };
+
+                let args = interactive_create(&beans_dir, prefill)?;
+                let id = cmd_create(&beans_dir, args)?;
+                (id, false)
+            } else {
+                let title = resolved_title
+                    .ok_or_else(|| anyhow::anyhow!("bn create: title is required"))?;
+
+                // --run requires --verify
+                if run && verify.is_none() {
+                    anyhow::bail!(
+                        "--run requires --verify\n\n\
+                         Cannot spawn an agent without a test. If you can't write a verify command,\n\
+                         this is a GOAL that needs decomposition, not a SPEC ready for implementation."
+                    );
+                }
+
+                // Parse --on-fail flag
+                let on_fail = on_fail
+                    .map(|s| bn::commands::create::parse_on_fail(&s))
+                    .transpose()?;
+
+                let id = cmd_create(
+                    &beans_dir,
+                    CreateArgs {
+                        title,
+                        description,
+                        acceptance,
+                        notes,
+                        design,
+                        verify,
+                        priority,
+                        labels,
+                        assignee,
+                        deps,
+                        parent,
+                        produces,
+                        requires,
+                        on_fail,
+                        pass_ok,
+                        claim,
+                        by,
+                    },
+                )?;
+                (id, run)
+            };
+            let run = run_after;
+
+            // JSON output for piping (human messages go to stderr)
+            if json {
+                let bean_path = bn::discovery::find_bean_file(&beans_dir, &bean_id)?;
+                let bean = bn::bean::Bean::from_file(&bean_path)?;
+                println!("{}", serde_json::to_string(&bean)?);
             }
-
-            let bean_id = cmd_create(&beans_dir, CreateArgs {
-                title,
-                description,
-                acceptance,
-                notes,
-                design,
-                verify,
-                priority,
-                labels,
-                assignee,
-                deps,
-                parent,
-                produces,
-                requires,
-                pass_ok,
-                claim,
-                by,
-            })?;
 
             // --run: spawn an agent for the new bean using configured command
             if run {
                 use bn::config::Config;
-                let config = Config::load(&beans_dir)?;
+                let config = Config::load_with_extends(&beans_dir)?;
                 match &config.run {
                     Some(template) => {
                         let cmd = template.replace("{id}", &bean_id);
                         eprintln!("Spawning: {}", cmd);
-                        let status = std::process::Command::new("sh")
-                            .args(["-c", &cmd])
-                            .status();
+                        let status = std::process::Command::new("sh").args(["-c", &cmd]).status();
                         match status {
                             Ok(s) if s.success() => {}
-                            Ok(s) => eprintln!("Run command exited with code {}", s.code().unwrap_or(-1)),
+                            Ok(s) => {
+                                eprintln!("Run command exited with code {}", s.code().unwrap_or(-1))
+                            }
                             Err(e) => eprintln!("Failed to run command: {}", e),
                         }
                     }
@@ -149,13 +232,18 @@ fn main() -> Result<()> {
             Ok(())
         }
 
-        Command::Show { id, json, short } => {
+        Command::Show {
+            id,
+            json,
+            short,
+            history,
+        } => {
             // Skip validation for selectors (start with @)
             if !id.starts_with('@') {
                 validate_bean_id(&id)?;
             }
             let resolved_id = resolve_bean_id(&id, &beans_dir)?;
-            cmd_show(&resolved_id, json, short, &beans_dir)
+            cmd_show(&resolved_id, json, short, history, &beans_dir)
         }
 
         Command::Edit { id } => {
@@ -164,32 +252,78 @@ fn main() -> Result<()> {
             cmd_edit(&beans_dir, &resolved_id)
         }
 
-        Command::List { status, priority, parent, label, assignee, all, json } => {
-            cmd_list(
-                status.as_deref(),
-                priority,
-                parent.as_deref(),
-                label.as_deref(),
-                assignee.as_deref(),
-                all,
-                json,
-                &beans_dir,
-            )
-        }
+        Command::List {
+            status,
+            priority,
+            parent,
+            label,
+            assignee,
+            all,
+            json,
+            ids,
+            format,
+        } => cmd_list(
+            status.as_deref(),
+            priority,
+            parent.as_deref(),
+            label.as_deref(),
+            assignee.as_deref(),
+            all,
+            json,
+            ids,
+            format.as_deref(),
+            &beans_dir,
+        ),
 
         Command::Update {
-            id, title, description, acceptance, notes, design,
-            status, priority, assignee, add_label, remove_label,
+            id,
+            title,
+            description,
+            acceptance,
+            notes,
+            design,
+            status,
+            priority,
+            assignee,
+            add_label,
+            remove_label,
         } => {
+            use bn::commands::stdin::resolve_stdin_opt;
             validate_bean_id(&id)?;
             let resolved_id = resolve_bean_id(&id, &beans_dir)?;
+
+            // Resolve "-" values from stdin
+            let description = resolve_stdin_opt(description)?;
+            let notes = resolve_stdin_opt(notes)?;
+            let acceptance = resolve_stdin_opt(acceptance)?;
+
             cmd_update(
-                &beans_dir, &resolved_id, title, description, acceptance, notes, design,
-                status, priority, assignee, add_label, remove_label,
+                &beans_dir,
+                &resolved_id,
+                title,
+                description,
+                acceptance,
+                notes,
+                design,
+                status,
+                priority,
+                assignee,
+                add_label,
+                remove_label,
             )
         }
 
-        Command::Close { ids, reason, force } => {
+        Command::Close {
+            ids,
+            reason,
+            force,
+            stdin,
+        } => {
+            let ids = if stdin {
+                bn::commands::stdin::read_ids_from_stdin()?
+            } else {
+                ids
+            };
             for id in &ids {
                 validate_bean_id(id)?;
             }
@@ -197,10 +331,16 @@ fn main() -> Result<()> {
             cmd_close(&beans_dir, resolved_ids, reason, force)
         }
 
-        Command::Verify { id } => {
+        Command::Verify { id, json } => {
             validate_bean_id(&id)?;
             let resolved_id = resolve_bean_id(&id, &beans_dir)?;
             let passed = cmd_verify(&beans_dir, &resolved_id)?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({"id": resolved_id, "passed": passed})
+                );
+            }
             if !passed {
                 std::process::exit(1);
             }
@@ -262,10 +402,10 @@ fn main() -> Result<()> {
         Command::Blocked { json } => cmd_blocked(json, &beans_dir),
         Command::Status { json } => cmd_status(json, &beans_dir),
 
-        Command::Context { id } => {
+        Command::Context { id, json } => {
             validate_bean_id(&id)?;
             let resolved_id = resolve_bean_id(&id, &beans_dir)?;
-            cmd_context(&beans_dir, &resolved_id)
+            cmd_context(&beans_dir, &resolved_id, json)
         }
 
         Command::Tree { id } => {
@@ -287,23 +427,46 @@ fn main() -> Result<()> {
             cmd_unarchive(&beans_dir, &resolved_id)
         }
 
-        Command::Quick { title, description, acceptance, notes, verify, priority, by, produces, requires, parent, pass_ok } => {
+        Command::Quick {
+            title,
+            description,
+            acceptance,
+            notes,
+            verify,
+            priority,
+            by,
+            produces,
+            requires,
+            parent,
+            on_fail,
+            pass_ok,
+        } => {
             if let Some(ref p) = parent {
                 validate_bean_id(p)?;
             }
-            cmd_quick(&beans_dir, QuickArgs {
-                title,
-                description,
-                acceptance,
-                notes,
-                verify,
-                priority,
-                by,
-                produces,
-                requires,
-                parent,
-                pass_ok,
-            })
+
+            // Parse --on-fail flag
+            let on_fail = on_fail
+                .map(|s| bn::commands::create::parse_on_fail(&s))
+                .transpose()?;
+
+            cmd_quick(
+                &beans_dir,
+                QuickArgs {
+                    title,
+                    description,
+                    acceptance,
+                    notes,
+                    verify,
+                    priority,
+                    by,
+                    produces,
+                    requires,
+                    parent,
+                    on_fail,
+                    pass_ok,
+                },
+            )
         }
 
         Command::Adopt { parent, children } => {
@@ -320,6 +483,69 @@ fn main() -> Result<()> {
             validate_bean_id(&id)?;
             let resolved_id = resolve_bean_id(&id, &beans_dir)?;
             cmd_resolve(&beans_dir, &resolved_id, &field, choice)
+        }
+
+        Command::Run {
+            id,
+            jobs,
+            dry_run,
+            loop_mode,
+            auto_plan,
+            keep_going,
+            timeout,
+            idle_timeout,
+            watch,
+            foreground,
+            stop,
+        } => cmd_run(
+            &beans_dir,
+            bn::commands::run::RunArgs {
+                id,
+                jobs,
+                dry_run,
+                loop_mode,
+                auto_plan,
+                keep_going,
+                timeout,
+                idle_timeout,
+                watch,
+                foreground,
+                stop,
+            },
+        ),
+
+        Command::Plan {
+            id,
+            strategy,
+            auto,
+            force,
+            dry_run,
+        } => {
+            if let Some(ref id_val) = id {
+                validate_bean_id(id_val)?;
+            }
+            let resolved_id = match id {
+                Some(ref id_val) => Some(resolve_bean_id(id_val, &beans_dir)?),
+                None => None,
+            };
+            cmd_plan(
+                &beans_dir,
+                PlanArgs {
+                    id: resolved_id,
+                    strategy,
+                    auto,
+                    force,
+                    dry_run,
+                },
+            )
+        }
+
+        Command::Agents { json } => cmd_agents(&beans_dir, json),
+
+        Command::Logs { id, follow, all } => {
+            validate_bean_id(&id)?;
+            let resolved_id = resolve_bean_id(&id, &beans_dir)?;
+            cmd_logs(&beans_dir, &resolved_id, follow, all)
         }
 
         Command::Config { command } => match command {

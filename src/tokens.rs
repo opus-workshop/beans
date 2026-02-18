@@ -193,8 +193,8 @@ mod tests {
 
     #[test]
     fn calculate_tokens_with_description() {
-        use tempfile::TempDir;
         use std::fs;
+        use tempfile::TempDir;
 
         let dir = TempDir::new().unwrap();
         let test_file = dir.path().join("test.rs");

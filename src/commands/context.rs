@@ -3,19 +3,21 @@ use std::path::Path;
 use anyhow::{Context, Result};
 
 use crate::bean::Bean;
-use crate::ctx_assembler::{extract_paths, assemble_context};
+use crate::ctx_assembler::{assemble_context, extract_paths};
 use crate::discovery::find_bean_file;
 
 /// Assemble context for a bean from its description and referenced files.
 ///
 /// Extracts file paths mentioned in the bean's description and outputs
 /// the content of those files in a markdown format suitable for LLM prompts.
-pub fn cmd_context(beans_dir: &Path, id: &str) -> Result<()> {
-    let bean_path = find_bean_file(beans_dir, id)
-        .context(format!("Could not find bean with ID: {}", id))?;
+pub fn cmd_context(beans_dir: &Path, id: &str, json: bool) -> Result<()> {
+    let bean_path =
+        find_bean_file(beans_dir, id).context(format!("Could not find bean with ID: {}", id))?;
 
-    let bean = Bean::from_file(&bean_path)
-        .context(format!("Failed to parse bean from: {}", bean_path.display()))?;
+    let bean = Bean::from_file(&bean_path).context(format!(
+        "Failed to parse bean from: {}",
+        bean_path.display()
+    ))?;
 
     // Get the project directory (parent of beans_dir which is .beans)
     let project_dir = beans_dir
@@ -27,17 +29,43 @@ pub fn cmd_context(beans_dir: &Path, id: &str) -> Result<()> {
     let paths = extract_paths(description);
 
     if paths.is_empty() {
-        eprintln!("No file paths found in bean description.");
-        eprintln!("Tip: Reference files in description with paths like 'src/foo.rs' or 'src/commands/bar.rs'");
+        if json {
+            println!("{}", serde_json::json!({"id": id, "files": []}));
+        } else {
+            eprintln!("No file paths found in bean description.");
+            eprintln!("Tip: Reference files in description with paths like 'src/foo.rs' or 'src/commands/bar.rs'");
+        }
         return Ok(());
     }
 
-    // Assemble the context from the extracted files
-    let context = assemble_context(paths, project_dir)
-        .context("Failed to assemble context")?;
+    if json {
+        // Output as JSON: array of {path, content} objects
+        let mut files = Vec::new();
+        for path_str in &paths {
+            let full_path = project_dir.join(path_str);
+            let content = if full_path.exists() {
+                std::fs::read_to_string(&full_path).unwrap_or_else(|_| "(read error)".to_string())
+            } else {
+                "(not found)".to_string()
+            };
+            files.push(serde_json::json!({
+                "path": path_str,
+                "exists": full_path.exists(),
+                "content": content,
+            }));
+        }
+        println!("{}", serde_json::to_string_pretty(&serde_json::json!({
+            "id": id,
+            "files": files,
+        }))?);
+    } else {
+        // Assemble the context from the extracted files
+        let context =
+            assemble_context(paths, project_dir).context("Failed to assemble context")?;
 
-    // Output the assembled markdown to stdout
-    print!("{}", context);
+        // Output the assembled markdown to stdout
+        print!("{}", context);
+    }
 
     Ok(())
 }
@@ -67,7 +95,7 @@ mod tests {
         bean.to_file(&bean_path).unwrap();
 
         // Should succeed but print a tip
-        let result = cmd_context(&beans_dir, "1");
+        let result = cmd_context(&beans_dir, "1", false);
         assert!(result.is_ok());
     }
 
@@ -88,7 +116,7 @@ mod tests {
         let bean_path = beans_dir.join(format!("1-{}.md", slug));
         bean.to_file(&bean_path).unwrap();
 
-        let result = cmd_context(&beans_dir, "1");
+        let result = cmd_context(&beans_dir, "1", false);
         assert!(result.is_ok());
     }
 
@@ -96,7 +124,7 @@ mod tests {
     fn context_bean_not_found() {
         let (_dir, beans_dir) = setup_test_env();
 
-        let result = cmd_context(&beans_dir, "999");
+        let result = cmd_context(&beans_dir, "999", false);
         assert!(result.is_err());
     }
 }

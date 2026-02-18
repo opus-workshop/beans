@@ -91,9 +91,7 @@ fn has_running_agents() -> bool {
     }
 
     // No run command configured — check common agent patterns as fallback
-    pgrep_running("pi -p beans")
-        || pgrep_running("deli spawn")
-        || pgrep_running("claude")
+    pgrep_running("pi -p beans") || pgrep_running("deli spawn") || pgrep_running("claude")
 }
 
 /// Tidy the beans directory: archive closed beans, release stale in-progress
@@ -137,8 +135,7 @@ pub fn cmd_tidy(beans_dir: &Path, dry_run: bool) -> Result<()> {
 fn cmd_tidy_inner(beans_dir: &Path, dry_run: bool, check_agents: fn() -> bool) -> Result<()> {
     // Step 1 — Build a fresh index so we're working from the truth on disk,
     // not a potentially stale cache.
-    let index = Index::build(beans_dir)
-        .context("Failed to build index")?;
+    let index = Index::build(beans_dir).context("Failed to build index")?;
 
     // Step 2 — Find every closed bean that's still in the main directory.
     // We filter on two things:
@@ -179,10 +176,10 @@ fn cmd_tidy_inner(beans_dir: &Path, dry_run: bool, check_agents: fn() -> bool) -
         // Guard: don't archive a parent whose children are still open.
         // We check by looking for any bean in the index that lists this
         // bean as its parent and isn't closed yet.
-        let has_open_children = index.beans.iter().any(|b| {
-            b.parent.as_deref() == Some(entry.id.as_str())
-                && b.status != Status::Closed
-        });
+        let has_open_children = index
+            .beans
+            .iter()
+            .any(|b| b.parent.as_deref() == Some(entry.id.as_str()) && b.status != Status::Closed);
 
         if has_open_children {
             skipped_parent_ids.push(entry.id.clone());
@@ -210,8 +207,7 @@ fn cmd_tidy_inner(beans_dir: &Path, dry_run: bool, check_agents: fn() -> bool) -
             .extension()
             .and_then(|e| e.to_str())
             .unwrap_or("md");
-        let archive_path =
-            archive_path_for_bean(beans_dir, &entry.id, &slug, ext, archive_date);
+        let archive_path = archive_path_for_bean(beans_dir, &entry.id, &slug, ext, archive_date);
 
         // Record what we're about to do (for the summary).
         // We store the archive path relative to .beans/ to keep output tidy.
@@ -232,29 +228,21 @@ fn cmd_tidy_inner(beans_dir: &Path, dry_run: bool, check_agents: fn() -> bool) -
         // Step 3 — Actually move the bean.
         // Create the archive directory tree (archive/YYYY/MM) if needed.
         if let Some(parent) = archive_path.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!(
-                    "Failed to create archive directory for bean {}",
-                    entry.id
-                ))?;
+            std::fs::create_dir_all(parent).with_context(|| {
+                format!("Failed to create archive directory for bean {}", entry.id)
+            })?;
         }
 
         // Move the file from .beans/<id>-<slug>.md → .beans/archive/YYYY/MM/…
         std::fs::rename(&bean_path, &archive_path)
-            .with_context(|| format!(
-                "Failed to move bean {} to archive",
-                entry.id
-            ))?;
+            .with_context(|| format!("Failed to move bean {} to archive", entry.id))?;
 
         // Mark the bean as archived and persist. This sets is_archived = true
         // in the YAML front-matter so other commands (unarchive, list --all)
         // know this bean lives in the archive.
         bean.is_archived = true;
         bean.to_file(&archive_path)
-            .with_context(|| format!(
-                "Failed to save archived bean: {}",
-                entry.id
-            ))?;
+            .with_context(|| format!("Failed to save archived bean: {}", entry.id))?;
     }
 
     // Step 4 — Release stale in-progress beans.
@@ -324,10 +312,7 @@ fn cmd_tidy_inner(beans_dir: &Path, dry_run: bool, check_agents: fn() -> bool) -
                 bean.updated_at = now;
 
                 bean.to_file(&bean_path)
-                    .with_context(|| format!(
-                        "Failed to release stale bean: {}",
-                        entry.id
-                    ))?;
+                    .with_context(|| format!("Failed to release stale bean: {}", entry.id))?;
             }
         }
     }
@@ -336,8 +321,7 @@ fn cmd_tidy_inner(beans_dir: &Path, dry_run: bool, check_agents: fn() -> bool) -
     // After moving files around and releasing stale beans, the old index
     // is stale, so we rebuild from disk. In dry-run mode nothing changed,
     // but we still rebuild because the user asked to "update the index."
-    let final_index = Index::build(beans_dir)
-        .context("Failed to rebuild index after tidy")?;
+    let final_index = Index::build(beans_dir).context("Failed to rebuild index after tidy")?;
     final_index
         .save(beans_dir)
         .context("Failed to save index")?;
@@ -359,7 +343,11 @@ fn cmd_tidy_inner(beans_dir: &Path, dry_run: bool, check_agents: fn() -> bool) -
     }
 
     if !released.is_empty() {
-        println!("{} {} stale in-progress bean(s):", release_verb, released.len());
+        println!(
+            "{} {} stale in-progress bean(s):",
+            release_verb,
+            released.len()
+        );
         for r in &released {
             println!("  → {}. {} ({})", r.id, r.title, r.reason);
         }
@@ -402,10 +390,14 @@ mod tests {
     }
 
     /// Mock: no agents running (for testing stale-release behavior).
-    fn no_agents() -> bool { false }
+    fn no_agents() -> bool {
+        false
+    }
 
     /// Mock: agents are running (for testing skip behavior).
-    fn agents_running() -> bool { true }
+    fn agents_running() -> bool {
+        true
+    }
 
     /// Helper: write a bean to the main .beans/ directory.
     fn write_bean(beans_dir: &Path, bean: &Bean) {

@@ -106,7 +106,11 @@ pub fn cmd_status(json: bool, beans_dir: &Path) -> Result<()> {
 
     if json {
         let output = StatusOutput {
-            claimed: claimed.into_iter().cloned().map(StatusEntry::from_entry).collect(),
+            claimed: claimed
+                .into_iter()
+                .cloned()
+                .map(StatusEntry::from_entry)
+                .collect(),
             ready: ready.into_iter().cloned().collect(),
             goals: goals.into_iter().cloned().collect(),
             blocked: blocked.into_iter().cloned().collect(),

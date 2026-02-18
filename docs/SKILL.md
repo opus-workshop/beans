@@ -169,16 +169,39 @@ Don't claim these — stay focused on your current work. Another agent handles t
 
 ## Delegating Work
 
-If a run command is configured (`bn config set run "<cmd>"`), use `--run` to spawn a background agent:
+Use `bn run` to dispatch beans to agents. Configure the agent command once:
 
 ```bash
-bn create "fix auth timeout" --verify "cargo test auth::session" --run
+bn config set run "claude -p 'implement bean {id} and run bn close {id}'"
 ```
 
-| Flag | Who works | Blocks you? |
-|------|-----------|-------------|
+Then dispatch:
+
+```bash
+bn run                  # Dispatch all ready beans
+bn run 3                # Dispatch a specific bean
+bn run --watch          # Continuous mode: re-dispatch as beans complete
+```
+
+For large beans that need decomposition:
+
+```bash
+bn plan 3               # Break bean 3 into children
+bn plan --auto          # Autonomous (no prompts)
+```
+
+Monitor agents:
+
+```bash
+bn agents               # Show running/completed agents
+bn logs 3               # View agent output for bean 3
+```
+
+| Approach | Who works | Blocks you? |
+|----------|-----------|-------------|
 | `--claim` / `bn quick` | You, now | Yes |
-| `--run` | Background agent | No |
+| `bn run` | Background agents | No |
+| `bn run --watch` | Continuous dispatch | No |
 
 ## Decomposition
 
@@ -198,24 +221,59 @@ Children auto-number (`<parent>.1`, `<parent>.2`, ...). Use `produces`/`requires
 
 View the hierarchy: `bn tree <id>`
 
+## Pipe-Friendly Output
+
+Use `--json` for structured output when composing commands:
+
+```bash
+# Create and capture ID
+ID=$(bn create "task" --verify "test" -p --json | jq -r '.id')
+
+# List just IDs (one per line)
+bn list --ids
+
+# Custom format
+bn list --format '{id}\t{status}\t{title}'
+
+# Batch close from pipe
+bn list --ids | bn close --stdin --force
+
+# Read description from stdin
+cat spec.md | bn create "task" --description - --verify "test"
+
+# Pipe build output into notes
+cargo build 2>&1 | bn update 3 --notes -
+
+# Structured verify result
+bn verify 3 --json   # {"id":"3","passed":false}
+
+# Context as JSON
+bn context 3 --json  # {"id":"3","files":[{"path":"...","content":"..."}]}
+```
+
 ## Command Reference
 
 | Command | Purpose |
 |---------|---------|
-| `bn create "..." --verify "..."` | **Create a bean** |
+| `bn create "..." --verify "..."` | **Create a bean** (`--json` for piped output) |
 | `bn quick "..." --verify "..."` | Create + claim in one step |
 | `bn status` | Overview: claimed, ready, blocked |
 | `bn ready` | Unblocked tasks |
 | `bn claim <id>` | Claim a task |
 | `bn show <id>` | Full bean details (the prompt) |
-| `bn context <id>` | Files referenced in description (the code) |
-| `bn verify <id>` | Test verify without closing |
-| `bn close <id>` | Close (verify must pass) |
+| `bn context <id>` | Files referenced in description (`--json`) |
+| `bn verify <id>` | Test verify without closing (`--json`) |
+| `bn close <id>` | Close (verify must pass, `--stdin` for batch) |
 | `bn close <id> --force` | Force close (skip verify) |
-| `bn update <id> --note "..."` | Log progress |
+| `bn update <id> --note "..."` | Log progress (`--description -` reads stdin) |
 | `bn claim <id> --release` | Release claim |
+| `bn run [id] [-j N]` | Dispatch ready beans to agents |
+| `bn run --watch` | Watch mode: auto-dispatch on changes |
+| `bn plan [id] [--auto]` | Decompose a large bean into children |
+| `bn agents` | Show running/completed agents |
+| `bn logs <id>` | View agent output for a bean |
 | `bn tree` / `bn tree <id>` | View hierarchy |
-| `bn list` | List beans (`--status`, `--parent`, `--label`) |
+| `bn list` | List beans (`--ids`, `--format`, `--json`) |
 | `bn dep add <id> <dep>` | Add explicit dependency |
 | `bn tidy` | Archive closed, release stale claims |
 | `bn doctor` | Health check |

@@ -37,11 +37,11 @@ pub fn cmd_update(
     }
 
     // Load the bean using find_bean_file
-    let bean_path = find_bean_file(beans_dir, id)
-        .with_context(|| format!("Bean not found: {}", id))?;
+    let bean_path =
+        find_bean_file(beans_dir, id).with_context(|| format!("Bean not found: {}", id))?;
 
-    let mut bean = Bean::from_file(&bean_path)
-        .with_context(|| format!("Failed to load bean: {}", id))?;
+    let mut bean =
+        Bean::from_file(&bean_path).with_context(|| format!("Failed to load bean: {}", id))?;
 
     // Get project root for hooks (parent of .beans)
     let project_root = beans_dir
@@ -90,8 +90,8 @@ pub fn cmd_update(
     }
 
     if let Some(new_status) = status {
-        bean.status = parse_status(&new_status)
-            .ok_or_else(|| anyhow!("Invalid status: {}", new_status))?;
+        bean.status =
+            parse_status(&new_status).ok_or_else(|| anyhow!("Invalid status: {}", new_status))?;
     }
 
     if let Some(new_priority) = priority {
@@ -127,9 +127,9 @@ pub fn cmd_update(
         .with_context(|| format!("Failed to save bean: {}", id))?;
 
     // Rebuild index
-    let index = Index::build(beans_dir)
-        .with_context(|| "Failed to rebuild index")?;
-    index.save(beans_dir)
+    let index = Index::build(beans_dir).with_context(|| "Failed to rebuild index")?;
+    index
+        .save(beans_dir)
         .with_context(|| "Failed to save index")?;
 
     println!("Updated bean {}: {}", id, bean.title);
@@ -147,8 +147,8 @@ mod tests {
     use super::*;
     use crate::bean::Status;
     use crate::util::title_to_slug;
-    use tempfile::TempDir;
     use std::fs;
+    use tempfile::TempDir;
 
     fn setup_test_beans_dir() -> (TempDir, std::path::PathBuf) {
         let dir = TempDir::new().unwrap();
@@ -162,11 +162,27 @@ mod tests {
         let (_dir, beans_dir) = setup_test_beans_dir();
         let bean = Bean::new("1", "Original title");
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
-        cmd_update(&beans_dir, "1", Some("New title".to_string()), None, None, None, None, None, None, None, None, None).unwrap();
+        cmd_update(
+            &beans_dir,
+            "1",
+            Some("New title".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
 
-        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert_eq!(updated.title, "New title");
     }
 
@@ -176,11 +192,27 @@ mod tests {
         let mut bean = Bean::new("1", "Test");
         bean.notes = Some("First note".to_string());
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
-        cmd_update(&beans_dir, "1", None, None, None, Some("Second note".to_string()), None, None, None, None, None, None).unwrap();
+        cmd_update(
+            &beans_dir,
+            "1",
+            None,
+            None,
+            None,
+            Some("Second note".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
 
-        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         let notes = updated.notes.unwrap();
         assert!(notes.contains("First note"));
         assert!(notes.contains("Second note"));
@@ -192,11 +224,27 @@ mod tests {
         let (_dir, beans_dir) = setup_test_beans_dir();
         let bean = Bean::new("1", "Test");
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
-        cmd_update(&beans_dir, "1", None, None, None, Some("First note".to_string()), None, None, None, None, None, None).unwrap();
+        cmd_update(
+            &beans_dir,
+            "1",
+            None,
+            None,
+            None,
+            Some("First note".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
 
-        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         let notes = updated.notes.unwrap();
         assert!(notes.contains("First note"));
         assert!(notes.contains("---"));
@@ -208,11 +256,27 @@ mod tests {
         let (_dir, beans_dir) = setup_test_beans_dir();
         let bean = Bean::new("1", "Test");
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
-        cmd_update(&beans_dir, "1", None, None, None, None, None, Some("in_progress".to_string()), None, None, None, None).unwrap();
+        cmd_update(
+            &beans_dir,
+            "1",
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some("in_progress".to_string()),
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
 
-        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert_eq!(updated.status, Status::InProgress);
     }
 
@@ -221,11 +285,27 @@ mod tests {
         let (_dir, beans_dir) = setup_test_beans_dir();
         let bean = Bean::new("1", "Test");
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
-        cmd_update(&beans_dir, "1", None, None, None, None, None, None, Some(1), None, None, None).unwrap();
+        cmd_update(
+            &beans_dir,
+            "1",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(1),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
 
-        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert_eq!(updated.priority, 1);
     }
 
@@ -234,11 +314,27 @@ mod tests {
         let (_dir, beans_dir) = setup_test_beans_dir();
         let bean = Bean::new("1", "Test");
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
-        cmd_update(&beans_dir, "1", None, None, None, None, None, None, None, None, Some("urgent".to_string()), None).unwrap();
+        cmd_update(
+            &beans_dir,
+            "1",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some("urgent".to_string()),
+            None,
+        )
+        .unwrap();
 
-        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert!(updated.labels.contains(&"urgent".to_string()));
     }
 
@@ -248,11 +344,27 @@ mod tests {
         let mut bean = Bean::new("1", "Test");
         bean.labels = vec!["urgent".to_string(), "bug".to_string()];
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
-        cmd_update(&beans_dir, "1", None, None, None, None, None, None, None, None, None, Some("urgent".to_string())).unwrap();
+        cmd_update(
+            &beans_dir,
+            "1",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some("urgent".to_string()),
+        )
+        .unwrap();
 
-        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert!(!updated.labels.contains(&"urgent".to_string()));
         assert!(updated.labels.contains(&"bug".to_string()));
     }
@@ -260,7 +372,20 @@ mod tests {
     #[test]
     fn test_update_nonexistent_bean() {
         let (_dir, beans_dir) = setup_test_beans_dir();
-        let result = cmd_update(&beans_dir, "99", Some("Title".to_string()), None, None, None, None, None, None, None, None, None);
+        let result = cmd_update(
+            &beans_dir,
+            "99",
+            Some("Title".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
         assert!(result.is_err());
     }
 
@@ -269,11 +394,27 @@ mod tests {
         let (_dir, beans_dir) = setup_test_beans_dir();
         let bean = Bean::new("1", "Original");
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
-        cmd_update(&beans_dir, "1", Some("New title".to_string()), Some("New desc".to_string()), None, None, None, Some("closed".to_string()), Some(0), None, None, None).unwrap();
+        cmd_update(
+            &beans_dir,
+            "1",
+            Some("New title".to_string()),
+            Some("New desc".to_string()),
+            None,
+            None,
+            None,
+            Some("closed".to_string()),
+            Some(0),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
 
-        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert_eq!(updated.title, "New title");
         assert_eq!(updated.description, Some("New desc".to_string()));
         assert_eq!(updated.status, Status::Closed);
@@ -285,12 +426,27 @@ mod tests {
         let (_dir, beans_dir) = setup_test_beans_dir();
         let bean = Bean::new("1", "Original");
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
         // Index doesn't exist yet
         assert!(!beans_dir.join("index.yaml").exists());
 
-        cmd_update(&beans_dir, "1", Some("New title".to_string()), None, None, None, None, None, None, None, None, None).unwrap();
+        cmd_update(
+            &beans_dir,
+            "1",
+            Some("New title".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
 
         // Index should be created
         assert!(beans_dir.join("index.yaml").exists());
@@ -305,12 +461,29 @@ mod tests {
         let (_dir, beans_dir) = setup_test_beans_dir();
         let bean = Bean::new("1", "Test");
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
-        let result = cmd_update(&beans_dir, "1", None, None, None, None, None, None, Some(5), None, None, None);
+        let result = cmd_update(
+            &beans_dir,
+            "1",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(5),
+            None,
+            None,
+            None,
+        );
         assert!(result.is_err(), "Should reject priority > 4");
         let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("priority"), "Error should mention priority");
+        assert!(
+            err_msg.contains("priority"),
+            "Error should mention priority"
+        );
     }
 
     #[test]
@@ -319,12 +492,28 @@ mod tests {
             let (_dir, beans_dir) = setup_test_beans_dir();
             let bean = Bean::new("1", "Test");
             let slug = title_to_slug(&bean.title);
-            bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+            bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+                .unwrap();
 
-            let result = cmd_update(&beans_dir, "1", None, None, None, None, None, None, Some(priority), None, None, None);
+            let result = cmd_update(
+                &beans_dir,
+                "1",
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some(priority),
+                None,
+                None,
+                None,
+            );
             assert!(result.is_ok(), "Priority {} should be valid", priority);
 
-            let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+            let updated =
+                Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap())
+                    .unwrap();
             assert_eq!(updated.priority, priority);
         }
     }
@@ -338,13 +527,31 @@ mod tests {
         let (_dir, beans_dir) = setup_test_beans_dir();
         let bean = Bean::new("1", "Original");
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
         // Update should succeed even without hooks (untrusted)
-        let result = cmd_update(&beans_dir, "1", Some("New title".to_string()), None, None, None, None, None, None, None, None, None);
-        assert!(result.is_ok(), "Update should succeed when hooks not trusted");
+        let result = cmd_update(
+            &beans_dir,
+            "1",
+            Some("New title".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        assert!(
+            result.is_ok(),
+            "Update should succeed when hooks not trusted"
+        );
 
-        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert_eq!(updated.title, "New title");
     }
 
@@ -357,7 +564,8 @@ mod tests {
         let project_root = dir.path();
         let bean = Bean::new("1", "Original");
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
         // Enable trust and create failing hook
         create_trust(project_root).unwrap();
@@ -372,12 +580,29 @@ mod tests {
         }
 
         // Update should fail
-        let result = cmd_update(&beans_dir, "1", Some("New title".to_string()), None, None, None, None, None, None, None, None, None);
-        assert!(result.is_err(), "Update should fail when pre-update hook rejects");
+        let result = cmd_update(
+            &beans_dir,
+            "1",
+            Some("New title".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        assert!(
+            result.is_err(),
+            "Update should fail when pre-update hook rejects"
+        );
         assert!(result.unwrap_err().to_string().contains("rejected"));
 
         // Bean should not be modified
-        let unchanged = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        let unchanged =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert_eq!(unchanged.title, "Original");
     }
 
@@ -390,7 +615,8 @@ mod tests {
         let project_root = dir.path();
         let bean = Bean::new("1", "Original");
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
         // Enable trust and create passing hook
         create_trust(project_root).unwrap();
@@ -405,11 +631,28 @@ mod tests {
         }
 
         // Update should succeed
-        let result = cmd_update(&beans_dir, "1", Some("New title".to_string()), None, None, None, None, None, None, None, None, None);
-        assert!(result.is_ok(), "Update should succeed when pre-update hook passes");
+        let result = cmd_update(
+            &beans_dir,
+            "1",
+            Some("New title".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        assert!(
+            result.is_ok(),
+            "Update should succeed when pre-update hook passes"
+        );
 
         // Bean should be modified
-        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert_eq!(updated.title, "New title");
     }
 
@@ -422,7 +665,8 @@ mod tests {
         let project_root = dir.path();
         let bean = Bean::new("1", "Original");
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
         // Enable trust and create post-update hook that writes a marker file
         create_trust(project_root).unwrap();
@@ -434,7 +678,10 @@ mod tests {
 
         fs::write(
             &hook_path,
-            format!("#!/bin/bash\necho 'post-update hook ran' > {}", marker_path_str),
+            format!(
+                "#!/bin/bash\necho 'post-update hook ran' > {}",
+                marker_path_str
+            ),
         )
         .unwrap();
 
@@ -444,10 +691,25 @@ mod tests {
         }
 
         // Update bean
-        cmd_update(&beans_dir, "1", Some("New title".to_string()), None, None, None, None, None, None, None, None, None).unwrap();
+        cmd_update(
+            &beans_dir,
+            "1",
+            Some("New title".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
 
         // Bean should be updated
-        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert_eq!(updated.title, "New title");
 
         // Post-update hook should have run (marker file created)
@@ -463,7 +725,8 @@ mod tests {
         let project_root = dir.path();
         let bean = Bean::new("1", "Original");
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
         // Enable trust and create failing post-update hook
         create_trust(project_root).unwrap();
@@ -478,11 +741,28 @@ mod tests {
         }
 
         // Update should still succeed even though post-hook fails
-        let result = cmd_update(&beans_dir, "1", Some("New title".to_string()), None, None, None, None, None, None, None, None, None);
-        assert!(result.is_ok(), "Update should succeed even if post-update hook fails");
+        let result = cmd_update(
+            &beans_dir,
+            "1",
+            Some("New title".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        assert!(
+            result.is_ok(),
+            "Update should succeed even if post-update hook fails"
+        );
 
         // Bean should still be modified
-        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert_eq!(updated.title, "New title");
     }
 
@@ -495,7 +775,8 @@ mod tests {
         let project_root = dir.path();
         let bean = Bean::new("1", "Original");
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
         // Enable trust and create hooks
         create_trust(project_root).unwrap();
@@ -532,7 +813,8 @@ mod tests {
         assert!(result.is_ok());
 
         // Verify all changes applied
-        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert_eq!(updated.title, "New title");
         assert_eq!(updated.description, Some("New desc".to_string()));
         assert_eq!(updated.status, Status::InProgress);
@@ -547,13 +829,35 @@ mod tests {
         let (_dir, beans_dir) = setup_test_beans_dir();
         let bean = Bean::new("1", "Test");
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
-        cmd_update(&beans_dir, "1", None, Some("New description with content".to_string()), None, None, None, None, None, None, None, None).unwrap();
+        cmd_update(
+            &beans_dir,
+            "1",
+            None,
+            Some("New description with content".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
 
-        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
-        assert!(updated.tokens.is_some(), "Tokens should be calculated after description update");
-        assert!(updated.tokens_updated.is_some(), "tokens_updated should be set");
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        assert!(
+            updated.tokens.is_some(),
+            "Tokens should be calculated after description update"
+        );
+        assert!(
+            updated.tokens_updated.is_some(),
+            "tokens_updated should be set"
+        );
     }
 
     #[test]
@@ -561,13 +865,35 @@ mod tests {
         let (_dir, beans_dir) = setup_test_beans_dir();
         let bean = Bean::new("1", "Test");
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
-        cmd_update(&beans_dir, "1", None, None, Some("New acceptance criteria".to_string()), None, None, None, None, None, None, None).unwrap();
+        cmd_update(
+            &beans_dir,
+            "1",
+            None,
+            None,
+            Some("New acceptance criteria".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
 
-        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
-        assert!(updated.tokens.is_some(), "Tokens should be calculated after acceptance update");
-        assert!(updated.tokens_updated.is_some(), "tokens_updated should be set");
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        assert!(
+            updated.tokens.is_some(),
+            "Tokens should be calculated after acceptance update"
+        );
+        assert!(
+            updated.tokens_updated.is_some(),
+            "tokens_updated should be set"
+        );
     }
 
     #[test]
@@ -575,13 +901,35 @@ mod tests {
         let (_dir, beans_dir) = setup_test_beans_dir();
         let bean = Bean::new("1", "Test");
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
-        cmd_update(&beans_dir, "1", None, None, None, Some("New note content".to_string()), None, None, None, None, None, None).unwrap();
+        cmd_update(
+            &beans_dir,
+            "1",
+            None,
+            None,
+            None,
+            Some("New note content".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
 
-        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
-        assert!(updated.tokens.is_some(), "Tokens should be calculated after notes update");
-        assert!(updated.tokens_updated.is_some(), "tokens_updated should be set");
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        assert!(
+            updated.tokens.is_some(),
+            "Tokens should be calculated after notes update"
+        );
+        assert!(
+            updated.tokens_updated.is_some(),
+            "tokens_updated should be set"
+        );
     }
 
     #[test]
@@ -589,13 +937,35 @@ mod tests {
         let (_dir, beans_dir) = setup_test_beans_dir();
         let bean = Bean::new("1", "Original Title");
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
-        cmd_update(&beans_dir, "1", Some("New Title".to_string()), None, None, None, None, None, None, None, None, None).unwrap();
+        cmd_update(
+            &beans_dir,
+            "1",
+            Some("New Title".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
 
-        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
-        assert!(updated.tokens.is_none(), "Tokens should not be calculated for title-only update");
-        assert!(updated.tokens_updated.is_none(), "tokens_updated should not be set");
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        assert!(
+            updated.tokens.is_none(),
+            "Tokens should not be calculated for title-only update"
+        );
+        assert!(
+            updated.tokens_updated.is_none(),
+            "tokens_updated should not be set"
+        );
     }
 
     #[test]
@@ -603,13 +973,35 @@ mod tests {
         let (_dir, beans_dir) = setup_test_beans_dir();
         let bean = Bean::new("1", "Test");
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
-        cmd_update(&beans_dir, "1", None, None, None, None, None, None, None, None, Some("bug".to_string()), None).unwrap();
+        cmd_update(
+            &beans_dir,
+            "1",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some("bug".to_string()),
+            None,
+        )
+        .unwrap();
 
-        let updated = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
-        assert!(updated.tokens.is_none(), "Tokens should not be calculated for label-only update");
-        assert!(updated.tokens_updated.is_none(), "tokens_updated should not be set");
+        let updated =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        assert!(
+            updated.tokens.is_none(),
+            "Tokens should not be calculated for label-only update"
+        );
+        assert!(
+            updated.tokens_updated.is_none(),
+            "tokens_updated should not be set"
+        );
     }
 
     #[test]
@@ -617,21 +1009,55 @@ mod tests {
         let (_dir, beans_dir) = setup_test_beans_dir();
         let bean = Bean::new("1", "Test");
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
         // First update
-        cmd_update(&beans_dir, "1", None, Some("First description".to_string()), None, None, None, None, None, None, None, None).unwrap();
-        let first_update = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        cmd_update(
+            &beans_dir,
+            "1",
+            None,
+            Some("First description".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        let first_update =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         let first_tokens_updated = first_update.tokens_updated.unwrap();
 
         // Brief pause to ensure timestamp difference
         std::thread::sleep(std::time::Duration::from_millis(10));
 
         // Second update
-        cmd_update(&beans_dir, "1", None, Some("Second description with more content".to_string()), None, None, None, None, None, None, None, None).unwrap();
-        let second_update = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        cmd_update(
+            &beans_dir,
+            "1",
+            None,
+            Some("Second description with more content".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        let second_update =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         let second_tokens_updated = second_update.tokens_updated.unwrap();
 
-        assert!(second_tokens_updated > first_tokens_updated, "tokens_updated should change on content update");
+        assert!(
+            second_tokens_updated > first_tokens_updated,
+            "tokens_updated should change on content update"
+        );
     }
 }

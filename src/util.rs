@@ -26,7 +26,10 @@ pub fn validate_bean_id(id: &str) -> Result<()> {
     }
 
     // Check that ID only contains safe characters: alphanumeric, dots, underscores, hyphens
-    if !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-') {
+    if !id
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-')
+    {
         return Err(anyhow::anyhow!(
             "Invalid bean ID '{}': must contain only alphanumeric characters, dots, underscores, and hyphens",
             id
@@ -152,10 +155,10 @@ impl FromStr for Status {
 pub fn title_to_slug(title: &str) -> String {
     // Step 1: Trim whitespace
     let trimmed = title.trim();
-    
+
     // Step 2: Lowercase all characters
     let lowercased = trimmed.to_lowercase();
-    
+
     // Step 3 & 4: Replace spaces with hyphens and remove non-alphanumeric (except hyphens)
     let mut slug = String::new();
     for c in lowercased.chars() {
@@ -166,25 +169,27 @@ pub fn title_to_slug(title: &str) -> String {
         }
         // Skip all other characters (special chars, punctuation, etc.)
     }
-    
+
     // Step 5: Collapse consecutive hyphens into single hyphen
-    let slug = slug
-        .chars()
-        .fold(String::new(), |mut acc, c| {
-            if c == '-' && acc.ends_with('-') {
-                acc
-            } else {
-                acc.push(c);
-                acc
-            }
-        });
-    
+    let slug = slug.chars().fold(String::new(), |mut acc, c| {
+        if c == '-' && acc.ends_with('-') {
+            acc
+        } else {
+            acc.push(c);
+            acc
+        }
+    });
+
     // Step 6: Remove leading/trailing hyphens
     let slug = slug.trim_matches('-').to_string();
-    
+
     // Step 7: Truncate to 50 characters and re-trim hyphens
     let slug = if slug.len() > 50 {
-        slug.chars().take(50).collect::<String>().trim_end_matches('-').to_string()
+        slug.chars()
+            .take(50)
+            .collect::<String>()
+            .trim_end_matches('-')
+            .to_string()
     } else {
         slug
     };
@@ -282,12 +287,18 @@ mod tests {
 
     #[test]
     fn title_to_slug_mixed_case() {
-        assert_eq!(title_to_slug("ThIs Is A MiXeD CaSe TiTle"), "this-is-a-mixed-case-title");
+        assert_eq!(
+            title_to_slug("ThIs Is A MiXeD CaSe TiTle"),
+            "this-is-a-mixed-case-title"
+        );
     }
 
     #[test]
     fn title_to_slug_numbers_preserved() {
-        assert_eq!(title_to_slug("Task 123 Version 4.5.6"), "task-123-version-456");
+        assert_eq!(
+            title_to_slug("Task 123 Version 4.5.6"),
+            "task-123-version-456"
+        );
     }
 
     #[test]
@@ -360,23 +371,39 @@ mod tests {
 
     #[test]
     fn parse_id_segments_multi_level() {
-        assert_eq!(parse_id_segments("1.2"), vec![IdSegment::Num(1), IdSegment::Num(2)]);
-        assert_eq!(parse_id_segments("3.2.1"), vec![IdSegment::Num(3), IdSegment::Num(2), IdSegment::Num(1)]);
+        assert_eq!(
+            parse_id_segments("1.2"),
+            vec![IdSegment::Num(1), IdSegment::Num(2)]
+        );
+        assert_eq!(
+            parse_id_segments("3.2.1"),
+            vec![IdSegment::Num(3), IdSegment::Num(2), IdSegment::Num(1)]
+        );
     }
 
     #[test]
     fn parse_id_segments_leading_zeros() {
         // Leading zeros are parsed as decimal, not octal
         assert_eq!(parse_id_segments("01"), vec![IdSegment::Num(1)]);
-        assert_eq!(parse_id_segments("03.02"), vec![IdSegment::Num(3), IdSegment::Num(2)]);
+        assert_eq!(
+            parse_id_segments("03.02"),
+            vec![IdSegment::Num(3), IdSegment::Num(2)]
+        );
     }
 
     #[test]
     fn parse_id_segments_alpha() {
-        assert_eq!(parse_id_segments("abc"), vec![IdSegment::Alpha("abc".to_string())]);
+        assert_eq!(
+            parse_id_segments("abc"),
+            vec![IdSegment::Alpha("abc".to_string())]
+        );
         assert_eq!(
             parse_id_segments("1.abc.2"),
-            vec![IdSegment::Num(1), IdSegment::Alpha("abc".to_string()), IdSegment::Num(2)]
+            vec![
+                IdSegment::Num(1),
+                IdSegment::Alpha("abc".to_string()),
+                IdSegment::Num(2)
+            ]
         );
     }
 

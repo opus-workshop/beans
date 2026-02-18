@@ -1,6 +1,6 @@
 [package]
 name = "bn"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Task tracker for coding agents"
 
@@ -17,6 +17,11 @@ glob = "0.3"
 regex = "1"
 sha2 = "0.10"
 dirs = "5"
+notify = { version = "6", default-features = false, features = ["macos_fsevent"] }
+signal-hook = "0.3"
+libc = "0.2"
+daemonize = "0.5"
+dialoguer = { version = "0.11", features = ["editor", "fuzzy-select"] }
 
 [[bin]]
 name = "bctx"

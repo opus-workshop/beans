@@ -2,13 +2,13 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use crate::index::{Index, count_bean_formats};
+use crate::index::{count_bean_formats, Index};
 
 /// Force rebuild index unconditionally from YAML files
 pub fn cmd_sync(beans_dir: &Path) -> Result<()> {
     // Check for mixed formats before building
     let (md_count, yaml_count) = count_bean_formats(beans_dir)?;
-    
+
     let index = Index::build(beans_dir)?;
     let count = index.beans.len();
     index.save(beans_dir)?;
@@ -50,8 +50,12 @@ mod tests {
         let slug1 = title_to_slug(&bean1.title);
         let slug2 = title_to_slug(&bean2.title);
 
-        bean1.to_file(beans_dir.join(format!("1-{}.md", slug1))).unwrap();
-        bean2.to_file(beans_dir.join(format!("2-{}.md", slug2))).unwrap();
+        bean1
+            .to_file(beans_dir.join(format!("1-{}.md", slug1)))
+            .unwrap();
+        bean2
+            .to_file(beans_dir.join(format!("2-{}.md", slug2)))
+            .unwrap();
 
         // Sync should create index with 2 beans
         let result = cmd_sync(&beans_dir);

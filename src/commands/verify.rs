@@ -11,11 +11,10 @@ use crate::discovery::find_bean_file;
 /// Returns `Ok(true)` if the command exits 0, `Ok(false)` if non-zero.
 /// If no verify command is set, prints a message and returns `Ok(true)`.
 pub fn cmd_verify(beans_dir: &Path, id: &str) -> Result<bool> {
-    let bean_path = find_bean_file(beans_dir, id)
-        .map_err(|_| anyhow!("Bean not found: {}", id))?;
+    let bean_path = find_bean_file(beans_dir, id).map_err(|_| anyhow!("Bean not found: {}", id))?;
 
-    let bean = Bean::from_file(&bean_path)
-        .with_context(|| format!("Failed to load bean: {}", id))?;
+    let bean =
+        Bean::from_file(&bean_path).with_context(|| format!("Failed to load bean: {}", id))?;
 
     let verify_cmd = match &bean.verify {
         Some(cmd) => cmd.clone(),

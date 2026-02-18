@@ -1317,8 +1317,8 @@ Verify passes. Bean closes.
 All work in the project follows a standard workflow:
 
 1. **Understand** — `bctx <bean-id>` + `spec context` before touching code
-2. **Plan** — Single task: just do it. Multi-step: break into beans with `bn create`
-3. **Implement** — Single bean: implement directly. Epic: `/swarm` for parallel agents
+2. **Plan** — Single task: just do it. Multi-step: break into beans with `bn create` or `bn plan`
+3. **Implement** — Single bean: implement directly. Epic: `bn run` to dispatch agents in parallel
 4. **Verify** — `verify` before committing (lint, types, build, test)
 5. **Close** — `bn close <id>` when verified, `bn sync --flush-only` at session end
 
@@ -1384,6 +1384,9 @@ Beans is evolving from a task tracker into a comprehensive orchestration platfor
 ### Current Implementation Status
 
 Already available:
+- `bn run` / `bn plan` — Built-in agent orchestration and task decomposition
+- `bn agents` / `bn logs` — Agent monitoring and log viewing
+- `bn init --agent` — Guided agent setup wizard with presets
 - `bn claim` / `bn verify` — Atomic task claiming and verification without closing
 - `bn edit` — Edit beans in $EDITOR with schema validation
 - Smart selectors (@latest, @blocked, @parent, @me)
@@ -1453,7 +1456,12 @@ If all checked, the bean is ready for an agent to claim.
 - `bn --help` — Full CLI help
 - `bn <command> --help` — Help for specific command
 
-**Key New Commands:**
+**Key Commands:**
+- `bn run [id]` — Dispatch ready beans to agents
+- `bn run --watch` — Continuous dispatch mode
+- `bn plan [id]` — Decompose large beans into children
+- `bn agents` / `bn logs <id>` — Monitor agents and view output
+- `bn init --agent <preset>` — Guided agent setup
 - `bn claim <id>` — Atomically claim bean for work
 - `bn claim <id> --release` — Release claim
 - `bn verify <id>` — Test verify without closing
@@ -1462,5 +1470,4 @@ If all checked, the bean is ready for an agent to claim.
 
 ---
 
-*Last updated: 2026-01-30*
-*Reflects project changes through commit 606509b*
+*Last updated: 2026-02-23*

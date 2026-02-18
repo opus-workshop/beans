@@ -12,11 +12,11 @@ use crate::index::Index;
 /// Sets status=open, clears closed_at and close_reason.
 /// Updates updated_at and rebuilds index.
 pub fn cmd_reopen(beans_dir: &Path, id: &str) -> Result<()> {
-    let bean_path = find_bean_file(beans_dir, id)
-        .with_context(|| format!("Bean not found: {}", id))?;
+    let bean_path =
+        find_bean_file(beans_dir, id).with_context(|| format!("Bean not found: {}", id))?;
 
-    let mut bean = Bean::from_file(&bean_path)
-        .with_context(|| format!("Failed to load bean: {}", id))?;
+    let mut bean =
+        Bean::from_file(&bean_path).with_context(|| format!("Failed to load bean: {}", id))?;
 
     bean.status = crate::bean::Status::Open;
     bean.closed_at = None;
@@ -27,9 +27,9 @@ pub fn cmd_reopen(beans_dir: &Path, id: &str) -> Result<()> {
         .with_context(|| format!("Failed to save bean: {}", id))?;
 
     // Rebuild index
-    let index = Index::build(beans_dir)
-        .with_context(|| "Failed to rebuild index")?;
-    index.save(beans_dir)
+    let index = Index::build(beans_dir).with_context(|| "Failed to rebuild index")?;
+    index
+        .save(beans_dir)
         .with_context(|| "Failed to save index")?;
 
     println!("Reopened bean {}: {}", id, bean.title);
@@ -59,11 +59,13 @@ mod tests {
         bean.closed_at = Some(Utc::now());
         bean.close_reason = Some("Done".to_string());
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
         cmd_reopen(&beans_dir, "1").unwrap();
 
-        let reopened = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        let reopened =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert_eq!(reopened.status, Status::Open);
         assert!(reopened.closed_at.is_none());
         assert!(reopened.close_reason.is_none());
@@ -84,13 +86,15 @@ mod tests {
         bean.closed_at = Some(Utc::now());
         let original_updated_at = bean.updated_at;
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
         std::thread::sleep(std::time::Duration::from_millis(10));
 
         cmd_reopen(&beans_dir, "1").unwrap();
 
-        let reopened = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        let reopened =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert!(reopened.updated_at > original_updated_at);
     }
 
@@ -100,7 +104,8 @@ mod tests {
         let mut bean = Bean::new("1", "Task");
         bean.status = Status::Closed;
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
         cmd_reopen(&beans_dir, "1").unwrap();
 
@@ -114,12 +119,14 @@ mod tests {
         let (_dir, beans_dir) = setup_test_beans_dir();
         let bean = Bean::new("1", "Task");
         let slug = title_to_slug(&bean.title);
-        bean.to_file(beans_dir.join(format!("1-{}.md", slug))).unwrap();
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
 
         // Should work fine even if already open
         cmd_reopen(&beans_dir, "1").unwrap();
 
-        let reopened = Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
+        let reopened =
+            Bean::from_file(crate::discovery::find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert_eq!(reopened.status, Status::Open);
     }
 }

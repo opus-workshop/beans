@@ -11,13 +11,21 @@ pub fn cmd_stats(beans_dir: &Path) -> Result<()> {
 
     // Count by status
     let total = index.beans.len();
-    let open = index.beans.iter().filter(|e| e.status == Status::Open).count();
+    let open = index
+        .beans
+        .iter()
+        .filter(|e| e.status == Status::Open)
+        .count();
     let in_progress = index
         .beans
         .iter()
         .filter(|e| e.status == Status::InProgress)
         .count();
-    let closed = index.beans.iter().filter(|e| e.status == Status::Closed).count();
+    let closed = index
+        .beans
+        .iter()
+        .filter(|e| e.status == Status::Closed)
+        .count();
 
     // Count blocked (open with unresolved dependencies)
     let blocked = index
@@ -123,15 +131,27 @@ mod tests {
 
         // Verify counts
         assert_eq!(
-            index.beans.iter().filter(|e| e.status == Status::Open).count(),
+            index
+                .beans
+                .iter()
+                .filter(|e| e.status == Status::Open)
+                .count(),
             3
         ); // 1, 4, 5
         assert_eq!(
-            index.beans.iter().filter(|e| e.status == Status::InProgress).count(),
+            index
+                .beans
+                .iter()
+                .filter(|e| e.status == Status::InProgress)
+                .count(),
             1
         ); // 2
         assert_eq!(
-            index.beans.iter().filter(|e| e.status == Status::Closed).count(),
+            index
+                .beans
+                .iter()
+                .filter(|e| e.status == Status::Closed)
+                .count(),
             1
         ); // 3
     }

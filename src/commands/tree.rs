@@ -25,11 +25,7 @@ pub fn cmd_tree(beans_dir: &Path, id: Option<&str>) -> Result<()> {
 
 fn print_full_tree(index: &Index) {
     // Find root beans (those with no parent)
-    let root_beans: Vec<_> = index
-        .beans
-        .iter()
-        .filter(|e| e.parent.is_none())
-        .collect();
+    let root_beans: Vec<_> = index.beans.iter().filter(|e| e.parent.is_none()).collect();
 
     if root_beans.is_empty() {
         println!("No beans found.");
@@ -74,7 +70,10 @@ fn print_tree_node(
             Status::Closed => "[x]",
         };
 
-        println!("{}{} {} {}", prefix, status_indicator, entry.id, entry.title);
+        println!(
+            "{}{} {} {}",
+            prefix, status_indicator, entry.id, entry.title
+        );
     } else {
         println!("{}[!] {}", prefix, bean_id);
         return;
@@ -107,7 +106,11 @@ fn print_tree_node(
 
     for (i, child) in all_children.iter().enumerate() {
         let is_last_child = i == all_children.len() - 1;
-        let connector = if is_last_child { "└── " } else { "├── " };
+        let connector = if is_last_child {
+            "└── "
+        } else {
+            "├── "
+        };
         let new_prefix = if is_last_child {
             format!("{}    ", prefix)
         } else {

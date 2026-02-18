@@ -78,7 +78,11 @@ fn next_child_number(beans_dir: &Path, parent_id: &str) -> Result<u32> {
 ///
 /// # Returns
 /// A map of old_id -> new_id for the adopted beans
-pub fn cmd_adopt(beans_dir: &Path, parent_id: &str, child_ids: &[String]) -> Result<HashMap<String, String>> {
+pub fn cmd_adopt(
+    beans_dir: &Path,
+    parent_id: &str,
+    child_ids: &[String],
+) -> Result<HashMap<String, String>> {
     // Validate parent exists
     let parent_path = find_bean_file(beans_dir, parent_id)
         .with_context(|| format!("Parent bean '{}' not found", parent_id))?;
@@ -119,8 +123,9 @@ pub fn cmd_adopt(beans_dir: &Path, parent_id: &str, child_ids: &[String]) -> Res
 
         // Remove the old file (if it's different from the new path)
         if old_path != new_path {
-            fs::remove_file(&old_path)
-                .with_context(|| format!("Failed to remove old bean file {}", old_path.display()))?;
+            fs::remove_file(&old_path).with_context(|| {
+                format!("Failed to remove old bean file {}", old_path.display())
+            })?;
         }
 
         // Track the mapping
@@ -224,6 +229,11 @@ mod tests {
             auto_close_parent: true,
             max_tokens: 30000,
             run: None,
+            plan: None,
+            max_loops: 10,
+            max_concurrent: 4,
+            poll_interval: 30,
+            extends: vec![],
         };
         config.save(&beans_dir).unwrap();
 
@@ -280,11 +290,18 @@ mod tests {
             let mut child = Bean::new(&i.to_string(), &format!("Child {}", i));
             child.slug = Some(format!("child-{}", i));
             child.verify = Some("true".to_string());
-            child.to_file(beans_dir.join(format!("{}-child-{}.md", i, i))).unwrap();
+            child
+                .to_file(beans_dir.join(format!("{}-child-{}.md", i, i)))
+                .unwrap();
         }
 
         // Adopt all three
-        let result = cmd_adopt(&beans_dir, "1", &["2".to_string(), "3".to_string(), "4".to_string()]).unwrap();
+        let result = cmd_adopt(
+            &beans_dir,
+            "1",
+            &["2".to_string(), "3".to_string(), "4".to_string()],
+        )
+        .unwrap();
 
         // Verify mappings (should be sequential)
         assert_eq!(result.get("2"), Some(&"1.1".to_string()));
@@ -311,7 +328,9 @@ mod tests {
         existing_child.slug = Some("existing-child".to_string());
         existing_child.parent = Some("1".to_string());
         existing_child.verify = Some("true".to_string());
-        existing_child.to_file(beans_dir.join("1.1-existing-child.md")).unwrap();
+        existing_child
+            .to_file(beans_dir.join("1.1-existing-child.md"))
+            .unwrap();
 
         // Create new bean to adopt
         let mut new_bean = Bean::new("5", "New bean");
@@ -370,7 +389,10 @@ mod tests {
         // Try to adopt under non-existent parent
         let result = cmd_adopt(&beans_dir, "99", &["2".to_string()]);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Parent bean '99' not found"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Parent bean '99' not found"));
     }
 
     #[test]
@@ -386,7 +408,10 @@ mod tests {
         // Try to adopt non-existent child
         let result = cmd_adopt(&beans_dir, "1", &["99".to_string()]);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Child bean '99' not found"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Child bean '99' not found"));
     }
 
     #[test]
@@ -409,10 +434,10 @@ mod tests {
 
         // Load index and verify
         let index = Index::load(&beans_dir).unwrap();
-        
+
         // Should have 2 beans: parent (1) and adopted child (1.1)
         assert_eq!(index.beans.len(), 2);
-        
+
         // Find the adopted bean in the index
         let adopted = index.beans.iter().find(|b| b.id == "1.1");
         assert!(adopted.is_some());

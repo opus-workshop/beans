@@ -1,7 +1,7 @@
-use std::path::Path;
 use anyhow::{anyhow, Result};
+use std::path::Path;
 
-use crate::hooks::{is_trusted, create_trust, revoke_trust};
+use crate::hooks::{create_trust, is_trusted, revoke_trust};
 
 /// Manage hook trust status.
 ///
@@ -55,8 +55,8 @@ pub fn cmd_trust(beans_dir: &Path, revoke: bool, check: bool) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
     use std::fs;
+    use tempfile::TempDir;
 
     fn create_test_dir() -> TempDir {
         TempDir::new().unwrap()

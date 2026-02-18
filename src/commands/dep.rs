@@ -6,16 +6,15 @@ use chrono::Utc;
 
 use crate::bean::Bean;
 use crate::discovery::find_bean_file;
+use crate::graph::{build_dependency_tree, build_full_graph, detect_cycle, find_all_cycles};
 use crate::index::Index;
-use crate::graph::{detect_cycle, build_dependency_tree, build_full_graph, find_all_cycles};
 
 /// Add a dependency: `bn dep add <id> <depends-on-id>`
 /// Sets id.dependencies to include depends-on-id.
 /// Checks for cycles before adding.
 pub fn cmd_dep_add(beans_dir: &Path, id: &str, depends_on_id: &str) -> Result<()> {
     // Verify both beans exist (supports both .md and legacy .yaml formats)
-    let bean_path = find_bean_file(beans_dir, id)
-        .map_err(|_| anyhow!("Bean {} not found", id))?;
+    let bean_path = find_bean_file(beans_dir, id).map_err(|_| anyhow!("Bean {} not found", id))?;
 
     find_bean_file(beans_dir, depends_on_id)
         .map_err(|_| anyhow!("Bean {} not found", depends_on_id))?;
@@ -41,16 +40,12 @@ pub fn cmd_dep_add(beans_dir: &Path, id: &str, depends_on_id: &str) -> Result<()
     }
 
     // Load the bean and add dependency
-    let mut bean = Bean::from_file(&bean_path)
-        .with_context(|| format!("Failed to load bean: {}", id))?;
+    let mut bean =
+        Bean::from_file(&bean_path).with_context(|| format!("Failed to load bean: {}", id))?;
 
     // Check if already dependent
     if bean.dependencies.contains(&depends_on_id.to_string()) {
-        return Err(anyhow!(
-            "Bean {} already depends on {}",
-            id,
-            depends_on_id
-        ));
+        return Err(anyhow!("Bean {} already depends on {}", id, depends_on_id));
     }
 
     bean.dependencies.push(depends_on_id.to_string());
@@ -61,7 +56,9 @@ pub fn cmd_dep_add(beans_dir: &Path, id: &str, depends_on_id: &str) -> Result<()
 
     // Rebuild index
     let index = Index::build(beans_dir).with_context(|| "Failed to rebuild index")?;
-    index.save(beans_dir).with_context(|| "Failed to save index")?;
+    index
+        .save(beans_dir)
+        .with_context(|| "Failed to save index")?;
 
     println!("{} now depends on {}", id, depends_on_id);
 
@@ -70,21 +67,16 @@ pub fn cmd_dep_add(beans_dir: &Path, id: &str, depends_on_id: &str) -> Result<()
 
 /// Remove a dependency: `bn dep remove <id> <depends-on-id>`
 pub fn cmd_dep_remove(beans_dir: &Path, id: &str, depends_on_id: &str) -> Result<()> {
-    let bean_path = find_bean_file(beans_dir, id)
-        .map_err(|_| anyhow!("Bean {} not found", id))?;
+    let bean_path = find_bean_file(beans_dir, id).map_err(|_| anyhow!("Bean {} not found", id))?;
 
-    let mut bean = Bean::from_file(&bean_path)
-        .with_context(|| format!("Failed to load bean: {}", id))?;
+    let mut bean =
+        Bean::from_file(&bean_path).with_context(|| format!("Failed to load bean: {}", id))?;
 
     let original_len = bean.dependencies.len();
     bean.dependencies.retain(|d| d != depends_on_id);
 
     if bean.dependencies.len() == original_len {
-        return Err(anyhow!(
-            "Bean {} does not depend on {}",
-            id,
-            depends_on_id
-        ));
+        return Err(anyhow!("Bean {} does not depend on {}", id, depends_on_id));
     }
 
     bean.updated_at = Utc::now();
@@ -93,7 +85,9 @@ pub fn cmd_dep_remove(beans_dir: &Path, id: &str, depends_on_id: &str) -> Result
 
     // Rebuild index
     let index = Index::build(beans_dir).with_context(|| "Failed to rebuild index")?;
-    index.save(beans_dir).with_context(|| "Failed to save index")?;
+    index
+        .save(beans_dir)
+        .with_context(|| "Failed to save index")?;
 
     println!("{} no longer depends on {}", id, depends_on_id);
 

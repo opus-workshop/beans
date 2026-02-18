@@ -39,17 +39,8 @@ impl ProjectType {
                 "npm run lint",
                 "npx tsc --noEmit",
             ],
-            ProjectType::Python => vec![
-                "pytest",
-                "python -m pytest",
-                "mypy .",
-                "ruff check .",
-            ],
-            ProjectType::Go => vec![
-                "go test ./...",
-                "go build ./...",
-                "go vet ./...",
-            ],
+            ProjectType::Python => vec!["pytest", "python -m pytest", "mypy .", "ruff check ."],
+            ProjectType::Go => vec!["go test ./...", "go build ./...", "go vet ./..."],
             ProjectType::Ruby => vec![
                 "bundle exec rspec",
                 "bundle exec rake test",
@@ -156,14 +147,20 @@ mod tests {
     #[test]
     fn rust_verify_suggestions() {
         assert_eq!(ProjectType::Rust.suggested_verify(), Some("cargo test"));
-        assert!(ProjectType::Rust.common_verify_commands().contains(&"cargo test"));
-        assert!(ProjectType::Rust.common_verify_commands().contains(&"cargo build"));
+        assert!(ProjectType::Rust
+            .common_verify_commands()
+            .contains(&"cargo test"));
+        assert!(ProjectType::Rust
+            .common_verify_commands()
+            .contains(&"cargo build"));
     }
 
     #[test]
     fn node_verify_suggestions() {
         assert_eq!(ProjectType::Node.suggested_verify(), Some("npm test"));
-        assert!(ProjectType::Node.common_verify_commands().contains(&"npm test"));
+        assert!(ProjectType::Node
+            .common_verify_commands()
+            .contains(&"npm test"));
     }
 
     #[test]

@@ -98,7 +98,11 @@ pub fn archive_path_for_bean(
     let year = date.format("%Y").to_string();
     let month = date.format("%m").to_string();
     let filename = format!("{}-{}.{}", id, slug, ext);
-    beans_dir.join("archive").join(&year).join(&month).join(filename)
+    beans_dir
+        .join("archive")
+        .join(&year)
+        .join(&month)
+        .join(filename)
 }
 
 /// Find an archived bean by ID within the `.beans/archive/` directory tree.
@@ -127,7 +131,10 @@ pub fn find_archived_bean(beans_dir: &Path, id: &str) -> Result<PathBuf> {
 
     // If archive directory doesn't exist, bean is not archived
     if !archive_dir.is_dir() {
-        bail!("Archived bean {} not found (archive directory does not exist)", id);
+        bail!(
+            "Archived bean {} not found (archive directory does not exist)",
+            id
+        );
     }
 
     // Recursively search through year subdirectories
@@ -145,7 +152,9 @@ pub fn find_archived_bean(beans_dir: &Path, id: &str) -> Result<PathBuf> {
             }
 
             // Search through bean files in month directory
-            for bean_entry in std::fs::read_dir(&month_path).context("Failed to read month directory")? {
+            for bean_entry in
+                std::fs::read_dir(&month_path).context("Failed to read month directory")?
+            {
                 let bean_path = bean_entry?.path();
                 if !bean_path.is_file() {
                     continue;
@@ -287,7 +296,12 @@ mod tests {
         let result = find_bean_file(&beans_dir, "2").unwrap();
         // Should return one of the files (glob order is implementation-dependent)
         assert!(result.ends_with("2-alpha.md") || result.ends_with("2-beta.md"));
-        assert!(result.file_name().unwrap().to_str().unwrap().ends_with(".md"));
+        assert!(result
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .ends_with(".md"));
     }
 
     #[test]
@@ -470,10 +484,7 @@ mod tests {
         let path = archive_path_for_bean(&beans_dir, "5", "task", "md", date);
 
         // Month should be zero-padded (03, not 3)
-        assert_eq!(
-            path,
-            beans_dir.join("archive/2026/03/5-task.md")
-        );
+        assert_eq!(path, beans_dir.join("archive/2026/03/5-task.md"));
     }
 
     #[test]
@@ -484,10 +495,7 @@ mod tests {
         let date = chrono::NaiveDate::from_ymd_opt(2024, 8, 20).unwrap();
         let path = archive_path_for_bean(&beans_dir, "3.2.1", "deep-task", "md", date);
 
-        assert_eq!(
-            path,
-            beans_dir.join("archive/2024/08/3.2.1-deep-task.md")
-        );
+        assert_eq!(path, beans_dir.join("archive/2024/08/3.2.1-deep-task.md"));
     }
 
     #[test]
@@ -502,7 +510,9 @@ mod tests {
         assert!(path.to_str().unwrap().contains(long_slug));
         assert_eq!(
             path,
-            beans_dir.join("archive/2026/01/42-implement-comprehensive-feature-with-full-test-coverage.md")
+            beans_dir.join(
+                "archive/2026/01/42-implement-comprehensive-feature-with-full-test-coverage.md"
+            )
         );
     }
 
@@ -514,10 +524,7 @@ mod tests {
         let date = chrono::NaiveDate::from_ymd_opt(2026, 1, 31).unwrap();
         let path = archive_path_for_bean(&beans_dir, "5", "yaml-task", "yaml", date);
 
-        assert_eq!(
-            path,
-            beans_dir.join("archive/2026/01/5-yaml-task.yaml")
-        );
+        assert_eq!(path, beans_dir.join("archive/2026/01/5-yaml-task.yaml"));
     }
 
     // =====================================================================
@@ -546,7 +553,11 @@ mod tests {
         fs::create_dir_all(&archive_dir).unwrap();
 
         // Create an archived bean file
-        fs::write(archive_dir.join("11.1-refactor-parser.md"), "archived content").unwrap();
+        fs::write(
+            archive_dir.join("11.1-refactor-parser.md"),
+            "archived content",
+        )
+        .unwrap();
 
         let result = find_archived_bean(&beans_dir, "11.1").unwrap();
         assert_eq!(result, archive_dir.join("11.1-refactor-parser.md"));
@@ -556,7 +567,7 @@ mod tests {
     fn find_archived_bean_multiple_years() {
         let dir = tempfile::tempdir().unwrap();
         let beans_dir = dir.path().join(".beans");
-        
+
         // Create archive structure with multiple years
         fs::create_dir_all(beans_dir.join("archive/2024/06")).unwrap();
         fs::create_dir_all(beans_dir.join("archive/2025/12")).unwrap();
@@ -565,14 +576,16 @@ mod tests {
         // Create bean in 2024
         fs::write(
             beans_dir.join("archive/2024/06/5-old-task.md"),
-            "old content"
-        ).unwrap();
+            "old content",
+        )
+        .unwrap();
 
         // Create bean in 2026
         fs::write(
             beans_dir.join("archive/2026/01/12-new-task.md"),
-            "new content"
-        ).unwrap();
+            "new content",
+        )
+        .unwrap();
 
         // Should find the bean regardless of year
         let result = find_archived_bean(&beans_dir, "5").unwrap();
@@ -586,7 +599,7 @@ mod tests {
     fn find_archived_bean_multiple_months() {
         let dir = tempfile::tempdir().unwrap();
         let beans_dir = dir.path().join(".beans");
-        
+
         // Create archive structure with multiple months in same year
         fs::create_dir_all(beans_dir.join("archive/2026/01")).unwrap();
         fs::create_dir_all(beans_dir.join("archive/2026/02")).unwrap();
@@ -595,18 +608,21 @@ mod tests {
         // Create beans in different months
         fs::write(
             beans_dir.join("archive/2026/01/10-january-task.md"),
-            "january"
-        ).unwrap();
+            "january",
+        )
+        .unwrap();
 
-        fs::write(
-            beans_dir.join("archive/2026/03/10-march-task.md"),
-            "march"
-        ).unwrap();
+        fs::write(beans_dir.join("archive/2026/03/10-march-task.md"), "march").unwrap();
 
         // Both should be found (returns first match)
         let result = find_archived_bean(&beans_dir, "10").unwrap();
         assert!(result.to_str().unwrap().contains("2026"));
-        assert!(result.file_name().unwrap().to_str().unwrap().starts_with("10-"));
+        assert!(result
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .starts_with("10-"));
     }
 
     #[test]
@@ -622,7 +638,10 @@ mod tests {
         // Try to find a bean that doesn't exist
         let result = find_archived_bean(&beans_dir, "999");
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Archived bean 999 not found"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Archived bean 999 not found"));
     }
 
     #[test]

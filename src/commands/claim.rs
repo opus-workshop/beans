@@ -13,11 +13,10 @@ use crate::index::Index;
 /// Sets status to InProgress, records who claimed it and when.
 /// The bean must be in Open status to be claimed.
 pub fn cmd_claim(beans_dir: &Path, id: &str, by: Option<String>) -> Result<()> {
-    let bean_path = find_bean_file(beans_dir, id)
-        .map_err(|_| anyhow!("Bean not found: {}", id))?;
+    let bean_path = find_bean_file(beans_dir, id).map_err(|_| anyhow!("Bean not found: {}", id))?;
 
-    let mut bean = Bean::from_file(&bean_path)
-        .with_context(|| format!("Failed to load bean: {}", id))?;
+    let mut bean =
+        Bean::from_file(&bean_path).with_context(|| format!("Failed to load bean: {}", id))?;
 
     if bean.status != Status::Open {
         return Err(anyhow!(
@@ -44,6 +43,11 @@ pub fn cmd_claim(beans_dir: &Path, id: &str, by: Option<String>) -> Result<()> {
             auto_close_parent: true,
             max_tokens: 30000,
             run: None,
+            plan: None,
+            max_loops: 10,
+            max_concurrent: 4,
+            poll_interval: 30,
+            extends: vec![],
         });
         if tokens > config.max_tokens as u64 {
             return Err(anyhow!(
@@ -84,9 +88,9 @@ See: Goal → Spec → Test framework
     println!("Claimed bean {}: {} (by {})", id, bean.title, claimer);
 
     // Rebuild index
-    let index = Index::build(beans_dir)
-        .with_context(|| "Failed to rebuild index")?;
-    index.save(beans_dir)
+    let index = Index::build(beans_dir).with_context(|| "Failed to rebuild index")?;
+    index
+        .save(beans_dir)
         .with_context(|| "Failed to save index")?;
 
     Ok(())
@@ -96,11 +100,10 @@ See: Goal → Spec → Test framework
 ///
 /// Clears claimed_by/claimed_at and sets status back to Open.
 pub fn cmd_release(beans_dir: &Path, id: &str) -> Result<()> {
-    let bean_path = find_bean_file(beans_dir, id)
-        .map_err(|_| anyhow!("Bean not found: {}", id))?;
+    let bean_path = find_bean_file(beans_dir, id).map_err(|_| anyhow!("Bean not found: {}", id))?;
 
-    let mut bean = Bean::from_file(&bean_path)
-        .with_context(|| format!("Failed to load bean: {}", id))?;
+    let mut bean =
+        Bean::from_file(&bean_path).with_context(|| format!("Failed to load bean: {}", id))?;
 
     let now = Utc::now();
     bean.claimed_by = None;
@@ -114,9 +117,9 @@ pub fn cmd_release(beans_dir: &Path, id: &str) -> Result<()> {
     println!("Released claim on bean {}: {}", id, bean.title);
 
     // Rebuild index
-    let index = Index::build(beans_dir)
-        .with_context(|| "Failed to rebuild index")?;
-    index.save(beans_dir)
+    let index = Index::build(beans_dir).with_context(|| "Failed to rebuild index")?;
+    index
+        .save(beans_dir)
         .with_context(|| "Failed to save index")?;
 
     Ok(())
@@ -256,6 +259,11 @@ mod tests {
             auto_close_parent: true,
             max_tokens: 30000,
             run: None,
+            plan: None,
+            max_loops: 10,
+            max_concurrent: 4,
+            poll_interval: 30,
+            extends: vec![],
         };
         config.save(&beans_dir).unwrap();
 
@@ -286,6 +294,11 @@ mod tests {
             auto_close_parent: true,
             max_tokens: 30000,
             run: None,
+            plan: None,
+            max_loops: 10,
+            max_concurrent: 4,
+            poll_interval: 30,
+            extends: vec![],
         };
         config.save(&beans_dir).unwrap();
 
@@ -312,6 +325,11 @@ mod tests {
             auto_close_parent: true,
             max_tokens: 30000,
             run: None,
+            plan: None,
+            max_loops: 10,
+            max_concurrent: 4,
+            poll_interval: 30,
+            extends: vec![],
         };
         config.save(&beans_dir).unwrap();
 
@@ -337,6 +355,11 @@ mod tests {
             auto_close_parent: true,
             max_tokens: 30000,
             run: None,
+            plan: None,
+            max_loops: 10,
+            max_concurrent: 4,
+            poll_interval: 30,
+            extends: vec![],
         };
         config.save(&beans_dir).unwrap();
 

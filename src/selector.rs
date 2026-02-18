@@ -193,18 +193,28 @@ pub fn resolve_blocked(context: &SelectionContext) -> Result<Vec<String>> {
 /// let parent_id = resolve_parent(&context)?; // Returns "3"
 /// ```
 pub fn resolve_parent(context: &SelectionContext) -> Result<String> {
-    let current_id = context.current_bean_id.as_ref()
+    let current_id = context
+        .current_bean_id
+        .as_ref()
         .ok_or_else(|| anyhow!("No current bean ID in context for @parent resolution"))?;
 
-    let current_bean = context.index.beans.iter()
+    let current_bean = context
+        .index
+        .beans
+        .iter()
         .find(|entry| entry.id == *current_id)
         .ok_or_else(|| anyhow!("Bean {} not found in index", current_id))?;
 
-    let parent_id = current_bean.parent.as_ref()
+    let parent_id = current_bean
+        .parent
+        .as_ref()
         .ok_or_else(|| anyhow!("Bean {} has no parent", current_id))?;
 
     // Verify parent exists in index
-    context.index.beans.iter()
+    context
+        .index
+        .beans
+        .iter()
         .find(|entry| entry.id == *parent_id)
         .ok_or_else(|| anyhow!("Parent {} not found in index", parent_id))?;
 
@@ -248,7 +258,10 @@ pub fn resolve_me(context: &SelectionContext) -> Result<Vec<String>> {
         })?
     };
 
-    let mut my_beans: Vec<String> = context.index.beans.iter()
+    let mut my_beans: Vec<String> = context
+        .index
+        .beans
+        .iter()
         .filter(|entry| {
             (entry.assignee.as_ref() == Some(&current_user)
                 || entry.claimed_by.as_ref() == Some(&current_user))
@@ -293,22 +306,21 @@ pub fn resolve_me(context: &SelectionContext) -> Result<Vec<String>> {
 /// let ids = resolve_selector_full(SelectorType::Parent, &context)?;
 /// assert_eq!(ids.len(), 1); // Parent selector always returns one bean
 /// ```
-pub fn resolve_selector_full(selector_type: SelectorType, context: &SelectionContext) -> Result<Vec<String>> {
+pub fn resolve_selector_full(
+    selector_type: SelectorType,
+    context: &SelectionContext,
+) -> Result<Vec<String>> {
     match selector_type {
         SelectorType::Latest => {
             let id = resolve_latest(context)?;
             Ok(vec![id])
         }
-        SelectorType::Blocked => {
-            resolve_blocked(context)
-        }
+        SelectorType::Blocked => resolve_blocked(context),
         SelectorType::Parent => {
             let id = resolve_parent(context)?;
             Ok(vec![id])
         }
-        SelectorType::Me => {
-            resolve_me(context)
-        }
+        SelectorType::Me => resolve_me(context),
     }
 }
 
@@ -338,7 +350,10 @@ pub fn resolve_selector_full(selector_type: SelectorType, context: &SelectionCon
 /// };
 /// let ids = resolve_selector_string("@latest", &context)?;
 /// ```
-pub fn resolve_selector_string(selector_str: &str, context: &SelectionContext) -> Result<Vec<String>> {
+pub fn resolve_selector_string(
+    selector_str: &str,
+    context: &SelectionContext,
+) -> Result<Vec<String>> {
     // Check if it's a selector (starts with @)
     if !selector_str.starts_with('@') {
         // Not a selector, return as-is (literal bean ID)
@@ -377,7 +392,9 @@ mod tests {
                 updated_at: Utc::now(),
                 produces: Vec::new(),
                 requires: Vec::new(),
-                has_verify: true, claimed_by: None,
+                has_verify: true,
+                claimed_by: None,
+                attempts: 0,
             })
             .collect();
 
@@ -420,7 +437,10 @@ mod tests {
     fn parse_selector_rejects_no_at() {
         let result = parse_selector("latest");
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("does not start with @"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("does not start with @"));
     }
 
     #[test]
@@ -517,7 +537,9 @@ mod tests {
                 updated_at: earlier,
                 produces: Vec::new(),
                 requires: Vec::new(),
-                has_verify: true, claimed_by: None,
+                has_verify: true,
+                claimed_by: None,
+                attempts: 0,
             },
             IndexEntry {
                 id: "2".to_string(),
@@ -531,7 +553,9 @@ mod tests {
                 updated_at: later,
                 produces: Vec::new(),
                 requires: Vec::new(),
-                has_verify: true, claimed_by: None,
+                has_verify: true,
+                claimed_by: None,
+                attempts: 0,
             },
             IndexEntry {
                 id: "3".to_string(),
@@ -545,7 +569,9 @@ mod tests {
                 updated_at: now,
                 produces: Vec::new(),
                 requires: Vec::new(),
-                has_verify: true, claimed_by: None,
+                has_verify: true,
+                claimed_by: None,
+                attempts: 0,
             },
         ];
 
@@ -660,11 +686,11 @@ mod tests {
     fn resolve_blocked_complex_dependency_tree() {
         let index = create_test_index(vec![
             ("1", Status::Open, vec![]),
-            ("2", Status::Open, vec!["1"]),       // Blocked by 1
+            ("2", Status::Open, vec!["1"]), // Blocked by 1
             ("3", Status::Closed, vec![]),
-            ("4", Status::Open, vec!["3"]),       // Not blocked: 3 is closed
+            ("4", Status::Open, vec!["3"]), // Not blocked: 3 is closed
             ("5", Status::Open, vec!["4", "999"]), // Blocked: 999 missing
-            ("6", Status::Closed, vec!["1"]),     // Not blocked: status is closed
+            ("6", Status::Closed, vec!["1"]), // Not blocked: status is closed
         ]);
         let context = SelectionContext {
             index: &index,
@@ -766,7 +792,9 @@ mod tests {
             updated_at: Utc::now(),
             produces: Vec::new(),
             requires: Vec::new(),
-                has_verify: true, claimed_by: None,
+            has_verify: true,
+            claimed_by: None,
+            attempts: 0,
         };
 
         let entry_child = IndexEntry {
@@ -781,10 +809,14 @@ mod tests {
             updated_at: Utc::now(),
             produces: Vec::new(),
             requires: Vec::new(),
-                has_verify: true, claimed_by: None,
+            has_verify: true,
+            claimed_by: None,
+            attempts: 0,
         };
 
-        let index = Index { beans: vec![entry_parent, entry_child] };
+        let index = Index {
+            beans: vec![entry_parent, entry_child],
+        };
         let context = SelectionContext {
             index: &index,
             current_bean_id: Some("3.1".to_string()),
@@ -807,7 +839,10 @@ mod tests {
 
         let result = resolve_parent(&context);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("No current bean ID"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("No current bean ID"));
     }
 
     #[test]
@@ -821,7 +856,10 @@ mod tests {
 
         let result = resolve_parent(&context);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("not found in index"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("not found in index"));
     }
 
     #[test]
@@ -854,7 +892,9 @@ mod tests {
             updated_at: Utc::now(),
             produces: Vec::new(),
             requires: Vec::new(),
-                has_verify: true, claimed_by: None,
+            has_verify: true,
+            claimed_by: None,
+            attempts: 0,
         };
 
         let index = Index { beans: vec![entry] };
@@ -866,7 +906,10 @@ mod tests {
 
         let result = resolve_parent(&context);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Parent 999 not found"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Parent 999 not found"));
     }
 
     // ---------------------------------------------------------------------------
@@ -890,7 +933,9 @@ mod tests {
                 updated_at: Utc::now(),
                 produces: Vec::new(),
                 requires: Vec::new(),
-                has_verify: true, claimed_by: None,
+                has_verify: true,
+                claimed_by: None,
+                attempts: 0,
             },
             IndexEntry {
                 id: "2".to_string(),
@@ -904,7 +949,9 @@ mod tests {
                 updated_at: Utc::now(),
                 produces: Vec::new(),
                 requires: Vec::new(),
-                has_verify: true, claimed_by: None,
+                has_verify: true,
+                claimed_by: None,
+                attempts: 0,
             },
             IndexEntry {
                 id: "3".to_string(),
@@ -918,7 +965,9 @@ mod tests {
                 updated_at: Utc::now(),
                 produces: Vec::new(),
                 requires: Vec::new(),
-                has_verify: true, claimed_by: None,
+                has_verify: true,
+                claimed_by: None,
+                attempts: 0,
             },
         ];
 
@@ -953,7 +1002,9 @@ mod tests {
                 updated_at: Utc::now(),
                 produces: Vec::new(),
                 requires: Vec::new(),
-                has_verify: true, claimed_by: None,
+                has_verify: true,
+                claimed_by: None,
+                attempts: 0,
             },
             IndexEntry {
                 id: "2".to_string(),
@@ -967,7 +1018,9 @@ mod tests {
                 updated_at: Utc::now(),
                 produces: Vec::new(),
                 requires: Vec::new(),
-                has_verify: true, claimed_by: None,
+                has_verify: true,
+                claimed_by: None,
+                attempts: 0,
             },
         ];
 
@@ -1004,6 +1057,7 @@ mod tests {
                 requires: Vec::new(),
                 has_verify: true,
                 claimed_by: Some("alice".to_string()),
+                attempts: 0,
             },
             IndexEntry {
                 id: "2".to_string(),
@@ -1019,6 +1073,7 @@ mod tests {
                 requires: Vec::new(),
                 has_verify: true,
                 claimed_by: None,
+                attempts: 0,
             },
             IndexEntry {
                 id: "3".to_string(),
@@ -1034,6 +1089,7 @@ mod tests {
                 requires: Vec::new(),
                 has_verify: true,
                 claimed_by: Some("bob".to_string()),
+                attempts: 0,
             },
         ];
 
@@ -1148,7 +1204,9 @@ mod tests {
                 updated_at: Utc::now(),
                 produces: Vec::new(),
                 requires: Vec::new(),
-                has_verify: true, claimed_by: None,
+                has_verify: true,
+                claimed_by: None,
+                attempts: 0,
             },
             IndexEntry {
                 id: "3.1".to_string(),
@@ -1162,7 +1220,9 @@ mod tests {
                 updated_at: Utc::now(),
                 produces: Vec::new(),
                 requires: Vec::new(),
-                has_verify: true, claimed_by: None,
+                has_verify: true,
+                claimed_by: None,
+                attempts: 0,
             },
         ];
 
@@ -1183,22 +1243,22 @@ mod tests {
     fn resolve_selector_full_me() {
         use crate::index::IndexEntry;
 
-        let beans = vec![
-            IndexEntry {
-                id: "1".to_string(),
-                title: "Bean 1".to_string(),
-                status: Status::Open,
-                priority: 2,
-                parent: None,
-                dependencies: vec![],
-                labels: vec![],
-                assignee: Some("alice".to_string()),
-                updated_at: Utc::now(),
-                produces: Vec::new(),
-                requires: Vec::new(),
-                has_verify: true, claimed_by: None,
-            },
-        ];
+        let beans = vec![IndexEntry {
+            id: "1".to_string(),
+            title: "Bean 1".to_string(),
+            status: Status::Open,
+            priority: 2,
+            parent: None,
+            dependencies: vec![],
+            labels: vec![],
+            assignee: Some("alice".to_string()),
+            updated_at: Utc::now(),
+            produces: Vec::new(),
+            requires: Vec::new(),
+            has_verify: true,
+            claimed_by: None,
+            attempts: 0,
+        }];
 
         let index = Index { beans };
         let context = SelectionContext {
