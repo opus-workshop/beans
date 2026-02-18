@@ -368,125 +368,98 @@ impl Bean {
 
     // --- Field accessor helpers ---
 
-    fn get_field<T: Clone>(&self, field: &str) -> Result<T>
-    where
-        T: 'static,
-    {
-        // Use match for known scalar fields
-        macro_rules! get_scalar {
-            ($field:expr, $($name:literal => $member:ident),+ $(,)?) => {
-                match $field {
-                    $(
-                        $name => {
-                            // Safety: caller ensures T matches the field type
-                            let ptr = &self.$member as *const _ as *const T;
-                            Ok(unsafe { (*ptr).clone() })
-                        }
-                    )+
-                    _ => Err(anyhow::anyhow!("Unknown scalar field: {}", $field)),
-                }
-            }
-        }
-        get_scalar!(field,
-            "status" => status,
-            "priority" => priority,
-            "fail_first" => fail_first,
-            "max_attempts" => max_attempts,
-        )
+    fn get_field<T: Clone + 'static>(&self, field: &str) -> Result<T> {
+        use std::any::Any;
+        let val: Box<dyn Any> = match field {
+            "status" => Box::new(self.status.clone()),
+            "priority" => Box::new(self.priority),
+            "fail_first" => Box::new(self.fail_first),
+            "max_attempts" => Box::new(self.max_attempts),
+            _ => return Err(anyhow::anyhow!("Unknown scalar field: {}", field)),
+        };
+        val.downcast::<T>()
+            .map(|v| *v)
+            .map_err(|_| anyhow::anyhow!("Type mismatch for field '{}'", field))
     }
 
-    fn set_field<T: Clone>(&mut self, field: &str, value: T) -> Result<()>
-    where
-        T: 'static,
-    {
+    fn set_field<T: Clone + 'static>(&mut self, field: &str, value: T) -> Result<()> {
+        use std::any::Any;
+        let val: Box<dyn Any> = Box::new(value);
         match field {
             "status" => {
-                // Safety: T is Status when field is "status"
-                let ptr = &value as *const T as *const Status;
-                self.status = unsafe { (*ptr) };
+                self.status = *val.downcast::<Status>()
+                    .map_err(|_| anyhow::anyhow!("Type mismatch for field 'status'"))?;
             }
             "priority" => {
-                let ptr = &value as *const T as *const u8;
-                self.priority = unsafe { *ptr };
+                self.priority = *val.downcast::<u8>()
+                    .map_err(|_| anyhow::anyhow!("Type mismatch for field 'priority'"))?;
             }
             "fail_first" => {
-                let ptr = &value as *const T as *const bool;
-                self.fail_first = unsafe { *ptr };
+                self.fail_first = *val.downcast::<bool>()
+                    .map_err(|_| anyhow::anyhow!("Type mismatch for field 'fail_first'"))?;
             }
             "max_attempts" => {
-                let ptr = &value as *const T as *const u32;
-                self.max_attempts = unsafe { *ptr };
+                self.max_attempts = *val.downcast::<u32>()
+                    .map_err(|_| anyhow::anyhow!("Type mismatch for field 'max_attempts'"))?;
             }
             _ => return Err(anyhow::anyhow!("Unknown scalar field: {}", field)),
         }
         Ok(())
     }
 
-    fn get_field_option<T: Clone>(&self, field: &str) -> Result<Option<T>>
-    where
-        T: 'static,
-    {
-        macro_rules! get_option {
-            ($field:expr, $($name:literal => $member:ident),+ $(,)?) => {
-                match $field {
-                    $(
-                        $name => {
-                            let ptr = &self.$member as *const _ as *const Option<T>;
-                            Ok(unsafe { (*ptr).clone() })
-                        }
-                    )+
-                    _ => Err(anyhow::anyhow!("Unknown optional field: {}", $field)),
-                }
-            }
-        }
-        get_option!(field,
-            "slug" => slug,
-            "description" => description,
-            "acceptance" => acceptance,
-            "design" => design,
-            "assignee" => assignee,
-            "parent" => parent,
-            "verify" => verify,
-            "close_reason" => close_reason,
-        )
+    fn get_field_option<T: Clone + 'static>(&self, field: &str) -> Result<Option<T>> {
+        use std::any::Any;
+        let val: Box<dyn Any> = match field {
+            "slug" => Box::new(self.slug.clone()),
+            "description" => Box::new(self.description.clone()),
+            "acceptance" => Box::new(self.acceptance.clone()),
+            "design" => Box::new(self.design.clone()),
+            "assignee" => Box::new(self.assignee.clone()),
+            "parent" => Box::new(self.parent.clone()),
+            "verify" => Box::new(self.verify.clone()),
+            "close_reason" => Box::new(self.close_reason.clone()),
+            _ => return Err(anyhow::anyhow!("Unknown optional field: {}", field)),
+        };
+        val.downcast::<Option<T>>()
+            .map(|v| *v)
+            .map_err(|_| anyhow::anyhow!("Type mismatch for field '{}'", field))
     }
 
-    fn set_field_option<T: Clone>(&mut self, field: &str, value: Option<T>) -> Result<()>
-    where
-        T: 'static,
-    {
+    fn set_field_option<T: Clone + 'static>(&mut self, field: &str, value: Option<T>) -> Result<()> {
+        use std::any::Any;
+        let val: Box<dyn Any> = Box::new(value);
         match field {
             "slug" => {
-                let ptr = &value as *const _ as *const Option<String>;
-                self.slug = unsafe { (*ptr).clone() };
+                self.slug = *val.downcast::<Option<String>>()
+                    .map_err(|_| anyhow::anyhow!("Type mismatch for field 'slug'"))?;
             }
             "description" => {
-                let ptr = &value as *const _ as *const Option<String>;
-                self.description = unsafe { (*ptr).clone() };
+                self.description = *val.downcast::<Option<String>>()
+                    .map_err(|_| anyhow::anyhow!("Type mismatch for field 'description'"))?;
             }
             "acceptance" => {
-                let ptr = &value as *const _ as *const Option<String>;
-                self.acceptance = unsafe { (*ptr).clone() };
+                self.acceptance = *val.downcast::<Option<String>>()
+                    .map_err(|_| anyhow::anyhow!("Type mismatch for field 'acceptance'"))?;
             }
             "design" => {
-                let ptr = &value as *const _ as *const Option<String>;
-                self.design = unsafe { (*ptr).clone() };
+                self.design = *val.downcast::<Option<String>>()
+                    .map_err(|_| anyhow::anyhow!("Type mismatch for field 'design'"))?;
             }
             "assignee" => {
-                let ptr = &value as *const _ as *const Option<String>;
-                self.assignee = unsafe { (*ptr).clone() };
+                self.assignee = *val.downcast::<Option<String>>()
+                    .map_err(|_| anyhow::anyhow!("Type mismatch for field 'assignee'"))?;
             }
             "parent" => {
-                let ptr = &value as *const _ as *const Option<String>;
-                self.parent = unsafe { (*ptr).clone() };
+                self.parent = *val.downcast::<Option<String>>()
+                    .map_err(|_| anyhow::anyhow!("Type mismatch for field 'parent'"))?;
             }
             "verify" => {
-                let ptr = &value as *const _ as *const Option<String>;
-                self.verify = unsafe { (*ptr).clone() };
+                self.verify = *val.downcast::<Option<String>>()
+                    .map_err(|_| anyhow::anyhow!("Type mismatch for field 'verify'"))?;
             }
             "close_reason" => {
-                let ptr = &value as *const _ as *const Option<String>;
-                self.close_reason = unsafe { (*ptr).clone() };
+                self.close_reason = *val.downcast::<Option<String>>()
+                    .map_err(|_| anyhow::anyhow!("Type mismatch for field 'close_reason'"))?;
             }
             _ => return Err(anyhow::anyhow!("Unknown optional field: {}", field)),
         }
