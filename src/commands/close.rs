@@ -953,6 +953,7 @@ mod tests {
             next_id: 100,
             auto_close_parent: true,
             max_tokens: 30000,
+            run: None,
         };
         config.save(&beans_dir).unwrap();
         
@@ -1041,6 +1042,7 @@ mod tests {
             next_id: 100,
             auto_close_parent: false,
             max_tokens: 30000,
+            run: None,
         };
         config.save(&beans_dir).unwrap();
 

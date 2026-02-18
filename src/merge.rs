@@ -403,7 +403,7 @@ impl Bean {
             "status" => {
                 // Safety: T is Status when field is "status"
                 let ptr = &value as *const T as *const Status;
-                self.status = unsafe { (*ptr).clone() };
+                self.status = unsafe { (*ptr) };
             }
             "priority" => {
                 let ptr = &value as *const T as *const u8;

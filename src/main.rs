@@ -116,16 +116,33 @@ fn main() -> Result<()> {
                 by,
             })?;
 
-            // --run: spawn a deli agent for the new bean
+            // --run: spawn an agent for the new bean using configured command
             if run {
-                println!("Spawning agent via deli...");
-                let status = std::process::Command::new("deli")
-                    .args(["spawn", &bean_id])
-                    .status();
-                match status {
-                    Ok(s) if s.success() => {}
-                    Ok(s) => eprintln!("deli spawn exited with code {}", s.code().unwrap_or(-1)),
-                    Err(e) => eprintln!("Failed to run deli spawn: {}", e),
+                use bn::config::Config;
+                let config = Config::load(&beans_dir)?;
+                match &config.run {
+                    Some(template) => {
+                        let cmd = template.replace("{id}", &bean_id);
+                        eprintln!("Spawning: {}", cmd);
+                        let status = std::process::Command::new("sh")
+                            .args(["-c", &cmd])
+                            .status();
+                        match status {
+                            Ok(s) if s.success() => {}
+                            Ok(s) => eprintln!("Run command exited with code {}", s.code().unwrap_or(-1)),
+                            Err(e) => eprintln!("Failed to run command: {}", e),
+                        }
+                    }
+                    None => {
+                        anyhow::bail!(
+                            "--run requires a configured run command.\n\n\
+                             Set it with: bn config set run \"<command>\"\n\n\
+                             The command template uses {{id}} as a placeholder for the bean ID.\n\n\
+                             Examples:\n  \
+                               bn config set run \"deli spawn {{id}}\"\n  \
+                               bn config set run \"claude -p 'implement bean {{id}} and run bn close {{id}}'\""
+                        );
+                    }
                 }
             }
 
@@ -270,7 +287,10 @@ fn main() -> Result<()> {
             cmd_unarchive(&beans_dir, &resolved_id)
         }
 
-        Command::Quick { title, description, acceptance, notes, verify, priority, by, produces, requires, pass_ok } => {
+        Command::Quick { title, description, acceptance, notes, verify, priority, by, produces, requires, parent, pass_ok } => {
+            if let Some(ref p) = parent {
+                validate_bean_id(p)?;
+            }
             cmd_quick(&beans_dir, QuickArgs {
                 title,
                 description,
@@ -281,6 +301,7 @@ fn main() -> Result<()> {
                 by,
                 produces,
                 requires,
+                parent,
                 pass_ok,
             })
         }

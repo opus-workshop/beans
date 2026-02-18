@@ -13,6 +13,7 @@ pub fn cmd_config_get(beans_dir: &Path, key: &str) -> Result<()> {
         "next_id" => config.next_id.to_string(),
         "auto_close_parent" => config.auto_close_parent.to_string(),
         "max_tokens" => config.max_tokens.to_string(),
+        "run" => config.run.unwrap_or_default(),
         _ => return Err(anyhow!("Unknown config key: {}", key)),
     };
 
@@ -42,6 +43,13 @@ pub fn cmd_config_set(beans_dir: &Path, key: &str, value: &str) -> Result<()> {
             config.max_tokens = value
                 .parse()
                 .map_err(|_| anyhow!("Invalid value for max_tokens: {} (expected positive integer)", value))?;
+        }
+        "run" => {
+            if value.is_empty() || value == "none" || value == "unset" {
+                config.run = None;
+            } else {
+                config.run = Some(value.to_string());
+            }
         }
         _ => return Err(anyhow!("Unknown config key: {}", key)),
     }

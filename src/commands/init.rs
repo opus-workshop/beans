@@ -43,6 +43,7 @@ pub fn cmd_init(path: Option<&Path>, project_name: Option<String>) -> Result<()>
         next_id: 1,
         auto_close_parent: true,
         max_tokens: 30000,
+        run: None,
     };
 
     config.save(&beans_dir)?;

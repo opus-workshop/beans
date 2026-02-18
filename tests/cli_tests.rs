@@ -17,6 +17,7 @@ fn setup_test_env() -> (TempDir, std::path::PathBuf) {
         next_id: 1,
         auto_close_parent: true,
         max_tokens: 30000,
+        run: None,
     };
     config.save(&beans_dir).unwrap();
 

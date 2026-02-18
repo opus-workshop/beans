@@ -360,6 +360,10 @@ pub enum Command {
         #[arg(long)]
         requires: Option<String>,
 
+        /// Parent bean ID (creates child bean under parent)
+        #[arg(long)]
+        parent: Option<String>,
+
         /// Skip fail-first check (allow verify to already pass)
         #[arg(long, short = 'p')]
         pass_ok: bool,

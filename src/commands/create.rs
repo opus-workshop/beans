@@ -40,7 +40,7 @@ pub struct CreateArgs {
 
 /// Assign a child ID for a parent bean.
 /// Scans .beans/ for {parent_id}.{N}-*.md, finds highest N, returns "{parent_id}.{N+1}".
-fn assign_child_id(beans_dir: &Path, parent_id: &str) -> Result<String> {
+pub fn assign_child_id(beans_dir: &Path, parent_id: &str) -> Result<String> {
     let mut max_child: u32 = 0;
 
     let dir_entries = fs::read_dir(beans_dir)
@@ -302,6 +302,7 @@ mod tests {
             next_id: 1,
             auto_close_parent: true,
             max_tokens: 30000,
+            run: None,
         };
         config.save(&beans_dir).unwrap();
 

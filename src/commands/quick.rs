@@ -5,6 +5,7 @@ use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 
 use crate::bean::{Bean, Status, validate_priority};
+use crate::commands::create::assign_child_id;
 use crate::config::Config;
 use crate::hooks::{execute_hook, HookEvent};
 use crate::index::Index;
@@ -22,6 +23,8 @@ pub struct QuickArgs {
     pub by: Option<String>,
     pub produces: Option<String>,
     pub requires: Option<String>,
+    /// Parent bean ID (creates child bean under parent)
+    pub parent: Option<String>,
     /// Skip fail-first check (allow verify to already pass)
     pub pass_ok: bool,
 }
@@ -75,10 +78,15 @@ pub fn cmd_quick(beans_dir: &Path, args: QuickArgs) -> Result<()> {
         }
     }
 
-    // Load config and get next ID
-    let mut config = Config::load(beans_dir)?;
-    let bean_id = config.increment_id().to_string();
-    config.save(beans_dir)?;
+    // Load config and assign ID (child ID from parent, or next global ID)
+    let bean_id = if let Some(ref parent_id) = args.parent {
+        assign_child_id(beans_dir, parent_id)?
+    } else {
+        let mut config = Config::load(beans_dir)?;
+        let id = config.increment_id().to_string();
+        config.save(beans_dir)?;
+        id
+    };
 
     // Generate slug from title
     let slug = title_to_slug(&args.title);
@@ -112,6 +120,9 @@ pub fn cmd_quick(beans_dir: &Path, args: QuickArgs) -> Result<()> {
     }
     if let Some(priority) = args.priority {
         bean.priority = priority;
+    }
+    if let Some(parent) = args.parent {
+        bean.parent = Some(parent);
     }
 
     // Parse produces
@@ -185,6 +196,7 @@ mod tests {
             next_id: 1,
             auto_close_parent: true,
             max_tokens: 30000,
+            run: None,
         };
         config.save(&beans_dir).unwrap();
 
@@ -205,6 +217,7 @@ mod tests {
             by: Some("agent-1".to_string()),
             produces: None,
             requires: None,
+            parent: None,
             pass_ok: true,
         };
 
@@ -237,6 +250,7 @@ mod tests {
             by: None,
             produces: None,
             requires: None,
+            parent: None,
             pass_ok: true,
         };
 
@@ -263,6 +277,7 @@ mod tests {
             by: None,
             produces: None,
             requires: None,
+            parent: None,
             pass_ok: true,
         };
 
@@ -287,6 +302,7 @@ mod tests {
             by: None,
             produces: None,
             requires: None,
+            parent: None,
             pass_ok: true,
         };
         cmd_quick(&beans_dir, args1).unwrap();
@@ -302,6 +318,7 @@ mod tests {
             by: None,
             produces: None,
             requires: None,
+            parent: None,
             pass_ok: true,
         };
         cmd_quick(&beans_dir, args2).unwrap();
@@ -327,6 +344,7 @@ mod tests {
             by: Some("tester".to_string()),
             produces: None,
             requires: None,
+            parent: None,
             pass_ok: true,
         };
 
@@ -354,6 +372,7 @@ mod tests {
             by: Some("agent-x".to_string()),
             produces: Some("FooStruct,bar_function".to_string()),
             requires: Some("BazTrait".to_string()),
+            parent: None,
             pass_ok: true,
         };
 
@@ -384,6 +403,7 @@ mod tests {
             by: None,
             produces: None,
             requires: None,
+            parent: None,
             pass_ok: false, // default: fail-first enforced
         };
 
@@ -407,6 +427,7 @@ mod tests {
             by: None,
             produces: None,
             requires: None,
+            parent: None,
             pass_ok: false, // default: fail-first enforced
         };
 
@@ -436,6 +457,7 @@ mod tests {
             by: None,
             produces: None,
             requires: None,
+            parent: None,
             pass_ok: true,
         };
 
@@ -465,6 +487,7 @@ mod tests {
             by: None,
             produces: None,
             requires: None,
+            parent: None,
             pass_ok: false,
         };
 
