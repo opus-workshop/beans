@@ -30,6 +30,7 @@ No databases. No daemons. Just `.beans/` files you can `cat`, `grep`, and `git d
 - [Hierarchical Tasks](#hierarchical-tasks)
 - [Smart Dependencies](#smart-dependencies)
 - [Core Commands](#core-commands)
+- [Agent Spawning](#agent-spawning)
 - [Agent Workflow](#agent-workflow)
 - [Why Not X?](#why-not-x)
 - [Design Principles](#design-principles)
