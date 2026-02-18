@@ -1,443 +1,229 @@
 ---
 name: beans
 description: >
-  Your task system. At session start, check if .beans/ exists and run `bn status` to see claimed/ready/blocked work.
-  When a user asks for non-trivial work, create a bean first with `bn quick "task" --verify "cmd"`.
-  Beans are designed for you (AI agents)—they provide context, track attempts, and prevent incomplete work via verification gates.
-allowed-tools: Bash(bn:*), Read, Edit, Write
+  A task tracker with verify gates. Default action: `bn create "task" --verify "cmd"`.
+allowed-tools: Bash, Read, Edit, Write
 ---
 
 # Beans Task Engine
 
-Beans is a hierarchical task engine for AI agents. Tasks have verify gates—shell commands that must exit 0 to close.
+Beans is a task tracker where every task has a verify gate — a shell command that must exit 0 to close.
 
-## Detection
-
-Check if beans is available:
-```bash
-ls .beans/ 2>/dev/null && echo "beans active"
-```
-
-## Session Start
-
-Always begin with:
-```bash
-bn status
-```
-
-This shows claimed, ready, and blocked work. If work exists that matches your task, claim it. **If not, create one.**
-
-## Default: Create a Bean First
-
-When a user asks you to do something non-trivial, your reflex should be:
+The magic: a well-written bean is a complete agent prompt. The description has the context, the file paths tell you where to look, the acceptance criteria define done, and the verify command proves it. An agent can pick up any bean cold and execute it without searching the codebase.
 
 ```bash
-bn quick "What user asked for" --verify "test command"
+bn show <id>       # The prompt: what to do, why, and how to verify
+bn context <id>    # The code: all files referenced in the description
 ```
 
-**Create a bean when:**
-- The task involves changing code
-- It has success criteria you can verify
-- It might take more than a few commands
-- You want to track what you did
+These two commands are all an agent needs to start working.
 
-**Skip beans only for:**
-- Pure questions/explanations
+## Create a Bean First
+
+When a user asks for non-trivial work, create a bean before you start:
+
+```bash
+bn create "What they asked for" --verify "test command"
+```
+
+Then claim it and work:
+
+```bash
+bn claim @latest
+```
+
+Or use `bn quick` to create and claim in one step:
+
+```bash
+bn quick "What they asked for" --verify "test command"
+```
+
+### When to Create a Bean
+
+| Situation | Command |
+|-----------|---------|
+| Fix a bug | `bn create "bug: ..." --verify "<test>"` |
+| Add a feature | `bn create "feat: ..." --verify "<test>"` |
+| Refactor code | `bn create "refactor: ..." --verify "<test>" -p` |
+| Add tests | `bn create "test: ..." --verify "<test>"` |
+| Update docs | `bn create "docs: ..." --verify "grep -q '...' <file>" -p` |
+| Multi-step task | Always |
+| Found issue while working | `bn create "bug: ..." --verify "<test>"` (don't claim — stay focused) |
+
+### When NOT to Create a Bean
+
+- Pure questions or explanations
 - Single-command lookups
 - Trivial one-line fixes
 
-The bean becomes your receipt—proof of what was requested, what you did, and that it worked.
+**When in doubt, create one.** It takes 2 seconds. Untracked work costs everything.
 
-## Fail-First: Enforced TDD (Default)
+## Writing Good Beans
 
-Fail-first is **on by default** for any bean with `--verify`. The verify command runs before creation and must FAIL:
-
-```bash
-bn quick "fix unicode URLs" --verify "pytest test_unicode.py"
-bn create "fix unicode URLs" --verify "pytest test_unicode.py"
-```
-
-Works on both `bn quick` and `bn create`.
-
-**How it works:**
-1. Verify command runs BEFORE bean creation → must FAIL
-2. If verify passes already, bean is REJECTED (test doesn't test anything new)
-3. Bean created only if test fails (proving it tests real behavior)
-4. After implementation, `bn close` runs verify → must PASS
-
-**Example - Cheating test rejected:**
-```bash
-$ bn quick "fix bug" --verify "python -c 'assert True'"
-Running verify (must fail): python -c 'assert True'
-error: Cannot create bean: verify command already passes!
-```
-
-**Example - Real test accepted:**
-```bash
-$ bn quick "fix unicode" --verify "pytest test_unicode.py::test_fetch"
-Running verify (must fail): pytest test_unicode.py::test_fetch
-FAILED test_unicode.py::test_fetch - URLError...
-✓ Verify failed as expected - test is real
-Created and claimed bean 5: fix unicode (by pi-agent)
-```
-
-**When to use `--pass-ok` / `-p` (skip fail-first):**
-- Build commands (`cargo build`, `make`)
-- Refactoring (tests should already pass)
-- Tasks without test-based verification
+A good bean is a good prompt. Include enough context that any agent can pick it up cold:
 
 ```bash
-bn quick "extract helper" --verify "cargo test" -p
-bn quick "remove secrets" --verify "! grep 'api_key' src/" --pass-ok
+bn create "title" --verify "cmd" --description "## Context
+<Why this needs doing — 1-2 sentences>
+
+## Task
+1. <Concrete step>
+2. <Concrete step>
+
+## Files
+- <path/to/file.rs> (<what changes>)
+- <path/to/test.rs> (<what to test>)
+
+## Edge Cases
+- <What should fail and how>"
 ```
 
-## Core Workflow
+**Include**: file paths, what to change in each, edge cases, patterns to follow ("see src/auth.rs").
+**Avoid**: vague directives ("make it work"), assumed context (every bean is read cold).
 
-### 1. Find Work
-```bash
-bn ready                         # Tasks with no blockers
-bn status                        # Full overview
-```
+The description is the prompt. The better you write it, the less the agent has to figure out.
 
-### 2. Claim a Task
-```bash
-bn claim <id>                    # Atomic claim
-cat .beans/<id>-*.md             # Read full spec
-```
+## Choosing a Verify Command
 
-The bean file contains:
-- **description**: What to build and why
-- **acceptance**: Concrete criteria for "done"
-- **verify**: Command that must exit 0
-
-### 3. Work on It
-```bash
-bn verify <id>                   # Test if done (without closing)
-bn update <id> --note "..."      # Log progress
-```
-
-### 4. Close It
-```bash
-bn close <id>                    # Runs verify, closes if exit 0
-git commit -m "[beans-<id>] ..."
-```
-
-### 5. If Stuck
-```bash
-bn claim <id> --release          # Release for retry
-bn update <id> --note "why"      # Explain blocker
-```
-
-## Creating Beans
-
-**Do this early, not as an afterthought.** When a task lands, create the bean before diving into implementation:
+Scan the project to pick the right pattern:
 
 ```bash
-bn quick "Title" --verify "cmd"   # Most common: create, claim, start working
-bn create "Title"                 # New top-level bean (will claim separately)
-bn create "Title" --parent <id>   # Child bean under existing work
+ls Cargo.toml package.json pyproject.toml go.mod Makefile 2>/dev/null
 ```
 
-**Good beans have:**
-- File paths in description (no exploration needed)
-- Testable acceptance criteria
-- Verify command that proves completion
-- Right size: 1-5 files, completable in one session
+### By Project Type
+
+| Detected | Pattern | Example |
+|----------|---------|---------|
+| `Cargo.toml` | `cargo test <module>::<test>` | `cargo test auth::test_login` |
+| `package.json` + jest | `npx jest --testPathPattern "<pat>"` | `npx jest auth` |
+| `package.json` + vitest | `npx vitest run <pat>` | `npx vitest run auth` |
+| `pyproject.toml` | `pytest <file> -k "<pat>"` | `pytest tests/test_auth.py -k login` |
+| `go.mod` | `go test ./... -run <Pat>` | `go test ./pkg/auth -run TestLogin` |
+| `Makefile` | `make <target>` | `make test-auth` |
+
+### By Task Type
+
+| Task | Strategy |
+|------|----------|
+| Fix a bug | Test that reproduces the bug: `<test-cmd> <specific_test>` |
+| Add a feature | Tests for the feature: `<test-cmd> <feature_module>` |
+| Refactor | Broad existing tests with `-p`: `<test-cmd>` |
+| Add docs | Check content exists with `-p`: `grep -q '<content>' <file>` |
+| Remove something | Confirm pattern is gone: `! grep -rq '<pattern>' <dir>` |
+| Security fix | Confirm bad pattern is gone: `! grep -rq '<vuln>' src/` |
+
+### Rules
+
+1. **Be specific** — `cargo test auth::refresh` not `cargo test`
+2. **Be deterministic** — no manual checks
+3. **Match the task** — prove THIS task is done
+4. **Chain when needed** — `cargo test auth && cargo clippy`
+
+## Fail-First TDD
+
+On by default. When you create a bean with `--verify`:
+
+1. Verify runs immediately → must **fail** (proving the test is real)
+2. If it already passes → bean **rejected** (test doesn't test anything new)
+3. After your work → `bn close` runs verify → must **pass**
+
+Use `-p` / `--pass-ok` to skip fail-first for refactors, builds, docs — anything where there's no "before" failure state.
+
+## Working on a Bean
+
+### Check Progress
+```bash
+bn verify <id>                    # Run verify without closing
+bn update <id> --note "progress"  # Log what you've done
+```
+
+### Close It
+```bash
+bn close <id>                    # Runs verify → closes if exit 0
+bn close <id> --reason "summary" # With completion note
+```
+
+### If Stuck
+```bash
+bn update <id> --note "blocked: <why>"
+bn claim <id> --release          # Release for another agent to retry
+```
+
+Notes are timestamped and visible to the next agent — they're the handoff protocol.
 
 ## Discovering Issues
 
-While working, you'll notice things that need attention but aren't your current task. Handle them correctly:
-
-### Is It Blocking You?
-
-```
-Issue blocks my current task?
-  YES → Fix it as part of your work (or add as dependency)
-  NO  → Report it, keep going
-```
-
-### Reporting Issues
-
-Create a bean immediately, then continue your original task:
+While working, you'll notice problems that aren't your current task. **Don't fix them. Create a bean.**
 
 ```bash
-bn create "<type>: <what needs doing>" --verify "<command that passes when done>"
-```
-
-**Do not fix unrelated issues.** Create the bean and move on. A watcher will spawn an agent to handle it.
-
-### Issue Types
-
-| Type | Example |
-|------|---------|
-| `bug:` | `bug: http client crashes on unicode URLs` |
-| `test:` | `test: no coverage for auth edge cases` |
-| `docs:` | `docs: API endpoints undocumented` |
-| `refactor:` | `refactor: duplicate code in handlers` |
-| `perf:` | `perf: N+1 query in user list` |
-| `security:` | `security: API key exposed in logs` |
-| `chore:` | `chore: upgrade deprecated dependency` |
-
-### Good Issue Beans
-
-A good issue bean has:
-
-1. **Typed title**: `<type>: <component> <problem/need>`
-2. **Verify command**: Passes when the issue is resolved
-3. **Context**: Relevant files if obvious
-
-```bash
-# Bug - test that should pass after fix
-bn create "bug: login fails when email has plus sign" \
-  --verify "cargo test test_login_plus_email"
-
-# Missing test - test file should exist and pass
-bn create "test: no coverage for payment refunds" \
-  --verify "cargo test payment::refund"
-
-# Docs - doc file should exist or contain content
-bn create "docs: README missing setup instructions" \
-  --verify "grep -q '## Setup' README.md"
-
-# Refactor - code quality check
-bn create "refactor: handlers have duplicate error logic" \
-  --verify "test \$(grep -r 'handle_error' src/handlers | wc -l) -le 1"
-
-# Perf - benchmark or query count
-bn create "perf: N+1 query on user list endpoint" \
-  --verify "./scripts/count-queries.sh /users | grep -q '^1$'"
-
-# Security - absence of bad pattern
-bn create "security: API keys logged in debug output" \
-  --verify "! grep -r 'api_key.*debug\|log.*api_key' src/"
-
-# Chore - version check
-bn create "chore: upgrade deprecated serde version" \
-  --verify "cargo tree -p serde | grep -q '1.0.200'"
-```
-
-### Example Workflow
-
-You're working on bean 14 (add caching feature). You notice several issues:
-
-```bash
-# Notice logging is broken
 bn create "bug: logger crashes on unicode" --verify "cargo test logger::unicode"
-# Bean 15 created (unclaimed - watcher will spawn agent)
-
-# Notice no tests for the module you're reading
-bn create "test: cache module has no tests" --verify "cargo test cache::"
-# Bean 16 created (unclaimed)
-
-# Notice outdated docs
-bn create "docs: cache docs reference old API" --verify "grep -q 'cache.get_or_set' docs/cache.md"
-# Bean 17 created (unclaimed)
-
-# Continue your actual work
-bn verify 14  # back to your task
+bn create "test: no coverage for cache" --verify "cargo test cache::"
+bn create "docs: README missing setup" --verify "grep -q '## Setup' README.md"
+bn create "security: API key in logs" --verify "! grep -r 'api_key.*log' src/"
 ```
 
-Three issues captured. None forgotten. You stayed focused.
+Don't claim these — stay focused on your current work. Another agent handles them later.
 
-### Why This Matters
+**Type prefixes**: `bug:`, `test:`, `docs:`, `refactor:`, `perf:`, `security:`, `chore:`
 
-- **Focus**: You finish what you started
-- **Tracking**: Nothing gets forgotten
-- **Parallelism**: Watcher spawns agents for new beans automatically
-- **Visibility**: `bn ready` shows all discovered work
-- **History**: Record of what was found and when
+## Delegating Work
 
-The flywheel: issues spawn beans → watcher spawns agents → agents resolve issues → agents discover more issues.
-
-## Bean Anatomy
-
-```yaml
-id: '3.1'
-title: Implement feature X
-status: open                     # open | in_progress | closed
-priority: 1                      # 0-4 (0 = critical)
-parent: '3'                      # Hierarchy
-dependencies: ['2.1']            # Blocking relationships
-
-description: |
-  ## Context
-  Why we're doing this...
-  
-  ## Task
-  1. Add X to file Y
-  2. Write tests in Z
-  
-  ## Files
-  - src/foo.rs
-  - tests/foo_test.rs
-
-acceptance: |
-  - Feature does X
-  - Tests pass
-  - No regressions
-
-verify: cargo test foo
-```
-
-## Smart Dependencies
-
-Beans automatically infer dependencies from `produces` and `requires` fields:
-
-```yaml
-# Bean 14.1 - no dependencies
-produces:
-  - AuthProvider
-  - AuthConfig
-
-# Bean 14.2 - automatically blocked by 14.1
-requires:
-  - AuthProvider
-```
-
-When decomposing work, specify what each bean produces and requires:
+If a run command is configured (`bn config set run "<cmd>"`), use `--run` to spawn a background agent:
 
 ```bash
-bn create "Define auth types" --parent 14 \
-  --produces "AuthProvider,AuthConfig" \
-  --verify "cargo build"
-
-bn create "Implement JWT" --parent 14 \
-  --requires "AuthProvider" \
-  --produces "JwtProvider" \
-  --verify "cargo test jwt"
+bn create "fix auth timeout" --verify "cargo test auth::session" --run
 ```
 
-**How it works:**
-- `bn ready` checks `requires` vs sibling `produces`
-- If bean A requires X and sibling B produces X → A blocked until B closed
-- No explicit `bn dep add` needed
-- Solves race conditions in parallel decomposition
+| Flag | Who works | Blocks you? |
+|------|-----------|-------------|
+| `--claim` / `bn quick` | You, now | Yes |
+| `--run` | Background agent | No |
 
-**Explicit deps still work:** You can still use `bn dep add` for dependencies that don't fit the produces/requires model.
+## Decomposition
 
-## Parent Beans & Parallel Work
-
-When you have multiple related tasks that can be worked in parallel, create a parent bean:
+When a task is too big for one agent, create a parent and break it into children:
 
 ```bash
-# Create parent with verify that checks all children are closed
-bn create "Feature X - All Components" \
-  --description "Parent for parallel implementation" \
-  --verify "test \$(bn list --parent <id> --status closed | wc -l) -ge N"
-
-# Create children under the parent (auto-numbered as P.1, P.2, etc.)
-bn create "Component A" --parent 14 --verify "test -f src/a.rs"  # becomes 14.1
-bn create "Component B" --parent 14 --verify "test -f src/b.rs"  # becomes 14.2
+bn create "feat: auth system" --description "Parent for auth work"
+bn create "Define types" --parent @latest --verify "cargo build" \
+  --produces "AuthProvider,AuthConfig"
+bn create "Implement JWT" --parent <id> --verify "cargo test jwt" \
+  --requires "AuthProvider" --produces "JwtProvider"
+bn create "Integration tests" --parent <id> --verify "cargo test auth::integration" \
+  --requires "JwtProvider"
 ```
 
-**Naming convention**: Children are numbered `<parent>.<n>`:
-- Parent 211 → Children 211.1, 211.2, 211.3...
-- Files: `211.1-slug.md`, `211.2-slug.md`...
+Children auto-number (`<parent>.1`, `<parent>.2`, ...). Use `produces`/`requires` for automatic dependency resolution — a bean requiring `AuthProvider` is blocked until the bean producing it closes.
 
-**To adopt existing beans under a parent** (planned: `bn adopt`):
-```bash
-# Currently manual - bean 212 tracks native support
-# See bean 212 for bn adopt command proposal
-```
+View the hierarchy: `bn tree <id>`
 
-**Then use spro for parallel execution:**
-```bash
-spro run <parent-id> --dry-run   # See spro plan
-spro run <parent-id>             # Spawn parallel agents
-spro run <parent-id> -j 8        # More parallelism
-```
-
-See the `spro` skill for full details on parallel agent orchestration.
-
-## Key Commands
+## Command Reference
 
 | Command | Purpose |
 |---------|---------|
-| `bn status` | Overview of work |
-| `bn quick "..." --verify "..."` | **User asks for something → create bean first (fail-first by default)** |
-| `bn quick/create ... --pass-ok` | **Skip fail-first check (allow verify to already pass)** |
-| `bn ready` | Tasks with no blockers |
-| `bn claim <id>` | Claim existing task |
+| `bn create "..." --verify "..."` | **Create a bean** |
+| `bn quick "..." --verify "..."` | Create + claim in one step |
+| `bn status` | Overview: claimed, ready, blocked |
+| `bn ready` | Unblocked tasks |
+| `bn claim <id>` | Claim a task |
+| `bn show <id>` | Full bean details (the prompt) |
+| `bn context <id>` | Files referenced in description (the code) |
 | `bn verify <id>` | Test verify without closing |
 | `bn close <id>` | Close (verify must pass) |
+| `bn close <id> --force` | Force close (skip verify) |
 | `bn update <id> --note "..."` | Log progress |
-| `bn tree` | View hierarchy |
-| `bn tree <id>` | View subtree under parent |
-| `bn dep add <id> <dep>` | Add dependency |
-| `bn list --parent <id>` | List children of parent |
+| `bn claim <id> --release` | Release claim |
+| `bn tree` / `bn tree <id>` | View hierarchy |
+| `bn list` | List beans (`--status`, `--parent`, `--label`) |
+| `bn dep add <id> <dep>` | Add explicit dependency |
+| `bn tidy` | Archive closed, release stale claims |
+| `bn doctor` | Health check |
 
-## Smart Selectors
+### Selectors
 
-```bash
-bn show @latest                  # Most recent bean
-bn list @ready                   # All ready beans
-bn list @blocked                 # All blocked beans
-```
+Use instead of numeric IDs: `@latest`, `@ready`, `@blocked`, `@me`
 
 ## The Verify Gate
 
-**This is the core principle.** You cannot close a bean without proof of completion. If verify fails:
-- Task stays open
-- Attempts counter increments
-- Another agent can retry
-
-This prevents incomplete work from slipping through.
-
-## Context Assembly
-
-Get all files referenced in a bean's description:
-```bash
-bn context <id>                  # Output file contents as markdown
-bctx <id>                        # Standalone version
-```
-
-This solves cold-start: instead of exploring, you get all relevant files immediately.
-
-## Handoff Protocol
-
-When finishing or releasing work:
-```bash
-bn update <id> --note "Implemented X in Y, tested with Z"
-```
-
-Notes help the next agent (or your future self) understand what happened.
-
-## Bean Watcher (Autonomous Flywheel)
-
-The bean watcher enables autonomous agent coordination:
-
-```bash
-# Start the watcher (runs continuously)
-~/.pi/agent/skills/beans/bean-watcher.sh
-
-# Or run once for testing
-~/.pi/agent/skills/beans/bean-watcher.sh --once --dry-run
-```
-
-**How it works:**
-1. Polls `bn ready` every 30 seconds
-2. For each unclaimed bean, counts context tokens
-3. If < 30k tokens → `spro spawn` to implement
-4. If ≥ 30k tokens → `spro spawn` to decompose
-
-**The flywheel:**
-```
-Agent discovers issue → bn create "bug: ..."
-                              ↓
-                     Bean created (unclaimed)
-                              ↓
-                     Watcher sees it
-                              ↓
-           < 30k tokens → spawn agent to implement
-           ≥ 30k tokens → spawn agent to decompose
-                              ↓
-                     Agent works, may discover more issues
-                              ↓
-                     (cycle continues)
-```
-
-**Why this works:**
-- Agents report issues with `bn create` (not `bn quick`)
-- Smart dependencies auto-block children until producers close
-- No race conditions in decomposition
-- No human coordination needed
+**You cannot close without proof.** If verify fails, the task stays open, the attempt counter increments, and another agent can retry. This prevents incomplete work from slipping through.
