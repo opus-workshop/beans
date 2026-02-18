@@ -1,10 +1,10 @@
 id: '45'
 title: Fix pi lock file for parallel agent spawning
 slug: fix-pi-lock-file-for-parallel-agent-spawning
-status: open
+status: closed
 priority: 2
 created_at: 2026-02-18T06:29:13.606480Z
-updated_at: 2026-02-18T06:29:13.606480Z
+updated_at: 2026-02-18T06:37:32.478746Z
 description: |-
   ## Problem
   When deli spawns multiple pi agents in parallel (via `pi -p`), they fight over the same `proper-lockfile` lock in the project settings directory. Only one instance can acquire it; the others crash immediately with:
@@ -46,5 +46,12 @@ description: |-
   wait
   # Most instances crash with lock file error
   ```
-tokens: 456
-tokens_updated: 2026-02-18T06:29:13.608527Z
+notes: |-
+  ---
+  2026-02-18T06:34:49.086425+00:00
+  Adding verify command - test that 4 parallel pi -p instances all succeed
+closed_at: 2026-02-18T06:37:32.478746Z
+claimed_at: 2026-02-18T06:35:03.033120Z
+is_archived: true
+tokens: 483
+tokens_updated: 2026-02-18T06:34:49.090171Z

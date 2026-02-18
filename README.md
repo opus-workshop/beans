@@ -78,6 +78,24 @@ bn status                                  # See what's claimed/ready/blocked
 bn close 1                                 # Run verify, close if passes
 ```
 
+## Features
+
+- **Hierarchical tasks** — dot notation, parent/child, auto-close parent when all children done
+- **Verification gates** — fail-first TDD, must-pass-to-close, force override
+- **Failure history** — attempts tracked, output truncated & appended to notes
+- **Smart dependencies** — produces/requires auto-inference, cycle detection
+- **Smart selectors** — `@latest`, `@blocked`, `@me`, `@parent`
+- **Context assembly** — extracts file paths from descriptions, assembles for agents
+- **Hooks** — pre-close hooks with trust system
+- **Git worktree support** — detection, commit, merge-to-main, cleanup
+- **3-way bean merge** — field-level conflict resolution
+- **Dependency graph** — ASCII, Mermaid, DOT output
+- **Full lifecycle** — create, claim, close, reopen, delete, adopt, archive, unarchive, tidy
+- **Doctor** — health checks for orphans, cycles, index freshness
+- **Config** — per-project settings
+- **Editor support** — `bn edit` with backup/rollback
+- **Token estimation** — for context sizing
+
 ## How It Works
 
 Tasks are Markdown files with YAML frontmatter:

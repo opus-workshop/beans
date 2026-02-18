@@ -89,9 +89,3 @@ beans:
   priority: 2
   updated_at: 2026-02-05T18:47:19.828248Z
   has_verify: true
-- id: '45'
-  title: Fix pi lock file for parallel agent spawning
-  status: open
-  priority: 2
-  updated_at: 2026-02-18T06:29:13.606480Z
-  has_verify: false

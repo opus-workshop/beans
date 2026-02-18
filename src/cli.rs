@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand};
 #[derive(Parser)]
 #[command(
     name = "bn",
-    about = "A hierarchical task engine where every task is a YAML file",
+    about = "Task tracker for coding agents",
     version
 )]
 pub struct Cli {
