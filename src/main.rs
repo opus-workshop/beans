@@ -97,7 +97,7 @@ fn main() -> Result<()> {
                 );
             }
 
-            cmd_create(&beans_dir, CreateArgs {
+            let bean_id = cmd_create(&beans_dir, CreateArgs {
                 title,
                 description,
                 acceptance,
@@ -114,7 +114,22 @@ fn main() -> Result<()> {
                 fail_first,
                 claim,
                 by,
-            })
+            })?;
+
+            // --run: spawn a deli agent for the new bean
+            if run {
+                println!("Spawning agent via deli...");
+                let status = std::process::Command::new("deli")
+                    .args(["spawn", &bean_id])
+                    .status();
+                match status {
+                    Ok(s) if s.success() => {}
+                    Ok(s) => eprintln!("deli spawn exited with code {}", s.code().unwrap_or(-1)),
+                    Err(e) => eprintln!("Failed to run deli spawn: {}", e),
+                }
+            }
+
+            Ok(())
         }
 
         Command::Show { id, json, short } => {

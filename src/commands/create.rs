@@ -91,7 +91,8 @@ fn assign_child_id(beans_dir: &Path, parent_id: &str) -> Result<String> {
 ///
 /// If `args.parent` is given, assign a child ID ({parent_id}.{next_child}).
 /// Otherwise, use the next sequential ID from config and increment it.
-pub fn cmd_create(beans_dir: &Path, args: CreateArgs) -> Result<()> {
+/// Returns the created bean ID on success.
+pub fn cmd_create(beans_dir: &Path, args: CreateArgs) -> Result<String> {
     // Validate priority if provided
     if let Some(priority) = args.priority {
         validate_priority(priority)?;
@@ -275,7 +276,7 @@ pub fn cmd_create(beans_dir: &Path, args: CreateArgs) -> Result<()> {
         cmd_claim(beans_dir, &bean_id, args.by)?;
     }
 
-    Ok(())
+    Ok(bean_id)
 }
 
 #[cfg(test)]
