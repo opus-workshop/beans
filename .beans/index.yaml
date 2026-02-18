@@ -93,35 +93,35 @@ beans:
   title: Replace unsafe pointer casts in merge.rs with safe field accessors
   status: open
   priority: 1
-  updated_at: 2026-02-18T06:54:10.633956Z
+  updated_at: 2026-02-18T08:36:18.496717Z
   has_verify: true
 - id: '47'
   title: Bean::to_file always writes pure YAML, losing markdown frontmatter format
   status: open
   priority: 2
-  updated_at: 2026-02-18T06:54:10.660972Z
+  updated_at: 2026-02-18T08:36:18.503476Z
   has_verify: true
 - id: '48'
   title: '@me selector only checks assignee, not claimed_by — claimed beans invisible'
   status: open
   priority: 2
-  updated_at: 2026-02-18T06:54:10.676689Z
+  updated_at: 2026-02-18T08:36:18.510209Z
   has_verify: true
 - id: '49'
   title: natural_cmp drops non-numeric ID segments, causing incorrect sort for alpha IDs
   status: open
   priority: 3
-  updated_at: 2026-02-18T06:54:10.690759Z
+  updated_at: 2026-02-18T08:36:18.515702Z
   has_verify: true
 - id: '50'
   title: bn quick missing --parent flag — inconsistent with bn create
   status: open
   priority: 3
-  updated_at: 2026-02-18T06:54:10.704890Z
+  updated_at: 2026-02-18T08:36:18.520820Z
   has_verify: true
 - id: '51'
   title: Clippy warnings in tools/migrate_beans.rs
   status: open
   priority: 4
-  updated_at: 2026-02-18T06:54:10.717820Z
+  updated_at: 2026-02-18T08:36:18.526145Z
   has_verify: true

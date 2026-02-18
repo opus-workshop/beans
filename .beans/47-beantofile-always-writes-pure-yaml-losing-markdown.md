@@ -4,7 +4,7 @@ slug: beantofile-always-writes-pure-yaml-losing-markdown
 status: open
 priority: 2
 created_at: 2026-02-18T06:54:10.660972Z
-updated_at: 2026-02-18T06:54:10.660972Z
+updated_at: 2026-02-18T08:36:18.503476Z
 description: |-
   **Problem:** `Bean::to_file()` in `src/bean.rs` always serializes to pure YAML via `serde_yaml::to_string()`, even when the file has a `.md` extension and was originally in markdown frontmatter format.
 
@@ -39,5 +39,6 @@ description: |-
   - `src/bean.rs` (line 317, `to_file` method)
   - `src/commands/edit.rs` (`validate_and_save` also re-serializes to YAML)
 verify: cd /Users/asher/beans && cargo test -- --test-threads=1 bean::tests::file_round_trip bean::tests::test_file_round_trip_with_markdown 2>&1 | grep -q "ok"
+claimed_at: 2026-02-18T08:36:07.451464Z
 tokens: 15442
 tokens_updated: 2026-02-18T06:54:10.662583Z
