@@ -8,20 +8,28 @@
 //! - `bn run 5.1` — dispatch a single bean (or its ready children if parent)
 //! - `bn run --dry-run` — show plan without spawning
 //! - `bn run --loop` — keep running until no ready beans remain
-//! - `bn run --watch` — daemon: watch `.beans/` and continuously spawn agents
-//! - `bn run --stop` — stop a running daemon
+//! - `bn run --json-stream` — emit JSON stream events to stdout
+//!
+//! Spawning modes:
+//! - **Template mode** (backward compat): If `config.run` is set, spawn via `sh -c <template>`.
+//! - **Direct mode**: If no template is configured but `pi` is on PATH, spawn pi directly
+//!   with `--mode json --print --no-session`, monitoring with timeouts and parsing events.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
 
 use crate::bean::Status;
 use crate::config::Config;
-use crate::daemon;
 use crate::index::{Index, IndexEntry};
+use crate::pi_output::{self, AgentEvent};
+use crate::stream::{self, StreamEvent};
+use crate::timeout::{self, MonitorResult, TimeoutConfig};
 use crate::tokens;
 use crate::util::natural_cmp;
 
@@ -35,9 +43,7 @@ pub struct RunArgs {
     pub keep_going: bool,
     pub timeout: u32,
     pub idle_timeout: u32,
-    pub watch: bool,
-    pub foreground: bool,
-    pub stop: bool,
+    pub json_stream: bool,
 }
 
 /// What action to take for a bean.
@@ -79,75 +85,120 @@ pub struct Wave {
 pub struct DispatchPlan {
     pub waves: Vec<Wave>,
     pub skipped: Vec<SizedBean>,
+    /// Flat list of all beans to dispatch (for ready-queue mode).
+    pub all_beans: Vec<SizedBean>,
+    /// The index snapshot used for planning.
+    pub index: Index,
 }
 
 /// Result of a completed agent.
+#[derive(Debug)]
 struct AgentResult {
     id: String,
     title: String,
     action: BeanAction,
     success: bool,
     duration: Duration,
+    total_tokens: Option<u64>,
+    total_cost: Option<f64>,
+    error: Option<String>,
+}
+
+/// Which spawning mode to use.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum SpawnMode {
+    /// Use shell template from config (backward compat).
+    Template {
+        run_template: String,
+        plan_template: Option<String>,
+    },
+    /// Spawn pi directly with JSON output and monitoring.
+    Direct,
 }
 
 /// Execute the `bn run` command.
 pub fn cmd_run(beans_dir: &Path, args: RunArgs) -> Result<()> {
-    if args.stop {
-        return daemon::stop_daemon();
-    }
-
-    if args.watch {
-        if !args.foreground {
-            if daemon::is_daemon_running()? {
-                anyhow::bail!("Daemon is already running. Use `bn run --stop` to stop it first.");
-            }
-        }
-
-        let result = daemon::start_daemon(beans_dir, args.foreground);
-
-        if !args.foreground {
-            daemon::print_started_message();
-        }
-
-        return result;
-    }
-
-    // Validate run template exists
+    // Determine spawn mode
     let config = Config::load_with_extends(beans_dir)?;
-    if config.run.is_none() {
+    let spawn_mode = determine_spawn_mode(&config);
+
+    if spawn_mode == SpawnMode::Direct && !pi_available() {
         anyhow::bail!(
-            "No agent configured. Run `bn init --setup`\n\n\
-             Or set it manually: bn config set run \"<command>\"\n\n\
+            "No agent configured and `pi` not found on PATH.\n\n\
+             Either:\n  \
+               1. Install pi: npm i -g @anthropic/pi\n  \
+               2. Set a run template: bn config set run \"<command>\"\n\n\
              The command template uses {{id}} as a placeholder for the bean ID.\n\n\
              Examples:\n  \
-               bn config set run \"deli spawn {{id}}\"\n  \
+               bn config set run \"pi @.beans/{{id}}-*.md 'implement and bn close {{id}}'\"\n  \
                bn config set run \"claude -p 'implement bean {{id}} and run bn close {{id}}'\""
         );
     }
 
+    if let SpawnMode::Template { ref run_template, .. } = spawn_mode {
+        // Validate template exists (kept for backward compat error message)
+        let _ = run_template;
+    }
+
     if args.loop_mode {
-        run_loop(beans_dir, &config, &args)
+        run_loop(beans_dir, &config, &args, &spawn_mode)
     } else {
-        run_once(beans_dir, &config, &args)
+        run_once(beans_dir, &config, &args, &spawn_mode)
     }
 }
 
+/// Determine the spawn mode based on config.
+fn determine_spawn_mode(config: &Config) -> SpawnMode {
+    if let Some(ref run) = config.run {
+        SpawnMode::Template {
+            run_template: run.clone(),
+            plan_template: config.plan.clone(),
+        }
+    } else {
+        SpawnMode::Direct
+    }
+}
+
+/// Check if `pi` is available on PATH.
+fn pi_available() -> bool {
+    Command::new("pi")
+        .arg("--version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
 /// Single dispatch pass: plan → print/execute → report.
-fn run_once(beans_dir: &Path, config: &Config, args: &RunArgs) -> Result<()> {
+fn run_once(
+    beans_dir: &Path,
+    config: &Config,
+    args: &RunArgs,
+    spawn_mode: &SpawnMode,
+) -> Result<()> {
     let plan = plan_dispatch(beans_dir, config, args.id.as_deref(), args.auto_plan)?;
 
     if plan.waves.is_empty() && plan.skipped.is_empty() {
-        eprintln!("No ready beans. Use `bn status` to see what's going on.");
+        if args.json_stream {
+            stream::emit_error("No ready beans");
+        } else {
+            eprintln!("No ready beans. Use `bn status` to see what's going on.");
+        }
         return Ok(());
     }
 
     if args.dry_run {
-        print_plan(&plan);
+        if args.json_stream {
+            print_plan_json(&plan, args.id.as_deref());
+        } else {
+            print_plan(&plan);
+        }
         return Ok(());
     }
 
     // Report skipped beans
-    if !plan.skipped.is_empty() {
+    if !plan.skipped.is_empty() && !args.json_stream {
         eprintln!(
             "{} bean(s) need planning, run `bn plan`:",
             plan.skipped.len()
@@ -163,55 +214,203 @@ fn run_once(beans_dir: &Path, config: &Config, args: &RunArgs) -> Result<()> {
         eprintln!();
     }
 
-    let run_template = config.run.as_ref().unwrap();
-    let plan_template = config.plan.as_deref();
+    let total_beans: usize = plan.waves.iter().map(|w| w.beans.len()).sum();
+    let total_waves = plan.waves.len();
+    let parent_id = args.id.as_deref().unwrap_or("all");
+
+    if args.json_stream {
+        let beans_info: Vec<stream::BeanInfo> = plan
+            .waves
+            .iter()
+            .enumerate()
+            .flat_map(|(wave_idx, wave)| {
+                wave.beans.iter().map(move |b| stream::BeanInfo {
+                    id: b.id.clone(),
+                    title: b.title.clone(),
+                    round: wave_idx + 1,
+                })
+            })
+            .collect();
+        stream::emit(&StreamEvent::RunStart {
+            parent_id: parent_id.to_string(),
+            total_beans,
+            total_rounds: total_waves,
+            beans: beans_info,
+        });
+    }
+
     let max_jobs = args.jobs.min(config.max_concurrent) as usize;
+    let run_start = Instant::now();
+    let total_done;
+    let total_failed;
+    let any_failed;
 
-    let mut total_done = 0u32;
-    let mut total_failed = 0u32;
-    let mut any_failed = false;
+    match spawn_mode {
+        SpawnMode::Direct => {
+            // Ready-queue: start each bean as soon as its specific deps finish
+            let (results, had_failure) = run_ready_queue_direct(
+                beans_dir,
+                &plan.all_beans,
+                &plan.index,
+                max_jobs,
+                args.timeout,
+                args.idle_timeout,
+                args.json_stream,
+                args.keep_going,
+            )?;
 
-    for (wave_idx, wave) in plan.waves.iter().enumerate() {
-        eprintln!("Wave {}: {} bean(s)", wave_idx + 1, wave.beans.len());
-
-        let results = run_wave(
-            &wave.beans,
-            run_template,
-            plan_template,
-            max_jobs,
-            args.timeout,
-        )?;
-
-        for result in &results {
-            let duration = format_duration(result.duration);
-            if result.success {
-                eprintln!(
-                    "  ✓ {}  {}  {}  {}",
-                    result.id, result.title, result.action, duration
-                );
-                total_done += 1;
-            } else {
-                eprintln!(
-                    "  ✗ {}  {}  {}  {} (failed)",
-                    result.id, result.title, result.action, duration
-                );
-                total_failed += 1;
-                any_failed = true;
+            let mut done = 0u32;
+            let mut failed = 0u32;
+            for result in &results {
+                let duration = format_duration(result.duration);
+                if result.success {
+                    if args.json_stream {
+                        stream::emit(&StreamEvent::BeanDone {
+                            id: result.id.clone(),
+                            success: true,
+                            duration_secs: result.duration.as_secs(),
+                            error: None,
+                            total_tokens: result.total_tokens,
+                            total_cost: result.total_cost,
+                        });
+                    } else {
+                        eprintln!(
+                            "  ✓ {}  {}  {}  {}",
+                            result.id, result.title, result.action, duration
+                        );
+                    }
+                    done += 1;
+                } else {
+                    if args.json_stream {
+                        stream::emit(&StreamEvent::BeanDone {
+                            id: result.id.clone(),
+                            success: false,
+                            duration_secs: result.duration.as_secs(),
+                            error: result.error.clone(),
+                            total_tokens: result.total_tokens,
+                            total_cost: result.total_cost,
+                        });
+                    } else {
+                        eprintln!(
+                            "  ✗ {}  {}  {}  {} (failed)",
+                            result.id, result.title, result.action, duration
+                        );
+                    }
+                    failed += 1;
+                }
             }
+            total_done = done;
+            total_failed = failed;
+            any_failed = had_failure;
         }
 
-        if any_failed && !args.keep_going {
-            break;
+        SpawnMode::Template { .. } => {
+            // Template mode: wave-based execution (legacy)
+            let mut done = 0u32;
+            let mut failed = 0u32;
+            let mut had_failure = false;
+
+            for (wave_idx, wave) in plan.waves.iter().enumerate() {
+                if args.json_stream {
+                    stream::emit(&StreamEvent::RoundStart {
+                        round: wave_idx + 1,
+                        total_rounds: total_waves,
+                        bean_count: wave.beans.len(),
+                    });
+                } else {
+                    eprintln!("Wave {}: {} bean(s)", wave_idx + 1, wave.beans.len());
+                }
+
+                let results = run_wave(
+                    beans_dir,
+                    &wave.beans,
+                    spawn_mode,
+                    max_jobs,
+                    args.timeout,
+                    args.idle_timeout,
+                    args.json_stream,
+                    wave_idx + 1,
+                )?;
+
+                let mut wave_success = 0usize;
+                let mut wave_failed = 0usize;
+
+                for result in &results {
+                    let duration = format_duration(result.duration);
+                    if result.success {
+                        if args.json_stream {
+                            stream::emit(&StreamEvent::BeanDone {
+                                id: result.id.clone(),
+                                success: true,
+                                duration_secs: result.duration.as_secs(),
+                                error: None,
+                                total_tokens: result.total_tokens,
+                                total_cost: result.total_cost,
+                            });
+                        } else {
+                            eprintln!(
+                                "  ✓ {}  {}  {}  {}",
+                                result.id, result.title, result.action, duration
+                            );
+                        }
+                        done += 1;
+                        wave_success += 1;
+                    } else {
+                        if args.json_stream {
+                            stream::emit(&StreamEvent::BeanDone {
+                                id: result.id.clone(),
+                                success: false,
+                                duration_secs: result.duration.as_secs(),
+                                error: result.error.clone(),
+                                total_tokens: result.total_tokens,
+                                total_cost: result.total_cost,
+                            });
+                        } else {
+                            eprintln!(
+                                "  ✗ {}  {}  {}  {} (failed)",
+                                result.id, result.title, result.action, duration
+                            );
+                        }
+                        failed += 1;
+                        wave_failed += 1;
+                        had_failure = true;
+                    }
+                }
+
+                if args.json_stream {
+                    stream::emit(&StreamEvent::RoundEnd {
+                        round: wave_idx + 1,
+                        success_count: wave_success,
+                        failed_count: wave_failed,
+                    });
+                }
+
+                if had_failure && !args.keep_going {
+                    break;
+                }
+            }
+
+            total_done = done;
+            total_failed = failed;
+            any_failed = had_failure;
         }
     }
 
-    eprintln!();
-    eprintln!(
-        "Summary: {} done, {} failed, {} skipped",
-        total_done,
-        total_failed,
-        plan.skipped.len()
-    );
+    if args.json_stream {
+        stream::emit(&StreamEvent::RunEnd {
+            total_success: total_done as usize,
+            total_failed: total_failed as usize,
+            duration_secs: run_start.elapsed().as_secs(),
+        });
+    } else {
+        eprintln!();
+        eprintln!(
+            "Summary: {} done, {} failed, {} skipped",
+            total_done,
+            total_failed,
+            plan.skipped.len()
+        );
+    }
 
     if any_failed && !args.keep_going {
         anyhow::bail!("Some agents failed");
@@ -221,7 +420,12 @@ fn run_once(beans_dir: &Path, config: &Config, args: &RunArgs) -> Result<()> {
 }
 
 /// Loop mode: keep dispatching until no ready beans remain.
-fn run_loop(beans_dir: &Path, config: &Config, args: &RunArgs) -> Result<()> {
+fn run_loop(
+    beans_dir: &Path,
+    config: &Config,
+    args: &RunArgs,
+    _spawn_mode: &SpawnMode,
+) -> Result<()> {
     let max_loops = if config.max_loops == 0 {
         u32::MAX
     } else {
@@ -230,16 +434,20 @@ fn run_loop(beans_dir: &Path, config: &Config, args: &RunArgs) -> Result<()> {
 
     for iteration in 0..max_loops {
         if iteration > 0 {
-            eprintln!("\n--- Loop iteration {} ---\n", iteration + 1);
+            if !args.json_stream {
+                eprintln!("\n--- Loop iteration {} ---\n", iteration + 1);
+            }
         }
 
         let plan = plan_dispatch(beans_dir, config, args.id.as_deref(), args.auto_plan)?;
 
         if plan.waves.is_empty() {
-            if iteration == 0 {
-                eprintln!("No ready beans. Use `bn status` to see what's going on.");
-            } else {
-                eprintln!("No more ready beans. Stopping.");
+            if !args.json_stream {
+                if iteration == 0 {
+                    eprintln!("No ready beans. Use `bn status` to see what's going on.");
+                } else {
+                    eprintln!("No more ready beans. Stopping.");
+                }
             }
             return Ok(());
         }
@@ -254,14 +462,13 @@ fn run_loop(beans_dir: &Path, config: &Config, args: &RunArgs) -> Result<()> {
             keep_going: args.keep_going,
             timeout: args.timeout,
             idle_timeout: args.idle_timeout,
-            watch: false,
-            foreground: false,
-            stop: false,
+            json_stream: args.json_stream,
         };
 
         // Reload config each iteration (agents may have changed beans)
         let config = Config::load_with_extends(beans_dir)?;
-        match run_once(beans_dir, &config, &inner_args) {
+        let spawn_mode = determine_spawn_mode(&config);
+        match run_once(beans_dir, &config, &inner_args, &spawn_mode) {
             Ok(()) => {}
             Err(e) => {
                 if args.keep_going {
@@ -355,7 +562,12 @@ fn plan_dispatch(
 
     let waves = compute_waves(&dispatch_beans, &index);
 
-    Ok(DispatchPlan { waves, skipped })
+    Ok(DispatchPlan {
+        waves,
+        skipped,
+        all_beans: dispatch_beans,
+        index,
+    })
 }
 
 /// Compute waves of beans grouped by dependency order.
@@ -429,8 +641,46 @@ fn compute_waves(beans: &[SizedBean], index: &Index) -> Vec<Wave> {
     waves
 }
 
+// ---------------------------------------------------------------------------
+// Wave execution
+// ---------------------------------------------------------------------------
+
 /// Spawn agents for a wave of beans, respecting max parallelism.
 fn run_wave(
+    beans_dir: &Path,
+    beans: &[SizedBean],
+    spawn_mode: &SpawnMode,
+    max_jobs: usize,
+    timeout_minutes: u32,
+    idle_timeout_minutes: u32,
+    json_stream: bool,
+    wave_number: usize,
+) -> Result<Vec<AgentResult>> {
+    match spawn_mode {
+        SpawnMode::Template {
+            run_template,
+            plan_template,
+        } => run_wave_template(
+            beans,
+            run_template,
+            plan_template.as_deref(),
+            max_jobs,
+            timeout_minutes,
+        ),
+        SpawnMode::Direct => run_wave_direct(
+            beans_dir,
+            beans,
+            max_jobs,
+            timeout_minutes,
+            idle_timeout_minutes,
+            json_stream,
+            wave_number,
+        ),
+    }
+}
+
+/// Template mode: spawn agents via `sh -c <template>` (backward compat).
+fn run_wave_template(
     beans: &[SizedBean],
     run_template: &str,
     plan_template: Option<&str>,
@@ -459,6 +709,9 @@ fn run_wave(
                             action: sb.action,
                             success: false,
                             duration: Duration::ZERO,
+                            total_tokens: None,
+                            total_cost: None,
+                            error: Some("No plan template configured".to_string()),
                         });
                         continue;
                     }
@@ -466,7 +719,7 @@ fn run_wave(
             };
 
             let cmd = template.replace("{id}", &sb.id);
-            match std::process::Command::new("sh").args(["-c", &cmd]).spawn() {
+            match Command::new("sh").args(["-c", &cmd]).spawn() {
                 Ok(child) => {
                     children.push((sb.clone(), child, Instant::now()));
                 }
@@ -478,6 +731,9 @@ fn run_wave(
                         action: sb.action,
                         success: false,
                         duration: Duration::ZERO,
+                        total_tokens: None,
+                        total_cost: None,
+                        error: Some(format!("Failed to spawn: {}", e)),
                     });
                 }
             }
@@ -498,6 +754,13 @@ fn run_wave(
                         action: sb.action,
                         success: status.success(),
                         duration: started.elapsed(),
+                        total_tokens: None,
+                        total_cost: None,
+                        error: if status.success() {
+                            None
+                        } else {
+                            Some(format!("Exit code {}", status.code().unwrap_or(-1)))
+                        },
                     });
                 }
                 Ok(None) => {
@@ -511,6 +774,9 @@ fn run_wave(
                         action: sb.action,
                         success: false,
                         duration: started.elapsed(),
+                        total_tokens: None,
+                        total_cost: None,
+                        error: Some(format!("Error checking process: {}", e)),
                     });
                 }
             }
@@ -524,6 +790,527 @@ fn run_wave(
 
     Ok(results)
 }
+
+/// Direct mode: spawn pi directly with JSON output and monitoring.
+fn run_wave_direct(
+    beans_dir: &Path,
+    beans: &[SizedBean],
+    max_jobs: usize,
+    timeout_minutes: u32,
+    idle_timeout_minutes: u32,
+    json_stream: bool,
+    wave_number: usize,
+) -> Result<Vec<AgentResult>> {
+    let results = Arc::new(Mutex::new(Vec::new()));
+    let mut pending: Vec<SizedBean> = beans.to_vec();
+    let mut handles: Vec<std::thread::JoinHandle<()>> = Vec::new();
+
+    while !pending.is_empty() || !handles.is_empty() {
+        // Spawn up to max_jobs threads
+        while handles.len() < max_jobs && !pending.is_empty() {
+            let sb = pending.remove(0);
+            let beans_dir = beans_dir.to_path_buf();
+            let results = Arc::clone(&results);
+            let timeout_min = timeout_minutes;
+            let idle_min = idle_timeout_minutes;
+
+            if json_stream {
+                stream::emit(&StreamEvent::BeanStart {
+                    id: sb.id.clone(),
+                    title: sb.title.clone(),
+                    round: wave_number,
+                });
+            }
+
+            let handle = std::thread::spawn(move || {
+                let result =
+                    run_single_direct(&beans_dir, &sb, timeout_min, idle_min, json_stream);
+                results.lock().unwrap().push(result);
+            });
+            handles.push(handle);
+        }
+
+        // Wait for at least one thread to finish
+        let prev_count = handles.len();
+        let mut still_running = Vec::new();
+        for handle in handles.drain(..) {
+            if handle.is_finished() {
+                let _ = handle.join();
+            } else {
+                still_running.push(handle);
+            }
+        }
+
+        // If nothing finished, wait briefly before polling again
+        if still_running.len() == prev_count && !still_running.is_empty() {
+            std::thread::sleep(Duration::from_millis(200));
+        }
+
+        handles = still_running;
+    }
+
+    // Wait for any remaining threads
+    for handle in handles {
+        let _ = handle.join();
+    }
+
+    Ok(Arc::try_unwrap(results).unwrap().into_inner().unwrap())
+}
+
+/// Check if a bean's dependencies are all satisfied.
+fn is_bean_ready(
+    bean: &SizedBean,
+    completed: &HashSet<String>,
+    all_bean_ids: &HashSet<String>,
+    all_beans: &[SizedBean],
+) -> bool {
+    // All explicit deps must be completed or not in our dispatch set
+    let explicit_ok = bean
+        .dependencies
+        .iter()
+        .all(|d| completed.contains(d) || !all_bean_ids.contains(d));
+
+    // All requires must be satisfied (producer completed or not in set)
+    let requires_ok = bean.requires.iter().all(|req| {
+        if let Some(producer) = all_beans.iter().find(|other| {
+            other.id != bean.id && other.parent == bean.parent && other.produces.contains(req)
+        }) {
+            completed.contains(&producer.id)
+        } else {
+            true // No producer in set, assume satisfied
+        }
+    });
+
+    explicit_ok && requires_ok
+}
+
+/// Run beans using a ready-queue: start each bean as soon as its specific deps
+/// complete, rather than waiting for an entire wave to finish.
+fn run_ready_queue_direct(
+    beans_dir: &Path,
+    all_beans: &[SizedBean],
+    index: &Index,
+    max_jobs: usize,
+    timeout_minutes: u32,
+    idle_timeout_minutes: u32,
+    json_stream: bool,
+    keep_going: bool,
+) -> Result<(Vec<AgentResult>, bool)> {
+    let all_bean_ids: HashSet<String> = all_beans.iter().map(|b| b.id.clone()).collect();
+
+    // Already-closed beans count as completed (same logic as compute_waves)
+    let mut completed: HashSet<String> = index
+        .beans
+        .iter()
+        .filter(|e| e.status == Status::Closed)
+        .map(|e| e.id.clone())
+        .collect();
+
+    let mut remaining: HashMap<String, SizedBean> = all_beans
+        .iter()
+        .map(|b| (b.id.clone(), b.clone()))
+        .collect();
+
+    let mut results: Vec<AgentResult> = Vec::new();
+    let mut running_count: usize = 0;
+    let mut any_failed = false;
+
+    // Channel for completed agents to report back
+    let (tx, rx) = mpsc::channel::<AgentResult>();
+
+    // Assign a "round" number for display: use compute_waves to figure out
+    // which wave each bean would be in (for json_stream events)
+    let wave_map: HashMap<String, usize> = {
+        let waves = compute_waves(all_beans, index);
+        let mut m = HashMap::new();
+        for (i, wave) in waves.iter().enumerate() {
+            for b in &wave.beans {
+                m.insert(b.id.clone(), i + 1);
+            }
+        }
+        m
+    };
+
+    loop {
+        // Find beans that are ready and we have capacity for
+        let mut newly_started = 0;
+        let ready_ids: Vec<String> = remaining
+            .values()
+            .filter(|b| is_bean_ready(b, &completed, &all_bean_ids, all_beans))
+            .map(|b| b.id.clone())
+            .collect();
+
+        // Sort ready beans by priority then ID (stable ordering)
+        let mut ready_beans: Vec<SizedBean> = ready_ids
+            .iter()
+            .filter_map(|id| remaining.get(id).cloned())
+            .collect();
+        ready_beans.sort_by(|a, b| {
+            a.priority
+                .cmp(&b.priority)
+                .then_with(|| natural_cmp(&a.id, &b.id))
+        });
+
+        for sb in ready_beans {
+            if running_count >= max_jobs {
+                break;
+            }
+
+            remaining.remove(&sb.id);
+            running_count += 1;
+            let round = wave_map.get(&sb.id).copied().unwrap_or(1);
+
+            if json_stream {
+                stream::emit(&StreamEvent::BeanStart {
+                    id: sb.id.clone(),
+                    title: sb.title.clone(),
+                    round,
+                });
+            }
+
+            let beans_dir = beans_dir.to_path_buf();
+            let tx = tx.clone();
+            let timeout_min = timeout_minutes;
+            let idle_min = idle_timeout_minutes;
+
+            std::thread::spawn(move || {
+                let result = run_single_direct(&beans_dir, &sb, timeout_min, idle_min, json_stream);
+                let _ = tx.send(result);
+            });
+            newly_started += 1;
+        }
+
+        // If nothing is running and nothing can start, we're done (or stuck)
+        if running_count == 0 && newly_started == 0 {
+            if !remaining.is_empty() {
+                // Remaining beans have unresolvable deps
+                if json_stream {
+                    stream::emit_error(&format!(
+                        "{} bean(s) have unresolvable dependencies",
+                        remaining.len()
+                    ));
+                } else {
+                    eprintln!(
+                        "Warning: {} bean(s) have unresolvable dependencies:",
+                        remaining.len()
+                    );
+                    for b in remaining.values() {
+                        eprintln!("  {} {}", b.id, b.title);
+                    }
+                }
+            }
+            break;
+        }
+
+        // If nothing is running (but we just started some), loop to check for
+        // more readiness after spawning
+        if running_count > 0 {
+            // Wait for any one agent to complete
+            let result = rx.recv().expect("channel closed unexpectedly");
+            running_count -= 1;
+
+            let success = result.success;
+            let bean_id = result.id.clone();
+
+            if success {
+                completed.insert(bean_id.clone());
+            } else {
+                any_failed = true;
+                // If not keep_going, drain remaining and stop spawning
+                if !keep_going {
+                    results.push(result);
+                    // Wait for currently running agents to finish
+                    while running_count > 0 {
+                        if let Ok(r) = rx.recv() {
+                            running_count -= 1;
+                            results.push(r);
+                        }
+                    }
+                    return Ok((results, true));
+                }
+            }
+
+            results.push(result);
+        }
+    }
+
+    // Drain any remaining results (shouldn't happen, but safety)
+    drop(tx);
+    while let Ok(result) = rx.try_recv() {
+        results.push(result);
+    }
+
+    Ok((results, any_failed))
+}
+
+/// Run a single bean by spawning pi directly.
+fn run_single_direct(
+    beans_dir: &Path,
+    sb: &SizedBean,
+    timeout_minutes: u32,
+    idle_timeout_minutes: u32,
+    json_stream: bool,
+) -> AgentResult {
+    let started = Instant::now();
+
+    // Find the bean file
+    let bean_file = match crate::discovery::find_bean_file(beans_dir, &sb.id) {
+        Ok(p) => p,
+        Err(e) => {
+            return AgentResult {
+                id: sb.id.clone(),
+                title: sb.title.clone(),
+                action: sb.action,
+                success: false,
+                duration: started.elapsed(),
+                total_tokens: None,
+                total_cost: None,
+                error: Some(format!("Cannot find bean file: {}", e)),
+            };
+        }
+    };
+
+    // Assemble context from the bean's description
+    let context = assemble_bean_context(beans_dir, &sb.id);
+
+    // Build pi command
+    let mut cmd = Command::new("pi");
+    cmd.args(["--mode", "json", "--print", "--no-session"]);
+
+    if !context.is_empty() {
+        cmd.args(["--append-system-prompt", &context]);
+    }
+
+    cmd.arg(format!("@{}", bean_file.display()));
+    cmd.arg(format!("Implement this bean and run `bn close {}`", sb.id));
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
+
+    // Spawn the process
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            return AgentResult {
+                id: sb.id.clone(),
+                title: sb.title.clone(),
+                action: sb.action,
+                success: false,
+                duration: started.elapsed(),
+                total_tokens: None,
+                total_cost: None,
+                error: Some(format!("Failed to spawn pi: {}", e)),
+            };
+        }
+    };
+
+    // Take stdout for monitoring
+    let stdout = match child.stdout.take() {
+        Some(s) => s,
+        None => {
+            let _ = child.kill();
+            return AgentResult {
+                id: sb.id.clone(),
+                title: sb.title.clone(),
+                action: sb.action,
+                success: false,
+                duration: started.elapsed(),
+                total_tokens: None,
+                total_cost: None,
+                error: Some("Failed to capture stdout".to_string()),
+            };
+        }
+    };
+
+    // Set up timeout config
+    let timeout_config = TimeoutConfig {
+        total_timeout: Duration::from_secs(timeout_minutes as u64 * 60),
+        idle_timeout: Duration::from_secs(idle_timeout_minutes as u64 * 60),
+    };
+
+    // Track cumulative tokens/cost
+    let mut cumulative_tokens: u64 = 0;
+    let mut cumulative_cost: f64 = 0.0;
+    let mut tool_count: usize = 0;
+    let bean_id = sb.id.clone();
+
+    // Monitor the process, parsing JSON events
+    let monitor_result = timeout::monitor_process(&mut child, stdout, &timeout_config, |line| {
+        // Try to parse each line as a JSON event from pi
+        if let Ok(raw) = serde_json::from_str::<serde_json::Value>(line) {
+            if let Some(event) = pi_output::parse_agent_event(&raw) {
+                match event {
+                    AgentEvent::Thinking { ref text } => {
+                        if json_stream {
+                            stream::emit(&StreamEvent::BeanThinking {
+                                id: bean_id.clone(),
+                                text: text.clone(),
+                            });
+                        }
+                    }
+                    AgentEvent::ToolStart { ref name, .. } => {
+                        tool_count += 1;
+                        if json_stream {
+                            stream::emit(&StreamEvent::BeanTool {
+                                id: bean_id.clone(),
+                                tool_name: name.clone(),
+                                tool_count,
+                                file_path: None,
+                            });
+                        }
+                    }
+                    AgentEvent::ToolEnd {
+                        ref name,
+                        ref arguments,
+                    } => {
+                        if json_stream {
+                            let file_path =
+                                pi_output::extract_file_path(name, arguments);
+                            stream::emit(&StreamEvent::BeanTool {
+                                id: bean_id.clone(),
+                                tool_name: name.clone(),
+                                tool_count,
+                                file_path,
+                            });
+                        }
+                    }
+                    AgentEvent::TokenUpdate {
+                        input_tokens,
+                        output_tokens,
+                        cache_read,
+                        cache_write,
+                        cost,
+                    } => {
+                        cumulative_tokens += input_tokens + output_tokens;
+                        cumulative_cost += cost;
+                        if json_stream {
+                            stream::emit(&StreamEvent::BeanTokens {
+                                id: bean_id.clone(),
+                                input_tokens,
+                                output_tokens,
+                                cache_read,
+                                cache_write,
+                                cost,
+                            });
+                        }
+                    }
+                    AgentEvent::Finished { total_tokens, cost } => {
+                        cumulative_tokens = total_tokens;
+                        cumulative_cost = cost;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    });
+
+    let duration = started.elapsed();
+
+    // Determine success
+    let (success, error) = match monitor_result {
+        MonitorResult::Completed => {
+            // Check exit status
+            match child.wait() {
+                Ok(status) if status.success() => (true, None),
+                Ok(status) => (
+                    false,
+                    Some(format!("Exit code {}", status.code().unwrap_or(-1))),
+                ),
+                Err(e) => (false, Some(format!("Wait error: {}", e))),
+            }
+        }
+        MonitorResult::TotalTimeout => (
+            false,
+            Some(format!(
+                "Total timeout exceeded ({}m)",
+                timeout_minutes
+            )),
+        ),
+        MonitorResult::IdleTimeout => (
+            false,
+            Some(format!(
+                "Idle timeout exceeded ({}m)",
+                idle_timeout_minutes
+            )),
+        ),
+        MonitorResult::Killed => (false, Some("Process was killed".to_string())),
+    };
+
+    AgentResult {
+        id: sb.id.clone(),
+        title: sb.title.clone(),
+        action: sb.action,
+        success,
+        duration,
+        total_tokens: if cumulative_tokens > 0 {
+            Some(cumulative_tokens)
+        } else {
+            None
+        },
+        total_cost: if cumulative_cost > 0.0 {
+            Some(cumulative_cost)
+        } else {
+            None
+        },
+        error,
+    }
+}
+
+/// Assemble context string for a bean (rules + referenced files).
+fn assemble_bean_context(beans_dir: &Path, bean_id: &str) -> String {
+    let config = match Config::load_with_extends(beans_dir) {
+        Ok(c) => c,
+        Err(_) => return String::new(),
+    };
+
+    let mut context_parts = Vec::new();
+
+    // Include rules file if present
+    let rules_path = config.rules_path(beans_dir);
+    if rules_path.exists() {
+        if let Ok(rules) = std::fs::read_to_string(&rules_path) {
+            if !rules.trim().is_empty() {
+                context_parts.push(rules);
+            }
+        }
+    }
+
+    // Gather file references from the bean's description
+    let bean_path = match crate::discovery::find_bean_file(beans_dir, bean_id) {
+        Ok(p) => p,
+        Err(_) => return context_parts.join("\n\n"),
+    };
+
+    let bean = match crate::bean::Bean::from_file(&bean_path) {
+        Ok(b) => b,
+        Err(_) => return context_parts.join("\n\n"),
+    };
+
+    // Extract file paths from description + acceptance
+    let mut text_to_scan = String::new();
+    if let Some(ref desc) = bean.description {
+        text_to_scan.push_str(desc);
+    }
+    if let Some(ref acc) = bean.acceptance {
+        text_to_scan.push_str("\n");
+        text_to_scan.push_str(acc);
+    }
+
+    let workspace = beans_dir.parent().unwrap_or(Path::new("."));
+    let paths = crate::ctx_assembler::extract_paths(&text_to_scan);
+    if !paths.is_empty() {
+        if let Ok(file_context) = crate::ctx_assembler::assemble_context(paths, workspace) {
+            if !file_context.trim().is_empty() {
+                context_parts.push(file_context);
+            }
+        }
+    }
+
+    context_parts.join("\n\n")
+}
+
+// ---------------------------------------------------------------------------
+// Output formatting
+// ---------------------------------------------------------------------------
 
 /// Print the dispatch plan without executing.
 fn print_plan(plan: &DispatchPlan) {
@@ -552,6 +1339,33 @@ fn print_plan(plan: &DispatchPlan) {
             );
         }
     }
+}
+
+/// Print the dispatch plan as JSON stream events.
+fn print_plan_json(plan: &DispatchPlan, parent_id: Option<&str>) {
+    let parent_id = parent_id.unwrap_or("all").to_string();
+    let rounds: Vec<stream::RoundPlan> = plan
+        .waves
+        .iter()
+        .enumerate()
+        .map(|(i, wave)| stream::RoundPlan {
+            round: i + 1,
+            beans: wave
+                .beans
+                .iter()
+                .map(|b| stream::BeanInfo {
+                    id: b.id.clone(),
+                    title: b.title.clone(),
+                    round: i + 1,
+                })
+                .collect(),
+        })
+        .collect();
+
+    stream::emit(&StreamEvent::DryRun {
+        parent_id,
+        rounds,
+    });
 }
 
 /// Format a duration as M:SS.
@@ -584,6 +1398,15 @@ fn all_deps_closed(entry: &IndexEntry, index: &Index) -> bool {
     true
 }
 
+// ---------------------------------------------------------------------------
+// Helpers (public for testing)
+// ---------------------------------------------------------------------------
+
+/// Find the bean file path. Public wrapper for use in tests.
+pub fn find_bean_file(beans_dir: &Path, id: &str) -> Result<PathBuf> {
+    crate::discovery::find_bean_file(beans_dir, id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -609,12 +1432,8 @@ mod tests {
         .unwrap();
     }
 
-    #[test]
-    fn cmd_run_errors_when_no_run_template() {
-        let (_dir, beans_dir) = make_beans_dir();
-        write_config(&beans_dir, None);
-
-        let args = RunArgs {
+    fn default_args() -> RunArgs {
+        RunArgs {
             id: None,
             jobs: 4,
             dry_run: false,
@@ -623,19 +1442,30 @@ mod tests {
             keep_going: false,
             timeout: 30,
             idle_timeout: 5,
-            watch: false,
-            foreground: false,
-            stop: false,
-        };
+            json_stream: false,
+        }
+    }
+
+    #[test]
+    fn cmd_run_errors_when_no_run_template_and_no_pi() {
+        let (_dir, beans_dir) = make_beans_dir();
+        write_config(&beans_dir, None);
+
+        let args = default_args();
 
         let result = cmd_run(&beans_dir, args);
-        assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
-        assert!(
-            err.contains("No agent configured"),
-            "Error should mention no agent: {}",
-            err
-        );
+        // With no template and no pi on PATH, should error
+        // (The exact error depends on whether pi is installed)
+        // In CI/test without pi, it should bail
+        if !pi_available() {
+            assert!(result.is_err());
+            let err = result.unwrap_err().to_string();
+            assert!(
+                err.contains("No agent configured") || err.contains("not found"),
+                "Error should mention missing agent: {}",
+                err
+            );
+        }
     }
 
     #[test]
@@ -649,17 +1479,8 @@ mod tests {
         bean.to_file(beans_dir.join("1-test.md")).unwrap();
 
         let args = RunArgs {
-            id: None,
-            jobs: 4,
             dry_run: true,
-            loop_mode: false,
-            auto_plan: false,
-            keep_going: false,
-            timeout: 30,
-            idle_timeout: 5,
-            watch: false,
-            foreground: false,
-            stop: false,
+            ..default_args()
         };
 
         // dry_run should succeed without spawning any processes
@@ -934,5 +1755,310 @@ mod tests {
         assert!(plan.skipped.is_empty());
         assert_eq!(plan.waves.len(), 1);
         assert_eq!(plan.waves[0].beans[0].action, BeanAction::Plan);
+    }
+
+    // -- New tests for direct mode and json-stream --
+
+    #[test]
+    fn determine_spawn_mode_template_when_run_set() {
+        let config = Config {
+            project: "test".to_string(),
+            next_id: 1,
+            auto_close_parent: true,
+            max_tokens: 30000,
+            run: Some("echo {id}".to_string()),
+            plan: Some("plan {id}".to_string()),
+            max_loops: 10,
+            max_concurrent: 4,
+            poll_interval: 30,
+            extends: vec![],
+            rules_file: None,
+        };
+        let mode = determine_spawn_mode(&config);
+        assert_eq!(
+            mode,
+            SpawnMode::Template {
+                run_template: "echo {id}".to_string(),
+                plan_template: Some("plan {id}".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn determine_spawn_mode_direct_when_no_run() {
+        let config = Config {
+            project: "test".to_string(),
+            next_id: 1,
+            auto_close_parent: true,
+            max_tokens: 30000,
+            run: None,
+            plan: None,
+            max_loops: 10,
+            max_concurrent: 4,
+            poll_interval: 30,
+            extends: vec![],
+            rules_file: None,
+        };
+        let mode = determine_spawn_mode(&config);
+        assert_eq!(mode, SpawnMode::Direct);
+    }
+
+    #[test]
+    fn dry_run_with_json_stream() {
+        let (_dir, beans_dir) = make_beans_dir();
+        write_config(&beans_dir, Some("echo {id}"));
+
+        let mut bean = crate::bean::Bean::new("1", "Test bean");
+        bean.verify = Some("echo ok".to_string());
+        bean.to_file(beans_dir.join("1-test.md")).unwrap();
+
+        let args = RunArgs {
+            dry_run: true,
+            json_stream: true,
+            ..default_args()
+        };
+
+        // Should succeed and emit JSON events (captured to stdout)
+        let result = cmd_run(&beans_dir, args);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn template_wave_execution_with_echo() {
+        let beans = vec![SizedBean {
+            id: "1".to_string(),
+            title: "Test".to_string(),
+            tokens: 100,
+            action: BeanAction::Implement,
+            priority: 2,
+            dependencies: vec![],
+            parent: None,
+            produces: vec![],
+            requires: vec![],
+        }];
+
+        let results =
+            run_wave_template(&beans, "echo {id}", None, 4, 30).unwrap();
+        assert_eq!(results.len(), 1);
+        assert!(results[0].success);
+        assert_eq!(results[0].id, "1");
+    }
+
+    #[test]
+    fn template_wave_plan_without_template_errors() {
+        let beans = vec![SizedBean {
+            id: "1".to_string(),
+            title: "Test".to_string(),
+            tokens: 100,
+            action: BeanAction::Plan,
+            priority: 2,
+            dependencies: vec![],
+            parent: None,
+            produces: vec![],
+            requires: vec![],
+        }];
+
+        let results =
+            run_wave_template(&beans, "echo {id}", None, 4, 30).unwrap();
+        assert_eq!(results.len(), 1);
+        assert!(!results[0].success);
+        assert!(results[0].error.as_ref().unwrap().contains("No plan template"));
+    }
+
+    #[test]
+    fn template_wave_failed_command() {
+        let beans = vec![SizedBean {
+            id: "1".to_string(),
+            title: "Fail".to_string(),
+            tokens: 100,
+            action: BeanAction::Implement,
+            priority: 2,
+            dependencies: vec![],
+            parent: None,
+            produces: vec![],
+            requires: vec![],
+        }];
+
+        let results =
+            run_wave_template(&beans, "false", None, 4, 30).unwrap();
+        assert_eq!(results.len(), 1);
+        assert!(!results[0].success);
+        assert!(results[0].error.is_some());
+    }
+
+    #[test]
+    fn assemble_bean_context_returns_empty_for_missing_bean() {
+        let (_dir, beans_dir) = make_beans_dir();
+        write_config(&beans_dir, None);
+
+        let ctx = assemble_bean_context(&beans_dir, "nonexistent");
+        assert!(ctx.is_empty());
+    }
+
+    #[test]
+    fn assemble_bean_context_includes_rules() {
+        let (_dir, beans_dir) = make_beans_dir();
+        write_config(&beans_dir, None);
+
+        // Write a rules file
+        fs::write(beans_dir.join("RULES.md"), "# Project Rules\nAlways test.").unwrap();
+
+        // Write a simple bean
+        let bean = crate::bean::Bean::new("1", "Test");
+        bean.to_file(beans_dir.join("1-test.md")).unwrap();
+
+        let ctx = assemble_bean_context(&beans_dir, "1");
+        assert!(ctx.contains("Project Rules"));
+    }
+
+    #[test]
+    fn agent_result_tracks_tokens_and_cost() {
+        let result = AgentResult {
+            id: "1".to_string(),
+            title: "Test".to_string(),
+            action: BeanAction::Implement,
+            success: true,
+            duration: Duration::from_secs(10),
+            total_tokens: Some(5000),
+            total_cost: Some(0.03),
+            error: None,
+        };
+        assert_eq!(result.total_tokens, Some(5000));
+        assert_eq!(result.total_cost, Some(0.03));
+    }
+
+    // -- Ready-queue tests --
+
+    fn make_sized_bean(id: &str, deps: Vec<&str>, produces: Vec<&str>, requires: Vec<&str>) -> SizedBean {
+        SizedBean {
+            id: id.to_string(),
+            title: format!("Bean {}", id),
+            tokens: 100,
+            action: BeanAction::Implement,
+            priority: 2,
+            dependencies: deps.into_iter().map(|s| s.to_string()).collect(),
+            parent: Some("parent".to_string()),
+            produces: produces.into_iter().map(|s| s.to_string()).collect(),
+            requires: requires.into_iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn is_bean_ready_no_deps() {
+        let bean = make_sized_bean("1", vec![], vec![], vec![]);
+        let all_beans = vec![bean.clone()];
+        let all_ids: HashSet<String> = all_beans.iter().map(|b| b.id.clone()).collect();
+        let completed = HashSet::new();
+
+        assert!(is_bean_ready(&bean, &completed, &all_ids, &all_beans));
+    }
+
+    #[test]
+    fn is_bean_ready_explicit_dep_not_met() {
+        let bean = make_sized_bean("2", vec!["1"], vec![], vec![]);
+        let dep = make_sized_bean("1", vec![], vec![], vec![]);
+        let all_beans = vec![dep, bean.clone()];
+        let all_ids: HashSet<String> = all_beans.iter().map(|b| b.id.clone()).collect();
+        let completed = HashSet::new();
+
+        assert!(!is_bean_ready(&bean, &completed, &all_ids, &all_beans));
+    }
+
+    #[test]
+    fn is_bean_ready_explicit_dep_met() {
+        let bean = make_sized_bean("2", vec!["1"], vec![], vec![]);
+        let dep = make_sized_bean("1", vec![], vec![], vec![]);
+        let all_beans = vec![dep, bean.clone()];
+        let all_ids: HashSet<String> = all_beans.iter().map(|b| b.id.clone()).collect();
+        let mut completed = HashSet::new();
+        completed.insert("1".to_string());
+
+        assert!(is_bean_ready(&bean, &completed, &all_ids, &all_beans));
+    }
+
+    #[test]
+    fn is_bean_ready_requires_not_met() {
+        let producer = make_sized_bean("1", vec![], vec!["TypesFile"], vec![]);
+        let consumer = make_sized_bean("2", vec![], vec![], vec!["TypesFile"]);
+        let all_beans = vec![producer, consumer.clone()];
+        let all_ids: HashSet<String> = all_beans.iter().map(|b| b.id.clone()).collect();
+        let completed = HashSet::new();
+
+        assert!(!is_bean_ready(&consumer, &completed, &all_ids, &all_beans));
+    }
+
+    #[test]
+    fn is_bean_ready_requires_met() {
+        let producer = make_sized_bean("1", vec![], vec!["TypesFile"], vec![]);
+        let consumer = make_sized_bean("2", vec![], vec![], vec!["TypesFile"]);
+        let all_beans = vec![producer, consumer.clone()];
+        let all_ids: HashSet<String> = all_beans.iter().map(|b| b.id.clone()).collect();
+        let mut completed = HashSet::new();
+        completed.insert("1".to_string());
+
+        assert!(is_bean_ready(&consumer, &completed, &all_ids, &all_beans));
+    }
+
+    #[test]
+    fn is_bean_ready_dep_outside_set_treated_as_met() {
+        // If a dependency isn't in the dispatch set, treat as satisfied
+        let bean = make_sized_bean("2", vec!["external"], vec![], vec![]);
+        let all_beans = vec![bean.clone()];
+        let all_ids: HashSet<String> = all_beans.iter().map(|b| b.id.clone()).collect();
+        let completed = HashSet::new();
+
+        // "external" is not in all_ids, so it's treated as met
+        assert!(is_bean_ready(&bean, &completed, &all_ids, &all_beans));
+    }
+
+    #[test]
+    fn is_bean_ready_diamond_both_deps_needed() {
+        // C requires both A and B
+        let a = make_sized_bean("A", vec![], vec!["X"], vec![]);
+        let b = make_sized_bean("B", vec![], vec!["Y"], vec![]);
+        let c = make_sized_bean("C", vec![], vec![], vec!["X", "Y"]);
+        let all_beans = vec![a, b, c.clone()];
+        let all_ids: HashSet<String> = all_beans.iter().map(|b| b.id.clone()).collect();
+
+        // Only A completed — C not ready
+        let mut completed = HashSet::new();
+        completed.insert("A".to_string());
+        assert!(!is_bean_ready(&c, &completed, &all_ids, &all_beans));
+
+        // Both completed — C ready
+        completed.insert("B".to_string());
+        assert!(is_bean_ready(&c, &completed, &all_ids, &all_beans));
+    }
+
+    #[test]
+    fn ready_queue_starts_independent_beans_immediately() {
+        // Simulate: A (no deps), B (no deps), C (depends on A only)
+        // In wave model: wave 1 = [A, B], wave 2 = [C]
+        // In ready-queue: A and B start immediately, C starts when A finishes
+        // (even if B is still running)
+        let index = Index { beans: vec![] };
+        let a = make_sized_bean("A", vec![], vec!["X"], vec![]);
+        let b = make_sized_bean("B", vec![], vec![], vec![]);
+        let c = make_sized_bean("C", vec![], vec![], vec!["X"]);
+        let all_beans = vec![a.clone(), b.clone(), c.clone()];
+        let all_ids: HashSet<String> = all_beans.iter().map(|b| b.id.clone()).collect();
+
+        // Initially: A and B are ready, C is not
+        let completed = HashSet::new();
+        assert!(is_bean_ready(&a, &completed, &all_ids, &all_beans));
+        assert!(is_bean_ready(&b, &completed, &all_ids, &all_beans));
+        assert!(!is_bean_ready(&c, &completed, &all_ids, &all_beans));
+
+        // After A completes: C becomes ready (even though B hasn't finished)
+        let mut completed = HashSet::new();
+        completed.insert("A".to_string());
+        assert!(is_bean_ready(&c, &completed, &all_ids, &all_beans));
+
+        // Verify wave model would have put C in wave 2 (after both A and B)
+        let waves = compute_waves(&all_beans, &index);
+        assert_eq!(waves.len(), 2);
+        assert_eq!(waves[0].beans.len(), 2); // A and B
+        assert_eq!(waves[1].beans.len(), 1); // C
+        assert_eq!(waves[1].beans[0].id, "C");
     }
 }

@@ -488,13 +488,13 @@ When executing beans, agents have access to a powerful toolkit from `~/.claude/s
 
 ```bash
 # Get all files referenced in a bean's description
-bctx <bean-id>
+bn context <bean-id>
 
 # Check project specs for constraints
 spec context "token refresh implementation"
 ```
 
-Use `bctx` to get files referenced in bean descriptions. This solves the "cold start" problem—instead of exploring, you get all relevant files immediately.
+Use `bn context` to get files referenced in bean descriptions. This solves the "cold start" problem—instead of exploring, you get all relevant files immediately.
 
 ### Safety & Rollback
 
@@ -550,7 +550,7 @@ Before claiming, agents gather context with the toolkit:
 
 ```bash
 # Get files referenced in bean description
-bctx <bean-id>
+bn context <bean-id>
 
 # Check project specs
 spec context "user authentication"
@@ -661,7 +661,7 @@ Verify fails (exit code non-zero):
 Agent 1 claimed 1.1, worked, failed verify, released.
 Agent 2 runs `bn ready`, sees 1.1 again.
 Agent 2 claims 1.1, reads `.beans/1.1.yaml` and notes from Agent 1.
-Agent 2 gathers fresh context with toolkit (bctx, spec context).
+Agent 2 gathers fresh context with toolkit (bn context, spec context).
 Agent 2 knows what Agent 1 tried and avoids the same mistake.
 
 #### Middle Path: Release Without Closing
@@ -1316,7 +1316,7 @@ Verify passes. Bean closes.
 
 All work in the project follows a standard workflow:
 
-1. **Understand** — `bctx <bean-id>` + `spec context` before touching code
+1. **Understand** — `bn context <bean-id>` + `spec context` before touching code
 2. **Plan** — Single task: just do it. Multi-step: break into beans with `bn create` or `bn plan`
 3. **Implement** — Single bean: implement directly. Epic: `bn run` to dispatch agents in parallel
 4. **Verify** — `verify` before committing (lint, types, build, test)
@@ -1332,10 +1332,10 @@ Beans is evolving from a task tracker into a comprehensive orchestration platfor
 
 ### Planned Companion Tools
 
-**`bctx`** — Context Assembler (Killer App for Agents)
+**`bn context`** — Context Assembler (Killer App for Agents)
 - Reads a bean, extracts file paths from description, concatenates file contents
 - Solves the "cold start" problem for agents
-- Usage: `bctx beans-3.2 | llm "Implement this"`
+- Usage: `bn context 3.2 | llm "Implement this"`
 - Status: Partially implemented (1.1, 1.2)
 
 **`bpick`** — Fuzzy Selector
@@ -1393,7 +1393,7 @@ Already available:
 - Hook system — Pre-close hooks for CI gatekeeper patterns
 - Archive system — Auto-archiving closed beans to dated directories
 - Multi-format support — YAML and Markdown
-- Agent toolkit — bctx, undo checkpoints, error-db, loop integration
+- Agent toolkit — bn context, undo checkpoints, error-db, loop integration
 
 ---
 
@@ -1407,7 +1407,7 @@ Already available:
 4. **Acceptance criteria must be testable.** Verify command proves it.
 5. **Use hierarchy for decomposition** (parent/child), **dependencies for blocking** (A waits for B).
 6. **Parents provide context.** Leaves are executable.
-7. **Agents use the toolkit** (bctx, undo, verify, error-db) instead of exploring blindly.
+7. **Agents use the toolkit** (bn context, undo, verify, error-db) instead of exploring blindly.
 8. **Agents claim atomically.** Only one agent per bean.
 9. **Verify gates closing.** No force-close. If verify fails, retry with a fresh agent.
 10. **Notes are the execution log.** Timestamp automatically, visible to next agent.
@@ -1432,7 +1432,7 @@ Already available:
 
 #### Before Agent Execution
 - [ ] **Bean is in ready state** — `bn ready` shows it
-- [ ] **Agent has toolkit installed** — bctx, undo, verify, error-db
+- [ ] **Agent has toolkit installed** — bn context, undo, verify, error-db
 - [ ] **Acceptance criteria are complete** — No ambiguity
 - [ ] **Verify command is tested** — You've run it locally
 
@@ -1449,7 +1449,7 @@ If all checked, the bean is ready for an agent to claim.
 - [TODO.md](./TODO.md) — Strategic vision and roadmap
 
 **Agent Resources:**
-- [Agent Toolkit Instructions](../.claude/skills/agent-prompt-template.md) — Toolkit for spawned agents (bctx, undo, verify, error-db)
+- [Agent Toolkit Instructions](../.claude/skills/agent-prompt-template.md) — Toolkit for spawned agents (bn context, undo, verify, error-db)
 - Agent prompt template includes: context gathering, safety, verification, error recovery, handoff
 
 **Command Reference:**

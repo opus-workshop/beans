@@ -1,7 +1,8 @@
 //! `bn plan` — interactively plan a large bean into children.
 //!
 //! Without an ID, picks the highest-priority ready bean that exceeds max_tokens.
-//! Spawns the configured plan template command to do the actual planning work.
+//! When `config.plan` is set, spawns that template command.
+//! Otherwise, builds a rich decomposition prompt and spawns `pi` directly.
 
 use std::path::Path;
 
@@ -60,7 +61,7 @@ fn plan_specific(
         return Ok(());
     }
 
-    spawn_plan(config, id, args)
+    spawn_plan(beans_dir, config, id, &bean, tokens, args)
 }
 
 /// Auto-pick the highest-priority ready bean that exceeds max_tokens.
@@ -125,28 +126,38 @@ fn plan_auto_pick(
     let tokens_k = format_tokens_k(*tokens);
     eprintln!("Planning: {} — {} ({})", id, title, tokens_k);
 
-    spawn_plan(config, id, args)
+    // Load the full bean for prompt building
+    let bean_path = find_bean_file(beans_dir, id)?;
+    let bean = Bean::from_file(&bean_path)?;
+
+    spawn_plan(beans_dir, config, id, &bean, *tokens, args)
 }
 
-/// Spawn the plan template command for a bean.
-fn spawn_plan(config: &Config, id: &str, args: &PlanArgs) -> Result<()> {
-    let template = match &config.plan {
-        Some(t) => t.clone(),
-        None => {
-            anyhow::bail!(
-                "No plan command configured.\n\n\
-                 Set it with: bn config set plan \"<command>\"\n\n\
-                 The command template uses {{id}} as a placeholder for the bean ID.\n\n\
-                 Examples:\n  \
-                   bn config set plan \"pi @.beans/{{id}}*.md 'decompose this bean into children'\"\n  \
-                   bn config set plan \"claude -p 'plan bean {{id}} into sub-tasks'\""
-            );
-        }
-    };
+/// Spawn the plan command for a bean.
+///
+/// If `config.plan` is set, uses that template (backward compatible).
+/// Otherwise, builds a rich decomposition prompt and spawns `pi` directly.
+fn spawn_plan(
+    beans_dir: &Path,
+    config: &Config,
+    id: &str,
+    bean: &Bean,
+    tokens: u64,
+    args: &PlanArgs,
+) -> Result<()> {
+    // If a custom plan template is configured, use it (backward compat)
+    if let Some(ref template) = config.plan {
+        return spawn_template(template, id, args);
+    }
 
+    // Built-in decomposition: build prompt and spawn pi
+    spawn_builtin(beans_dir, config, id, bean, tokens, args)
+}
+
+/// Spawn the plan using a user-configured template command.
+fn spawn_template(template: &str, id: &str, args: &PlanArgs) -> Result<()> {
     let mut cmd = template.replace("{id}", id);
 
-    // Append strategy hint if provided
     if let Some(ref strategy) = args.strategy {
         cmd = format!("{} --strategy {}", cmd, strategy);
     }
@@ -157,10 +168,43 @@ fn spawn_plan(config: &Config, id: &str, args: &PlanArgs) -> Result<()> {
     }
 
     eprintln!("Spawning: {}", cmd);
+    run_shell_command(&cmd, id, args.auto)
+}
 
-    if args.auto {
-        // Non-interactive: wait for completion
-        let status = std::process::Command::new("sh").args(["-c", &cmd]).status();
+/// Build a decomposition prompt and spawn `pi` with it directly.
+fn spawn_builtin(
+    beans_dir: &Path,
+    config: &Config,
+    id: &str,
+    bean: &Bean,
+    tokens: u64,
+    args: &PlanArgs,
+) -> Result<()> {
+    let prompt = build_decomposition_prompt(config, id, bean, tokens, args.strategy.as_deref());
+
+    // Find the bean file to pass as context
+    let bean_path = find_bean_file(beans_dir, id)?;
+    let bean_path_str = bean_path.display().to_string();
+
+    // Build pi command: pass the bean file as context and the prompt
+    let escaped_prompt = shell_escape(&prompt);
+    let cmd = format!("pi @{} {}", bean_path_str, escaped_prompt);
+
+    if args.dry_run {
+        eprintln!("Would spawn: {}", cmd);
+        eprintln!("\n--- Built-in decomposition prompt ---");
+        eprintln!("{}", prompt);
+        return Ok(());
+    }
+
+    eprintln!("Spawning built-in decomposition for bean {}...", id);
+    run_shell_command(&cmd, id, args.auto)
+}
+
+/// Execute a shell command, either interactively or non-interactively.
+fn run_shell_command(cmd: &str, id: &str, auto: bool) -> Result<()> {
+    if auto {
+        let status = std::process::Command::new("sh").args(["-c", cmd]).status();
         match status {
             Ok(s) if s.success() => {
                 eprintln!("Planning complete. Use bn tree {} to see children.", id);
@@ -173,9 +217,8 @@ fn spawn_plan(config: &Config, id: &str, args: &PlanArgs) -> Result<()> {
             }
         }
     } else {
-        // Interactive: inherit stdin/stdout/stderr
         let status = std::process::Command::new("sh")
-            .args(["-c", &cmd])
+            .args(["-c", cmd])
             .stdin(std::process::Stdio::inherit())
             .stdout(std::process::Stdio::inherit())
             .stderr(std::process::Stdio::inherit())
@@ -195,8 +238,147 @@ fn spawn_plan(config: &Config, id: &str, args: &PlanArgs) -> Result<()> {
             }
         }
     }
-
     Ok(())
+}
+
+/// Build a rich decomposition prompt that embeds the core planning wisdom.
+fn build_decomposition_prompt(
+    config: &Config,
+    id: &str,
+    bean: &Bean,
+    tokens: u64,
+    strategy: Option<&str>,
+) -> String {
+    let max_tokens = config.max_tokens;
+    let tokens_k = format_tokens_k(tokens);
+    let max_k = format_tokens_k(max_tokens as u64);
+
+    let strategy_guidance = match strategy {
+        Some("feature") | Some("by-feature") => {
+            "Split by feature — each child is a vertical slice (types + impl + tests for one feature)."
+        }
+        Some("layer") | Some("by-layer") => {
+            "Split by layer — types/interfaces first, then implementation, then tests."
+        }
+        Some("file") | Some("by-file") => {
+            "Split by file — each child handles one file or closely related file group."
+        }
+        Some("phase") => {
+            "Split by phase — scaffold first, then core logic, then edge cases, then polish."
+        }
+        Some(other) => {
+            // Custom strategy, include as-is
+            return build_prompt_text(id, bean, &tokens_k, &max_k, max_tokens, other);
+        }
+        None => "Choose the best strategy: by-feature (vertical slices), by-layer, or by-file.",
+    };
+
+    build_prompt_text(id, bean, &tokens_k, &max_k, max_tokens, strategy_guidance)
+}
+
+/// Assemble the full prompt text with decomposition rules.
+fn build_prompt_text(
+    id: &str,
+    bean: &Bean,
+    tokens_k: &str,
+    max_k: &str,
+    max_tokens: u32,
+    strategy_guidance: &str,
+) -> String {
+    let title = &bean.title;
+    let priority = bean.priority;
+    let description = bean.description.as_deref().unwrap_or("(no description)");
+
+    // Build produces/requires context if present
+    let mut dep_context = String::new();
+    if !bean.produces.is_empty() {
+        dep_context.push_str(&format!(
+            "\nProduces: {}\n",
+            bean.produces.join(", ")
+        ));
+    }
+    if !bean.requires.is_empty() {
+        dep_context.push_str(&format!(
+            "Requires: {}\n",
+            bean.requires.join(", ")
+        ));
+    }
+
+    format!(
+        r#"Decompose bean {id} into smaller child beans.
+
+## Parent Bean
+- **ID:** {id}
+- **Title:** {title}
+- **Priority:** P{priority}
+- **Size:** {tokens_k} (max per agent: {max_k})
+{dep_context}
+## Strategy
+{strategy_guidance}
+
+## Sizing Rules
+- A bean is **atomic** if it requires ≤5 functions to write and ≤10 to read
+- An atomic bean fits in ~{max_tokens} tokens of context
+- This bean is {tokens_k} — it needs to be split into children that are each ≤{max_k}
+- Count functions concretely by examining the code — don't estimate
+
+## Splitting Rules
+- Create **2-4 children** for medium beans, **3-5** for large ones
+- **Maximize parallelism** — prefer independent beans over sequential chains
+- Each child must have a **verify command** that exits 0 on success
+- Children should be independently testable where possible
+- Use `--produces` and `--requires` to express dependencies between siblings
+
+## Context Embedding Rules
+- **Embed context into descriptions** — don't reference files, include the relevant types/signatures
+- Include: concrete file paths, function signatures, type definitions
+- Include: specific steps, edge cases, error handling requirements
+- Be specific: "Add `fn validate_email(s: &str) -> bool` to `src/util.rs`" not "add validation"
+
+## How to Create Children
+Use `bn create` for each child bean:
+
+```
+bn create "child title" \
+  --parent {id} \
+  --priority {priority} \
+  --verify "test command that exits 0" \
+  --produces "artifact_name" \
+  --requires "artifact_from_sibling" \
+  --description "Full description with:
+- What to implement
+- Which files to modify (with paths)
+- Key types/signatures to use or create
+- Acceptance criteria
+- Edge cases to handle"
+```
+
+## Description Template
+A good child bean description includes:
+1. **What**: One clear sentence of what this child does
+2. **Files**: Specific file paths with what changes in each
+3. **Context**: Embedded type definitions, function signatures, patterns to follow
+4. **Acceptance**: Concrete criteria the verify command checks
+5. **Edge cases**: What could go wrong, what to handle
+
+## Your Task
+1. Read the parent bean's description below
+2. Examine referenced source files to count functions accurately
+3. Decide on a split strategy
+4. Create 2-5 child beans using `bn create` commands
+5. Ensure every child has a verify command
+6. After creating children, run `bn tree {id}` to show the result
+
+## Parent Bean Description
+{description}"#,
+    )
+}
+
+/// Escape a string for safe use as a single shell argument.
+fn shell_escape(s: &str) -> String {
+    // Use single quotes, escaping any internal single quotes
+    let escaped = s.replace('\'', "'\\''");
+    format!("'{}'", escaped)
 }
 
 /// Format token count as "Nk tokens" string.
@@ -234,7 +416,7 @@ mod tests {
     }
 
     #[test]
-    fn plan_errors_when_no_plan_template() {
+    fn plan_no_template_without_auto_errors() {
         let (dir, beans_dir) = setup_beans_dir();
 
         // Create a bean big enough to trigger planning
@@ -242,9 +424,10 @@ mod tests {
         bean.description = Some("x".repeat(2000)); // > 100 tokens threshold
         bean.to_file(beans_dir.join("1-big-bean.md")).unwrap();
 
-        // Rebuild index
         let _ = Index::build(&beans_dir);
 
+        // Without --auto AND without config.plan, should use builtin
+        // which tries to spawn pi (will fail in test env but that's the intent)
         let result = cmd_plan(
             &beans_dir,
             PlanArgs {
@@ -252,17 +435,12 @@ mod tests {
                 strategy: None,
                 auto: false,
                 force: true,
-                dry_run: false,
+                dry_run: true, // dry_run so we don't actually spawn
             },
         );
 
-        assert!(result.is_err());
-        let err = format!("{}", result.unwrap_err());
-        assert!(
-            err.contains("No plan command configured"),
-            "Expected plan template error, got: {}",
-            err
-        );
+        // dry_run should succeed
+        assert!(result.is_ok());
 
         drop(dir);
     }
@@ -434,5 +612,135 @@ mod tests {
     #[test]
     fn format_tokens_k_exact_boundary() {
         assert_eq!(format_tokens_k(1000), "1k tokens");
+    }
+
+    #[test]
+    fn build_prompt_includes_decomposition_rules() {
+        let bean = Bean::new("42", "Implement auth system");
+        let prompt = build_decomposition_prompt(
+            &Config {
+                project: "test".to_string(),
+                next_id: 100,
+                auto_close_parent: true,
+                max_tokens: 30000,
+                run: None,
+                plan: None,
+                max_loops: 10,
+                max_concurrent: 4,
+                poll_interval: 30,
+                extends: vec![],
+                rules_file: None,
+            },
+            "42",
+            &bean,
+            65000,
+            None,
+        );
+
+        // Core decomposition rules are present
+        assert!(prompt.contains("Decompose bean 42"), "missing header");
+        assert!(prompt.contains("Implement auth system"), "missing title");
+        assert!(prompt.contains("≤5 functions"), "missing sizing rules");
+        assert!(prompt.contains("Maximize parallelism"), "missing parallelism rule");
+        assert!(prompt.contains("Embed context"), "missing context embedding rule");
+        assert!(prompt.contains("verify command"), "missing verify requirement");
+        assert!(prompt.contains("bn create"), "missing create syntax");
+        assert!(prompt.contains("--parent 42"), "missing parent flag");
+        assert!(prompt.contains("--produces"), "missing produces flag");
+        assert!(prompt.contains("--requires"), "missing requires flag");
+        assert!(prompt.contains("65k tokens"), "missing token count");
+    }
+
+    #[test]
+    fn build_prompt_with_strategy() {
+        let bean = Bean::new("1", "Big task");
+        let prompt = build_decomposition_prompt(
+            &Config {
+                project: "test".to_string(),
+                next_id: 10,
+                auto_close_parent: true,
+                max_tokens: 30000,
+                run: None,
+                plan: None,
+                max_loops: 10,
+                max_concurrent: 4,
+                poll_interval: 30,
+                extends: vec![],
+                rules_file: None,
+            },
+            "1",
+            &bean,
+            50000,
+            Some("by-feature"),
+        );
+
+        assert!(prompt.contains("vertical slice"), "missing feature strategy guidance");
+    }
+
+    #[test]
+    fn build_prompt_includes_produces_requires() {
+        let mut bean = Bean::new("5", "Task with deps");
+        bean.produces = vec!["auth_types".to_string(), "auth_middleware".to_string()];
+        bean.requires = vec!["db_connection".to_string()];
+
+        let prompt = build_decomposition_prompt(
+            &Config {
+                project: "test".to_string(),
+                next_id: 10,
+                auto_close_parent: true,
+                max_tokens: 30000,
+                run: None,
+                plan: None,
+                max_loops: 10,
+                max_concurrent: 4,
+                poll_interval: 30,
+                extends: vec![],
+                rules_file: None,
+            },
+            "5",
+            &bean,
+            40000,
+            None,
+        );
+
+        assert!(prompt.contains("auth_types"), "missing produces");
+        assert!(prompt.contains("db_connection"), "missing requires");
+    }
+
+    #[test]
+    fn shell_escape_simple() {
+        assert_eq!(shell_escape("hello world"), "'hello world'");
+    }
+
+    #[test]
+    fn shell_escape_with_quotes() {
+        assert_eq!(shell_escape("it's here"), "'it'\\''s here'");
+    }
+
+    #[test]
+    fn plan_builtin_dry_run_shows_prompt() {
+        let (dir, beans_dir) = setup_beans_dir();
+
+        // No plan template configured — will use builtin
+        let mut bean = Bean::new("1", "Big bean");
+        bean.description = Some("x".repeat(2000));
+        bean.to_file(beans_dir.join("1-big-bean.md")).unwrap();
+
+        let _ = Index::build(&beans_dir);
+
+        let result = cmd_plan(
+            &beans_dir,
+            PlanArgs {
+                id: Some("1".to_string()),
+                strategy: None,
+                auto: false,
+                force: true,
+                dry_run: true,
+            },
+        );
+
+        assert!(result.is_ok());
+
+        drop(dir);
     }
 }

@@ -233,6 +233,7 @@ pub fn cmd_memory_context(beans_dir: &Path, json: bool) -> Result<()> {
     }
 
     let mut output = String::new();
+    #[allow(unused_assignments)]
     let mut chars_used = 0;
 
     output.push_str("═══ BEANS CONTEXT ═══════════════════════════════════════════\n\n");

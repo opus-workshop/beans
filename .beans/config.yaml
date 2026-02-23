@@ -1,7 +1,7 @@
 project: beans
-next_id: 84
+next_id: 87
 auto_close_parent: true
-max_tokens: 30000
+max_tokens: 50000
 run: bash -c 'pi @$(ls .beans/{id}-*.md) "implement this bean and run bn close {id} when done"'
 plan: test
 max_loops: 10

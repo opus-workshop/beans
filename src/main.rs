@@ -15,46 +15,37 @@ use bn::commands::{
     cmd_context, cmd_create, cmd_delete, cmd_dep_add, cmd_dep_cycles, cmd_dep_list, cmd_dep_remove,
     cmd_dep_tree, cmd_doctor, cmd_edit, cmd_fact, cmd_graph, cmd_init, cmd_list, cmd_logs,
     cmd_memory_context, cmd_plan, cmd_quick, cmd_ready, cmd_recall, cmd_release, cmd_reopen,
-    cmd_resolve, cmd_run, cmd_show, cmd_stats, cmd_status, cmd_sync, cmd_tidy, cmd_tree,
+    cmd_run, cmd_show, cmd_stats, cmd_status, cmd_sync, cmd_tidy, cmd_tree,
     cmd_trust, cmd_unarchive, cmd_update, cmd_verify, cmd_verify_facts,
     cmd_mcp_serve,
 };
 use bn::discovery::find_beans_dir;
 use bn::index::Index;
-use bn::selector::{resolve_selector_string, SelectionContext};
 use bn::util::validate_bean_id;
-use cli::{Cli, Command, ConfigCommand, DepCommand, McpCommand};
+use cli::{Cli, Command, ConfigCommand, CreateSubcommand, DepCommand, McpCommand};
 
-// Helper to resolve a single bean ID (handles selectors)
+// Helper to resolve a single bean ID (handles @latest selector or plain IDs)
 fn resolve_bean_id(id: &str, beans_dir: &std::path::Path) -> Result<String> {
-    let index = Index::load(beans_dir)?;
-    let context = SelectionContext {
-        index: &index,
-        current_bean_id: None,
-        current_user: None,
-    };
-    let resolved = resolve_selector_string(id, &context)?;
-    resolved
-        .into_iter()
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("Selector '{}' resolved to no beans", id))
+    if id == "@latest" {
+        let index = Index::load(beans_dir)?;
+        index
+            .beans
+            .iter()
+            .max_by_key(|e| e.updated_at)
+            .map(|e| e.id.clone())
+            .ok_or_else(|| anyhow::anyhow!("@latest: no beans in index"))
+    } else if id.starts_with('@') {
+        anyhow::bail!("Unknown selector: {}", id)
+    } else {
+        Ok(id.to_string())
+    }
 }
 
-// Helper to resolve multiple bean IDs (handles selectors and expands @blocked)
+// Helper to resolve multiple bean IDs
 fn resolve_bean_ids(ids: Vec<String>, beans_dir: &std::path::Path) -> Result<Vec<String>> {
-    let index = Index::load(beans_dir)?;
-    let context = SelectionContext {
-        index: &index,
-        current_bean_id: None,
-        current_user: None,
-    };
-
-    let mut resolved_ids = Vec::new();
-    for id in ids {
-        let resolved = resolve_selector_string(&id, &context)?;
-        resolved_ids.extend(resolved);
-    }
-    Ok(resolved_ids)
+    ids.into_iter()
+        .map(|id| resolve_bean_id(&id, beans_dir))
+        .collect()
 }
 
 fn main() -> Result<()> {
@@ -90,6 +81,7 @@ fn main() -> Result<()> {
         Command::Init { .. } => unreachable!(),
 
         Command::Create {
+            subcommand,
             title,
             set_title,
             description,
@@ -112,6 +104,125 @@ fn main() -> Result<()> {
             interactive,
             json,
         } => {
+            // Handle 'bn create next' subcommand
+            if let Some(CreateSubcommand::Next {
+                title,
+                set_title,
+                description,
+                acceptance,
+                notes,
+                design,
+                verify,
+                parent,
+                priority,
+                labels,
+                assignee,
+                deps,
+                produces,
+                requires,
+                on_fail,
+                pass_ok,
+                claim,
+                by,
+                run,
+                json,
+            }) = subcommand
+            {
+                // Resolve @latest to get the most recently created/updated bean
+                let latest_id = resolve_bean_id("@latest", &beans_dir).map_err(|_| {
+                    anyhow::anyhow!(
+                        "No previous bean found. 'bn create next' requires at least one existing bean.\n\
+                         Use 'bn create' for the first bean in a chain."
+                    )
+                })?;
+
+                // Merge @latest dep with any explicit --deps
+                let merged_deps = match deps {
+                    Some(d) => Some(format!("{},{}", latest_id, d)),
+                    None => Some(latest_id.clone()),
+                };
+
+                use bn::commands::stdin::resolve_stdin_opt;
+                let description = resolve_stdin_opt(description)?;
+                let acceptance = resolve_stdin_opt(acceptance)?;
+                let notes = resolve_stdin_opt(notes)?;
+
+                let resolved_title = title.or(set_title);
+                let title = resolved_title
+                    .ok_or_else(|| anyhow::anyhow!("bn create next: title is required"))?;
+
+                if run && verify.is_none() {
+                    anyhow::bail!(
+                        "--run requires --verify\n\n\
+                         Cannot spawn an agent without a test."
+                    );
+                }
+
+                let on_fail = on_fail
+                    .map(|s| bn::commands::create::parse_on_fail(&s))
+                    .transpose()?;
+
+                let bean_id = cmd_create(
+                    &beans_dir,
+                    CreateArgs {
+                        title,
+                        description,
+                        acceptance,
+                        notes,
+                        design,
+                        verify,
+                        priority,
+                        labels,
+                        assignee,
+                        deps: merged_deps,
+                        parent,
+                        produces,
+                        requires,
+                        on_fail,
+                        pass_ok,
+                        claim,
+                        by,
+                    },
+                )?;
+
+                eprintln!("⛓ Chained after bean {} (@latest)", latest_id);
+
+                if json {
+                    let bean_path = bn::discovery::find_bean_file(&beans_dir, &bean_id)?;
+                    let bean = bn::bean::Bean::from_file(&bean_path)?;
+                    println!("{}", serde_json::to_string(&bean)?);
+                }
+
+                if run {
+                    use bn::config::Config;
+                    let config = Config::load_with_extends(&beans_dir)?;
+                    match &config.run {
+                        Some(template) => {
+                            let cmd = template.replace("{id}", &bean_id);
+                            eprintln!("Spawning: {}", cmd);
+                            let status =
+                                std::process::Command::new("sh").args(["-c", &cmd]).status();
+                            match status {
+                                Ok(s) if s.success() => {}
+                                Ok(s) => eprintln!(
+                                    "Run command exited with code {}",
+                                    s.code().unwrap_or(-1)
+                                ),
+                                Err(e) => eprintln!("Failed to run command: {}", e),
+                            }
+                        }
+                        None => {
+                            anyhow::bail!(
+                                "--run requires a configured agent.\n\
+                                 Run: bn init --setup"
+                            );
+                        }
+                    }
+                }
+
+                return Ok(());
+            }
+
             // Resolve "-" values from stdin
             use bn::commands::stdin::resolve_stdin_opt;
             let description = resolve_stdin_opt(description)?;
@@ -490,12 +601,6 @@ fn main() -> Result<()> {
             cmd_adopt(&beans_dir, &resolved_parent, &resolved_children).map(|_| ())
         }
 
-        Command::Resolve { id, field, choice } => {
-            validate_bean_id(&id)?;
-            let resolved_id = resolve_bean_id(&id, &beans_dir)?;
-            cmd_resolve(&beans_dir, &resolved_id, &field, choice)
-        }
-
         Command::Run {
             id,
             jobs,
@@ -505,9 +610,7 @@ fn main() -> Result<()> {
             keep_going,
             timeout,
             idle_timeout,
-            watch,
-            foreground,
-            stop,
+            json_stream,
         } => cmd_run(
             &beans_dir,
             bn::commands::run::RunArgs {
@@ -519,9 +622,7 @@ fn main() -> Result<()> {
                 keep_going,
                 timeout,
                 idle_timeout,
-                watch,
-                foreground,
-                stop,
+                json_stream,
             },
         ),
 

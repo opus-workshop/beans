@@ -352,6 +352,48 @@ pub fn cmd_create(beans_dir: &Path, args: CreateArgs) -> Result<String> {
     Ok(bean_id)
 }
 
+/// Create a new bean that automatically depends on @latest (the most recently updated bean).
+///
+/// This enables sequential chaining:
+/// ```bash
+/// bn create "Step 1" -p
+/// bn create next "Step 2" --verify "cargo test step2"
+/// bn create next "Step 3" --verify "cargo test step3"
+/// ```
+///
+/// If `args.deps` already contains dependencies, @latest is prepended.
+/// Returns the created bean ID on success.
+pub fn cmd_create_next(beans_dir: &Path, args: CreateArgs) -> Result<String> {
+    // Resolve @latest — find the most recently updated bean
+    let index = Index::load(beans_dir).or_else(|_| Index::build(beans_dir))?;
+    let latest_id = index
+        .beans
+        .iter()
+        .max_by_key(|e| e.updated_at)
+        .map(|e| e.id.clone())
+        .ok_or_else(|| {
+            anyhow!(
+                "No previous bean found. 'bn create next' requires at least one existing bean.\n\
+                 Use 'bn create' for the first bean in a chain."
+            )
+        })?;
+
+    // Merge @latest dep with any explicit deps
+    let merged_deps = match args.deps {
+        Some(ref d) => Some(format!("{},{}", latest_id, d)),
+        None => Some(latest_id.clone()),
+    };
+
+    eprintln!("⛓ Chained after bean {} (@latest)", latest_id);
+
+    let new_args = CreateArgs {
+        deps: merged_deps,
+        ..args
+    };
+
+    cmd_create(beans_dir, new_args)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1646,5 +1688,270 @@ mod tests {
         let result = parse_on_fail("escalate:P5");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("priority"));
+    }
+
+    // =========================================================================
+    // cmd_create_next Tests
+    // =========================================================================
+
+    #[test]
+    fn create_next_depends_on_latest() {
+        let (_dir, beans_dir) = setup_beans_dir_with_config();
+
+        // Create the first bean
+        let args1 = CreateArgs {
+            title: "First step".to_string(),
+            description: None,
+            acceptance: None,
+            notes: None,
+            design: None,
+            verify: Some("true".to_string()),
+            priority: None,
+            labels: None,
+            assignee: None,
+            deps: None,
+            parent: None,
+            produces: None,
+            requires: None,
+            on_fail: None,
+            pass_ok: true,
+            claim: false,
+            by: None,
+        };
+        let id1 = cmd_create(&beans_dir, args1).unwrap();
+
+        // Create second bean via create_next
+        let args2 = CreateArgs {
+            title: "Second step".to_string(),
+            description: None,
+            acceptance: None,
+            notes: None,
+            design: None,
+            verify: Some("true".to_string()),
+            priority: None,
+            labels: None,
+            assignee: None,
+            deps: None,
+            parent: None,
+            produces: None,
+            requires: None,
+            on_fail: None,
+            pass_ok: true,
+            claim: false,
+            by: None,
+        };
+        let id2 = cmd_create_next(&beans_dir, args2).unwrap();
+
+        // Verify the second bean depends on the first
+        let bean2_path = beans_dir.join(format!("{}-second-step.md", id2));
+        let bean2 = Bean::from_file(&bean2_path).unwrap();
+        assert!(
+            bean2.dependencies.contains(&id1),
+            "Second bean should depend on first bean ({}), got deps: {:?}",
+            id1,
+            bean2.dependencies
+        );
+    }
+
+    #[test]
+    fn create_next_chain_three_beans() {
+        let (_dir, beans_dir) = setup_beans_dir_with_config();
+
+        // Create first bean normally
+        let args1 = CreateArgs {
+            title: "Step one".to_string(),
+            description: None,
+            acceptance: None,
+            notes: None,
+            design: None,
+            verify: Some("true".to_string()),
+            priority: None,
+            labels: None,
+            assignee: None,
+            deps: None,
+            parent: None,
+            produces: None,
+            requires: None,
+            on_fail: None,
+            pass_ok: true,
+            claim: false,
+            by: None,
+        };
+        let id1 = cmd_create(&beans_dir, args1).unwrap();
+
+        // Chain second bean
+        let args2 = CreateArgs {
+            title: "Step two".to_string(),
+            description: None,
+            acceptance: None,
+            notes: None,
+            design: None,
+            verify: Some("true".to_string()),
+            priority: None,
+            labels: None,
+            assignee: None,
+            deps: None,
+            parent: None,
+            produces: None,
+            requires: None,
+            on_fail: None,
+            pass_ok: true,
+            claim: false,
+            by: None,
+        };
+        let id2 = cmd_create_next(&beans_dir, args2).unwrap();
+
+        // Chain third bean
+        let args3 = CreateArgs {
+            title: "Step three".to_string(),
+            description: None,
+            acceptance: None,
+            notes: None,
+            design: None,
+            verify: Some("true".to_string()),
+            priority: None,
+            labels: None,
+            assignee: None,
+            deps: None,
+            parent: None,
+            produces: None,
+            requires: None,
+            on_fail: None,
+            pass_ok: true,
+            claim: false,
+            by: None,
+        };
+        let id3 = cmd_create_next(&beans_dir, args3).unwrap();
+
+        // Verify chain: 1 <- 2 <- 3
+        let bean2_path = beans_dir.join(format!("{}-step-two.md", id2));
+        let bean2 = Bean::from_file(&bean2_path).unwrap();
+        assert!(
+            bean2.dependencies.contains(&id1),
+            "Bean 2 should depend on bean 1"
+        );
+
+        let bean3_path = beans_dir.join(format!("{}-step-three.md", id3));
+        let bean3 = Bean::from_file(&bean3_path).unwrap();
+        assert!(
+            bean3.dependencies.contains(&id2),
+            "Bean 3 should depend on bean 2, got deps: {:?}",
+            bean3.dependencies
+        );
+    }
+
+    #[test]
+    fn create_next_merges_explicit_deps() {
+        let (_dir, beans_dir) = setup_beans_dir_with_config();
+
+        // Create two beans normally
+        let args1 = CreateArgs {
+            title: "First".to_string(),
+            description: None,
+            acceptance: None,
+            notes: None,
+            design: None,
+            verify: Some("true".to_string()),
+            priority: None,
+            labels: None,
+            assignee: None,
+            deps: None,
+            parent: None,
+            produces: None,
+            requires: None,
+            on_fail: None,
+            pass_ok: true,
+            claim: false,
+            by: None,
+        };
+        cmd_create(&beans_dir, args1).unwrap();
+
+        let args2 = CreateArgs {
+            title: "Second".to_string(),
+            description: None,
+            acceptance: None,
+            notes: None,
+            design: None,
+            verify: Some("true".to_string()),
+            priority: None,
+            labels: None,
+            assignee: None,
+            deps: None,
+            parent: None,
+            produces: None,
+            requires: None,
+            on_fail: None,
+            pass_ok: true,
+            claim: false,
+            by: None,
+        };
+        cmd_create(&beans_dir, args2).unwrap();
+
+        // Create next with explicit deps — should merge @latest (2) + explicit (1)
+        let args3 = CreateArgs {
+            title: "Third".to_string(),
+            description: None,
+            acceptance: None,
+            notes: None,
+            design: None,
+            verify: Some("true".to_string()),
+            priority: None,
+            labels: None,
+            assignee: None,
+            deps: Some("1".to_string()),
+            parent: None,
+            produces: None,
+            requires: None,
+            on_fail: None,
+            pass_ok: true,
+            claim: false,
+            by: None,
+        };
+        let id3 = cmd_create_next(&beans_dir, args3).unwrap();
+
+        let bean3_path = beans_dir.join(format!("{}-third.md", id3));
+        let bean3 = Bean::from_file(&bean3_path).unwrap();
+        assert!(
+            bean3.dependencies.contains(&"1".to_string()),
+            "Should have explicit dep on 1"
+        );
+        assert!(
+            bean3.dependencies.contains(&"2".to_string()),
+            "Should have auto dep on @latest (2)"
+        );
+    }
+
+    #[test]
+    fn create_next_fails_with_no_beans() {
+        let (_dir, beans_dir) = setup_beans_dir_with_config();
+
+        // Try create next with no existing beans — should fail
+        let args = CreateArgs {
+            title: "Orphan".to_string(),
+            description: None,
+            acceptance: None,
+            notes: None,
+            design: None,
+            verify: Some("true".to_string()),
+            priority: None,
+            labels: None,
+            assignee: None,
+            deps: None,
+            parent: None,
+            produces: None,
+            requires: None,
+            on_fail: None,
+            pass_ok: true,
+            claim: false,
+            by: None,
+        };
+        let result = cmd_create_next(&beans_dir, args);
+        assert!(result.is_err(), "Should fail with no existing beans");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("No previous bean"),
+            "Error should mention no previous bean, got: {}",
+            err_msg
+        );
     }
 }

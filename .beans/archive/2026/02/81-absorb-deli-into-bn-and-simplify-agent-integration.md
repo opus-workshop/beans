@@ -2,10 +2,13 @@
 id: '81'
 title: Absorb deli into bn and simplify agent integration
 slug: absorb-deli-into-bn-and-simplify-agent-integration
-status: open
+status: closed
 priority: 2
 created_at: 2026-02-23T23:49:35.904758Z
-updated_at: 2026-02-23T23:49:35.904758Z
+updated_at: 2026-02-24T01:08:25.576474Z
+closed_at: 2026-02-24T01:08:25.576474Z
+close_reason: 'Auto-closed: all children completed'
+is_archived: true
 tokens: 883
 tokens_updated: 2026-02-23T23:49:35.905932Z
 ---

@@ -85,7 +85,7 @@ bn logs 3                                            # View agent output for bea
 - **Agent-agnostic** — works with any CLI agent (Claude, pi, aider, custom scripts)
 - **Interactive wizard** — `bn create` with no args launches a step-by-step prompt (fuzzy parent search, smart verify suggestions, $EDITOR for descriptions)
 - **Pipe-friendly** — `--json` output, `--ids` listing, `--description -` reads stdin, `--stdin` for batch operations
-- **Smart selectors** — `@latest`, `@blocked`, `@me`, `@parent`
+- **Smart selectors** — `@latest` for chaining sequential beans
 - **Context assembly** — extracts file paths from descriptions for cold-start context
 - **Dependency graph** — ASCII, Mermaid, DOT output
 - **Full lifecycle** — create, claim, close, reopen, delete, adopt, archive, unarchive, tidy
@@ -431,7 +431,7 @@ bn sync                             # Force rebuild index
 | `bn graph` | Dependency graph (ASCII, Mermaid, DOT) |
 | **Agents** | |
 | `bn run [id] [-j N]` | Dispatch ready beans to agents |
-| `bn run --watch` | Watch mode: auto-dispatch on changes |
+| `bn run --loop` | Keep running until no ready beans remain |
 | `bn run --dry-run` | Preview dispatch plan without spawning |
 | `bn plan [id] [--auto]` | Decompose a large bean into children |
 | `bn agents [--json]` | Show running/completed agents |
@@ -492,16 +492,6 @@ bn agents --json          # Machine-readable output
 bn logs 3                 # View agent output for bean 3
 ```
 
-### Watch mode
-
-Run `bn run --watch` to continuously dispatch beans as they become ready:
-
-```bash
-bn run --watch                 # Background daemon
-bn run --watch --foreground    # Stay in foreground
-bn run --stop                  # Stop the daemon
-```
-
 ### Discover-and-delegate
 
 While working on your main task, create beans for everything you notice — `bn run` picks them up automatically:
@@ -535,7 +525,7 @@ Let `bn run` handle the full cycle — find ready beans, size them, dispatch age
 
 ```bash
 bn run                    # One-shot: dispatch all ready beans
-bn run --watch            # Continuous: re-dispatch as beans close and unblock others
+bn run --loop             # Continuous: re-dispatch as beans close and unblock others
 ```
 
 Agents are spawned with the configured `run` command. Each agent reads the bean, implements the work, and runs `bn close`. If verify fails, the task stays open with `attempts` incremented and the failure output appended to notes. `bn run` picks it up again on the next cycle.
@@ -576,7 +566,7 @@ bn config set poll_interval 30      # Watch mode poll interval in seconds (defau
 | `run` | *(none)* | Command template to implement a bean. `{id}` is replaced with the bean ID. |
 | `plan` | *(none)* | Command template to decompose a large bean into children. |
 | `max_concurrent` | `4` | Maximum number of agents running in parallel. |
-| `poll_interval` | `30` | Seconds between watch mode poll cycles. |
+| `poll_interval` | `30` | Seconds between loop mode poll cycles. |
 
 Config is stored in `.beans/config.toml` and checked into git with your project.
 

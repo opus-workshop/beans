@@ -58,8 +58,6 @@ Commands:
     config       Manage project configuration
     trust        Manage hook trust (enable/disable hook execution)
     unarchive    Unarchive a bean (move from archive back to main beans directory)
-    resolve      Resolve a field conflict on a bean
-
   help         Print this message or the help of the given subcommand(s)
 
 {options}"
@@ -100,8 +98,11 @@ pub enum Command {
     },
 
     /// Create a new bean
-    #[command(visible_alias = "new", display_order = 2)]
+    #[command(visible_alias = "new", display_order = 2, args_conflicts_with_subcommands = true)]
     Create {
+        #[command(subcommand)]
+        subcommand: Option<CreateSubcommand>,
+
         /// Bean title
         title: Option<String>,
 
@@ -524,19 +525,6 @@ pub enum Command {
         children: Vec<String>,
     },
 
-    /// Resolve a field conflict on a bean
-    #[command(display_order = 46)]
-    Resolve {
-        /// Bean ID
-        id: String,
-
-        /// Field name with conflict
-        field: String,
-
-        /// Version choice (0, 1, ...)
-        choice: usize,
-    },
-
     /// Dispatch ready beans to agents
     Run {
         /// Bean ID. Without ID, processes all ready beans.
@@ -570,17 +558,9 @@ pub enum Command {
         #[arg(long, default_value = "5")]
         idle_timeout: u32,
 
-        /// Watch mode: continuously monitor .beans/ and spawn agents (background daemon)
+        /// Emit JSON stream events to stdout (for programmatic consumers)
         #[arg(long)]
-        watch: bool,
-
-        /// Run watch daemon in the foreground (requires --watch)
-        #[arg(long, requires = "watch")]
-        foreground: bool,
-
-        /// Stop a running watch daemon
-        #[arg(long, conflicts_with_all = ["watch", "foreground"])]
-        stop: bool,
+        json_stream: bool,
     },
 
     /// Interactively plan a large bean into children
@@ -750,4 +730,94 @@ pub enum ConfigCommand {
 pub enum McpCommand {
     /// Start MCP server on stdio (JSON-RPC 2.0)
     Serve,
+}
+
+#[derive(Subcommand)]
+pub enum CreateSubcommand {
+    /// Create a bean that depends on the most recently created bean (sequential chaining)
+    ///
+    /// Automatically adds a dependency on @latest, enabling easy sequential chains:
+    ///   bn create "Step 1" -p
+    ///   bn create next "Step 2" --verify "cargo test step2"
+    ///   bn create next "Step 3" --verify "cargo test step3"
+    Next {
+        /// Bean title
+        title: Option<String>,
+
+        /// Bean title (alternative to positional arg)
+        #[arg(long, conflicts_with = "title")]
+        set_title: Option<String>,
+
+        /// Full description / agent context
+        #[arg(long)]
+        description: Option<String>,
+
+        /// Acceptance criteria
+        #[arg(long)]
+        acceptance: Option<String>,
+
+        /// Additional notes
+        #[arg(long)]
+        notes: Option<String>,
+
+        /// Design decisions
+        #[arg(long)]
+        design: Option<String>,
+
+        /// Shell command that must exit 0 to close
+        #[arg(long)]
+        verify: Option<String>,
+
+        /// Parent bean ID -- child gets next dot-number
+        #[arg(long)]
+        parent: Option<String>,
+
+        /// Priority P0-P4 (default: P2)
+        #[arg(long)]
+        priority: Option<u8>,
+
+        /// Comma-separated labels
+        #[arg(long)]
+        labels: Option<String>,
+
+        /// Assignee name
+        #[arg(long)]
+        assignee: Option<String>,
+
+        /// Additional comma-separated dependency IDs (merged with auto @latest dep)
+        #[arg(long)]
+        deps: Option<String>,
+
+        /// Comma-separated artifacts this bean produces
+        #[arg(long)]
+        produces: Option<String>,
+
+        /// Comma-separated artifacts this bean requires
+        #[arg(long)]
+        requires: Option<String>,
+
+        /// Action on verify failure: retry, retry:N, escalate, escalate:P0
+        #[arg(long)]
+        on_fail: Option<String>,
+
+        /// Skip fail-first check (allow verify to already pass)
+        #[arg(long, short = 'p')]
+        pass_ok: bool,
+
+        /// Claim the bean immediately (sets status to in_progress)
+        #[arg(long, conflicts_with = "run")]
+        claim: bool,
+
+        /// Who is claiming (requires --claim)
+        #[arg(long, requires = "claim")]
+        by: Option<String>,
+
+        /// Spawn an agent to work on this bean (requires --verify)
+        #[arg(long)]
+        run: bool,
+
+        /// Output created bean as JSON (for piping)
+        #[arg(long)]
+        json: bool,
+    },
 }

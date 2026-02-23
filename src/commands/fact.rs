@@ -5,7 +5,6 @@ use chrono::{Duration, Utc};
 
 use crate::bean::Bean;
 use crate::commands::create::{cmd_create, CreateArgs};
-use crate::config::Config;
 use crate::discovery::find_bean_file;
 use crate::index::Index;
 
@@ -157,16 +156,8 @@ pub fn cmd_verify_facts(beans_dir: &Path) -> Result<()> {
                     verified_count += 1;
                     bean.last_verified = Some(now);
                     // Reset stale_after from now
-                    if let Some(ref stale) = bean.stale_after {
-                        let original_ttl = bean.stale_after
-                            .and_then(|sa| {
-                                bean.last_verified.map(|_lv| {
-                                    // Use default TTL
-                                    Duration::days(DEFAULT_TTL_DAYS)
-                                })
-                            })
-                            .unwrap_or(Duration::days(DEFAULT_TTL_DAYS));
-                        bean.stale_after = Some(now + original_ttl);
+                    if bean.stale_after.is_some() {
+                        bean.stale_after = Some(now + Duration::days(DEFAULT_TTL_DAYS));
                     }
                     bean.to_file(&bean_path)?;
                     println!("  ✓ [{}] \"{}\"", bean.id, bean.title);
@@ -205,6 +196,7 @@ pub fn cmd_verify_facts(beans_dir: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Config;
     use std::fs;
     use tempfile::TempDir;
 

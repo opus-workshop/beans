@@ -29,44 +29,6 @@ impl std::fmt::Display for Status {
 }
 
 // ---------------------------------------------------------------------------
-// Conflict Types (for 3-way merge)
-// ---------------------------------------------------------------------------
-
-/// Resolution state for a field conflict
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ConflictResolution {
-    /// Conflict has not been resolved yet
-    Pending,
-    /// Conflict was resolved (value chosen)
-    Resolved,
-    /// Conflict was discarded (ignored)
-    Discarded,
-}
-
-/// A competing value in a merge conflict
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ConflictVersion {
-    /// JSON-serialized value
-    pub value: String,
-    /// Agent/source that produced this version
-    pub agent: String,
-    /// When this version was created
-    pub timestamp: DateTime<Utc>,
-}
-
-/// A conflict on a single field during merge
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct FieldConflict {
-    /// Name of the conflicting field
-    pub field: String,
-    /// The competing versions
-    pub versions: Vec<ConflictVersion>,
-    /// Current resolution state
-    pub resolution: ConflictResolution,
-}
-
-// ---------------------------------------------------------------------------
 // Priority Validation
 // ---------------------------------------------------------------------------
 
@@ -258,11 +220,6 @@ pub struct Bean {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub requires: Vec<String>,
 
-    /// Field conflicts from merge operations (3-way merge).
-    /// Non-empty when merge detected conflicting changes.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub conflicts: Vec<FieldConflict>,
-
     /// Estimated token count for this bean's context.
     /// Used for sizing decisions (decomposition vs implementation).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -380,7 +337,6 @@ impl Bean {
             is_archived: false,
             produces: Vec::new(),
             requires: Vec::new(),
-            conflicts: Vec::new(),
             tokens: None,
             tokens_updated: None,
             on_fail: None,
@@ -515,12 +471,10 @@ impl Bean {
     /// Calculate SHA256 hash of canonical form.
     ///
     /// Used for optimistic locking. The hash is calculated from a canonical
-    /// JSON representation with non-content fields (like `conflicts`) cleared.
+    /// JSON representation with transient fields cleared.
     pub fn hash(&self) -> String {
         use sha2::{Digest, Sha256};
-        // Clone and clear non-content fields
-        let mut canonical = self.clone();
-        canonical.conflicts = Vec::new(); // Don't include conflicts in hash
+        let canonical = self.clone();
 
         // Serialize to JSON (deterministic)
         let json = serde_json::to_string(&canonical).unwrap();
@@ -637,7 +591,6 @@ mod tests {
             is_archived: false,
             produces: vec!["Parser".to_string()],
             requires: vec!["Lexer".to_string()],
-            conflicts: Vec::new(),
             tokens: Some(15000),
             tokens_updated: Some(now),
             on_fail: Some(OnFailAction::Retry {
@@ -1099,27 +1052,6 @@ This should not override.
         let bean1 = Bean::new("1", "Test bean");
         let bean2 = Bean::new("1", "Different title");
         assert_ne!(bean1.hash(), bean2.hash());
-    }
-
-    #[test]
-    fn test_hash_ignores_conflicts() {
-        let bean1 = Bean::new("1", "Test bean");
-        // Clone to ensure identical timestamps
-        let mut bean2 = bean1.clone();
-
-        // Add conflict to bean2
-        bean2.conflicts.push(FieldConflict {
-            field: "title".to_string(),
-            versions: vec![ConflictVersion {
-                value: "\"old title\"".to_string(),
-                agent: "agent-1".to_string(),
-                timestamp: Utc::now(),
-            }],
-            resolution: ConflictResolution::Pending,
-        });
-
-        // Hashes should still match (conflicts ignored)
-        assert_eq!(bean1.hash(), bean2.hash());
     }
 
     #[test]

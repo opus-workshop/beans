@@ -1,5 +1,6 @@
 use std::io::{BufRead, BufReader, Read};
 use std::process::Child;
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 /// Configuration for process timeout monitoring.
@@ -26,14 +27,15 @@ pub enum MonitorResult {
 
 /// Monitor a child process's stdout, enforcing total and idle timeouts.
 ///
-/// Reads stdout line-by-line via `BufReader`. On each line the idle timer is
-/// reset and `on_line` is called with the line contents. If the total elapsed
-/// time or idle time exceeds the configured limits the process is killed with
-/// SIGKILL and the corresponding [`MonitorResult`] is returned.
+/// Reads stdout line-by-line via a background reader thread. On each line the
+/// idle timer is reset and `on_line` is called. If the total elapsed time or
+/// idle time exceeds the configured limits the process is killed with SIGKILL
+/// and the corresponding [`MonitorResult`] is returned.
 ///
 /// `stdout` is passed separately so the caller can `child.stdout.take()` and
-/// hand it in while retaining ownership of the `Child` (needed to call `kill`/`wait`).
-pub fn monitor_process<R: Read>(
+/// hand it in while retaining ownership of the `Child` (needed to call
+/// `kill`/`wait`).
+pub fn monitor_process<R: Read + Send + 'static>(
     child: &mut Child,
     stdout: R,
     config: &TimeoutConfig,
@@ -41,44 +43,77 @@ pub fn monitor_process<R: Read>(
 ) -> MonitorResult {
     let start = Instant::now();
     let mut last_activity = Instant::now();
-    let reader = BufReader::new(stdout);
 
-    for line in reader.lines() {
-        // Check total timeout *before* processing the line.
+    // Channel-based approach: a background thread reads lines and sends them
+    // over a channel so the main thread can poll with a timeout.
+    let (tx, rx) = mpsc::channel::<Option<String>>();
+
+    std::thread::spawn(move || {
+        let reader = BufReader::new(stdout);
+        for line in reader.lines() {
+            match line {
+                Ok(text) => {
+                    if tx.send(Some(text)).is_err() {
+                        break; // receiver dropped
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+        let _ = tx.send(None); // signal EOF
+    });
+
+    // Poll interval: use the smaller of the two timeouts (if set), capped at
+    // 50ms so we stay responsive without busy-spinning.
+    let poll = poll_interval(config);
+
+    loop {
+        // Check total timeout.
         if !config.total_timeout.is_zero() && start.elapsed() > config.total_timeout {
             kill_process(child);
             return MonitorResult::TotalTimeout;
         }
 
-        match line {
-            Ok(text) => {
-                last_activity = Instant::now();
-                on_line(&text);
-            }
-            Err(_) => break, // pipe closed / read error
-        }
-
-        // Check idle timeout *after* processing the line.
+        // Check idle timeout.
         if !config.idle_timeout.is_zero() && last_activity.elapsed() > config.idle_timeout {
             kill_process(child);
             return MonitorResult::IdleTimeout;
         }
-    }
 
-    // stdout closed — check timeouts one final time before declaring completion.
-    if !config.total_timeout.is_zero() && start.elapsed() > config.total_timeout {
-        kill_process(child);
-        return MonitorResult::TotalTimeout;
+        match rx.recv_timeout(poll) {
+            Ok(Some(text)) => {
+                last_activity = Instant::now();
+                on_line(&text);
+            }
+            Ok(None) => {
+                // EOF — process closed stdout.
+                let _ = child.wait();
+                return MonitorResult::Completed;
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                // No line yet — loop back and check timeouts.
+                continue;
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                // Reader thread exited without sending EOF.
+                let _ = child.wait();
+                return MonitorResult::Completed;
+            }
+        }
     }
+}
 
-    if !config.idle_timeout.is_zero() && last_activity.elapsed() > config.idle_timeout {
-        kill_process(child);
-        return MonitorResult::IdleTimeout;
+/// Compute a reasonable poll interval from the timeout config.
+fn poll_interval(config: &TimeoutConfig) -> Duration {
+    let mut interval = Duration::from_millis(50);
+    if !config.idle_timeout.is_zero() {
+        interval = interval.min(config.idle_timeout / 4);
     }
-
-    // Reap the child so we don't leave a zombie.
-    let _ = child.wait();
-    MonitorResult::Completed
+    if !config.total_timeout.is_zero() {
+        interval = interval.min(config.total_timeout / 4);
+    }
+    // Floor at 5ms to avoid busy-spinning.
+    interval.max(Duration::from_millis(5))
 }
 
 /// Kill a child process with SIGKILL and reap it.
@@ -94,7 +129,6 @@ mod tests {
 
     #[test]
     fn timeout_completed_fast_process() {
-        // A process that exits immediately should return Completed.
         let mut child = Command::new("echo")
             .arg("hello")
             .stdout(Stdio::piped())
@@ -118,7 +152,6 @@ mod tests {
 
     #[test]
     fn timeout_total_timeout_kills_process() {
-        // A process that sleeps forever should be killed by total timeout.
         let mut child = Command::new("sleep")
             .arg("60")
             .stdout(Stdio::piped())
@@ -128,23 +161,15 @@ mod tests {
         let stdout = child.stdout.take().unwrap();
         let config = TimeoutConfig {
             total_timeout: Duration::from_millis(100),
-            idle_timeout: Duration::ZERO, // disabled
+            idle_timeout: Duration::ZERO,
         };
 
         let result = monitor_process(&mut child, stdout, &config, |_| {});
-
-        // stdout closes when sleep is killed; we should see IdleTimeout or TotalTimeout.
-        // Since the pipe produces no lines, the loop exits when the pipe is closed
-        // after kill. But sleep has no stdout so the lines iterator yields nothing
-        // immediately and the process is still alive.  The reader.lines() blocks
-        // until the pipe closes (which only happens when the process exits).
-        // So the total timeout check after the loop fires.
         assert_eq!(result, MonitorResult::TotalTimeout);
     }
 
     #[test]
     fn timeout_idle_timeout_kills_slow_writer() {
-        // Use a bash script that prints one line then sleeps forever.
         let mut child = Command::new("bash")
             .args(["-c", "echo start; sleep 60"])
             .stdout(Stdio::piped())
@@ -163,24 +188,11 @@ mod tests {
         });
 
         assert_eq!(lines, vec!["start"]);
-        // After "start" is read, the reader blocks on the next line. The pipe
-        // stays open while bash sleeps. BufReader blocks in the iterator. The
-        // idle timeout can only be checked between lines, so when the pipe
-        // finally closes (after kill by total timeout or the OS), we detect it.
-        // However, with the blocking reader, we rely on the post-loop check.
-        // The elapsed idle time will exceed 200ms while blocking on the next
-        // line. But since the read blocks, we won't reach the check until the
-        // pipe closes.  We accept either IdleTimeout or TotalTimeout here.
-        assert!(
-            result == MonitorResult::IdleTimeout || result == MonitorResult::TotalTimeout,
-            "expected IdleTimeout or TotalTimeout, got {:?}",
-            result
-        );
+        assert_eq!(result, MonitorResult::IdleTimeout);
     }
 
     #[test]
     fn timeout_zero_timeouts_means_no_limit() {
-        // With zero durations, no timeout should fire.
         let mut child = Command::new("bash")
             .args(["-c", "echo a; echo b; echo c"])
             .stdout(Stdio::piped())
@@ -188,7 +200,7 @@ mod tests {
             .unwrap();
 
         let stdout = child.stdout.take().unwrap();
-        let config = TimeoutConfig::default(); // both zero
+        let config = TimeoutConfig::default();
 
         let mut lines = Vec::new();
         let result = monitor_process(&mut child, stdout, &config, |line| {
@@ -219,9 +231,6 @@ mod tests {
         });
 
         assert_eq!(result, MonitorResult::Completed);
-        assert_eq!(
-            lines,
-            vec!["line1", "line2", "line3", "line4", "line5"]
-        );
+        assert_eq!(lines, vec!["line1", "line2", "line3", "line4", "line5"]);
     }
 }

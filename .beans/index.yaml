@@ -106,86 +106,134 @@ beans:
   updated_at: 2026-02-23T12:52:08.498902Z
   has_verify: true
   attempts: 0
-- id: '81'
-  title: Absorb deli into bn and simplify agent integration
+- id: '84'
+  title: 'Codebase improvements: robustness, DX, and maintainability'
   status: open
   priority: 2
-  updated_at: 2026-02-23T23:49:35.904758Z
+  updated_at: 2026-02-24T06:48:10.784339Z
   has_verify: false
   attempts: 0
-- id: '81.3'
-  title: Add timeout monitoring to bn
+- id: '84.1'
+  title: File locking for index.yaml
   status: open
-  priority: 2
-  parent: '81'
-  updated_at: 2026-02-23T23:50:18.364972Z
+  priority: 0
+  parent: '84'
+  updated_at: 2026-02-24T06:49:05.061886Z
   produces:
-  - TimeoutConfig
-  - MonitorResult
-  - monitor_process
-  - timeout_module
+  - FileLocking
   has_verify: true
   attempts: 0
-- id: '81.4'
-  title: Rewrite bn run to spawn pi directly with streaming and timeouts
+- id: '84.2'
+  title: Atomic file writes for beans and index
   status: open
-  priority: 2
-  parent: '81'
-  updated_at: 2026-02-23T23:50:45.959538Z
+  priority: 0
+  parent: '84'
+  updated_at: 2026-02-24T06:49:21.423264Z
   produces:
-  - bn_run_json_stream
-  - bn_run_direct_spawn
-  requires:
-  - StreamEvent
-  - AgentEvent
-  - TimeoutConfig
-  - monitor_process
+  - AtomicWrites
   has_verify: true
   attempts: 0
-- id: '81.5'
-  title: Merge deli + beans pi extensions into unified beans extension
+- id: '84.3'
+  title: Signal handling for bn run (clean agent shutdown)
   status: open
-  priority: 2
-  parent: '81'
-  updated_at: 2026-02-23T23:51:01.453157Z
-  requires:
-  - bn_run_json_stream
-  has_verify: true
-  attempts: 0
-- id: '81.6'
-  title: Bake decomposition wisdom into bn plan template
-  status: open
-  priority: 2
-  parent: '81'
-  updated_at: 2026-02-23T23:51:16.560629Z
-  requires:
-  - bn_run_direct_spawn
-  has_verify: true
-  attempts: 0
-- id: '81.7'
-  title: Simplify beans skill to minimal reference
-  status: open
-  priority: 2
-  parent: '81'
-  updated_at: 2026-02-23T23:51:28.782882Z
-  requires:
-  - bn_run_json_stream
-  - bn_run_direct_spawn
-  has_verify: true
-  attempts: 0
-- id: '82'
-  title: 'Fix broken tests: add missing fields to test Config and Bean constructors'
-  status: open
-  priority: 2
-  updated_at: 2026-02-23T23:51:37.885382Z
-  has_verify: true
-  attempts: 0
-- id: '83'
-  title: Add 'bn create next' subcommand for sequential bean chaining
-  status: open
-  priority: 2
+  priority: 1
+  parent: '84'
   dependencies:
-  - '82'
-  updated_at: 2026-02-23T23:52:07.358762Z
+  - '84.1'
+  updated_at: 2026-02-24T06:51:19.189172Z
+  produces:
+  - SignalHandling
+  has_verify: true
+  attempts: 0
+- id: '84.4'
+  title: 'CI pipeline: GitHub Actions for test + clippy'
+  status: open
+  priority: 1
+  parent: '84'
+  updated_at: 2026-02-24T06:49:38.660462Z
+  has_verify: true
+  attempts: 0
+- id: '84.5'
+  title: Shell completions via clap_complete
+  status: open
+  priority: 1
+  parent: '84'
+  updated_at: 2026-02-24T06:49:47.302994Z
+  has_verify: true
+  attempts: 0
+- id: '84.6'
+  title: Split close.rs into modules
+  status: open
+  priority: 2
+  parent: '84'
+  updated_at: 2026-02-24T06:49:59.208034Z
+  has_verify: true
+  attempts: 0
+- id: '84.7'
+  title: Migrate from serde_yaml (deprecated) to serde_yml or yaml-rust2
+  status: open
+  priority: 1
+  parent: '84'
+  updated_at: 2026-02-24T06:50:08.661946Z
+  has_verify: true
+  attempts: 0
+- id: '84.8'
+  title: Output abstraction layer
+  status: open
+  priority: 2
+  parent: '84'
+  updated_at: 2026-02-24T06:50:20.399525Z
+  has_verify: true
+  attempts: 0
+- id: '84.9'
+  title: Split create.rs and run.rs into modules
+  status: open
+  priority: 2
+  parent: '84'
+  dependencies:
+  - '84.6'
+  updated_at: 2026-02-24T06:51:19.200156Z
+  has_verify: true
+  attempts: 0
+- id: '84.10'
+  title: Simplify main.rs command dispatch
+  status: open
+  priority: 2
+  parent: '84'
+  dependencies:
+  - '84.9'
+  updated_at: 2026-02-24T06:51:19.209099Z
+  has_verify: true
+  attempts: 0
+- id: '84.11'
+  title: Add CONTRIBUTING.md
+  status: open
+  priority: 2
+  parent: '84'
+  updated_at: 2026-02-24T06:50:46.761911Z
+  has_verify: true
+  attempts: 0
+- id: '84.12'
+  title: Add CHANGELOG.md
+  status: open
+  priority: 3
+  parent: '84'
+  updated_at: 2026-02-24T06:50:53.001081Z
+  has_verify: true
+  attempts: 0
+- id: '84.13'
+  title: Add clippy and rustfmt configuration
+  status: open
+  priority: 2
+  parent: '84'
+  updated_at: 2026-02-24T06:51:01.814467Z
+  has_verify: true
+  attempts: 0
+- id: '84.14'
+  title: 'Fine-grained dispatch: start beans when their deps finish, not when whole wave finishes'
+  status: open
+  priority: 3
+  parent: '84'
+  updated_at: 2026-02-24T06:51:19.215991Z
   has_verify: true
   attempts: 0
