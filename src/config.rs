@@ -79,7 +79,7 @@ impl Config {
         let path = beans_dir.join("config.yaml");
         let contents = fs::read_to_string(&path)
             .with_context(|| format!("Failed to read config at {}", path.display()))?;
-        let config: Config = serde_yaml::from_str(&contents)
+        let config: Config = serde_yml::from_str(&contents)
             .with_context(|| format!("Failed to parse config at {}", path.display()))?;
         Ok(config)
     }
@@ -114,7 +114,7 @@ impl Config {
             let contents = fs::read_to_string(&canonical).with_context(|| {
                 format!("Failed to read extends config: {}", canonical.display())
             })?;
-            let parent: Config = serde_yaml::from_str(&contents).with_context(|| {
+            let parent: Config = serde_yml::from_str(&contents).with_context(|| {
                 format!("Failed to parse extends config: {}", canonical.display())
             })?;
 
@@ -177,7 +177,7 @@ impl Config {
     /// Save config to .beans/config.yaml inside the given beans directory.
     pub fn save(&self, beans_dir: &Path) -> Result<()> {
         let path = beans_dir.join("config.yaml");
-        let contents = serde_yaml::to_string(self).context("Failed to serialize config")?;
+        let contents = serde_yml::to_string(self).context("Failed to serialize config")?;
         fs::write(&path, &contents)
             .with_context(|| format!("Failed to write config at {}", path.display()))?;
         Ok(())

@@ -413,7 +413,7 @@ impl Bean {
         match Self::parse_frontmatter(content) {
             Ok((frontmatter, body)) => {
                 // Parse frontmatter as YAML
-                let mut bean: Bean = serde_yaml::from_str(&frontmatter)?;
+                let mut bean: Bean = serde_yml::from_str(&frontmatter)?;
 
                 // If there's a body and no description yet, set it
                 if let Some(markdown_body) = body {
@@ -426,7 +426,7 @@ impl Bean {
             }
             Err(_) => {
                 // Fallback: treat entire content as YAML
-                let bean: Bean = serde_yaml::from_str(content)?;
+                let bean: Bean = serde_yml::from_str(content)?;
                 Ok(bean)
             }
         }
@@ -449,7 +449,7 @@ impl Bean {
             // Write frontmatter format: YAML metadata + markdown body
             let mut frontmatter_bean = self.clone();
             let description = frontmatter_bean.description.take(); // Remove from YAML
-            let yaml = serde_yaml::to_string(&frontmatter_bean)?;
+            let yaml = serde_yml::to_string(&frontmatter_bean)?;
             let mut content = String::from("---\n");
             content.push_str(yaml.trim_start_matches("---\n").trim_end());
             content.push_str("\n---\n");
@@ -462,7 +462,7 @@ impl Bean {
             }
             std::fs::write(path, content)?;
         } else {
-            let yaml = serde_yaml::to_string(self)?;
+            let yaml = serde_yml::to_string(self)?;
             std::fs::write(path, yaml)?;
         }
         Ok(())
@@ -553,10 +553,10 @@ mod tests {
         let bean = Bean::new("1", "My first bean");
 
         // Serialize
-        let yaml = serde_yaml::to_string(&bean).unwrap();
+        let yaml = serde_yml::to_string(&bean).unwrap();
 
         // Deserialize
-        let restored: Bean = serde_yaml::from_str(&yaml).unwrap();
+        let restored: Bean = serde_yml::from_str(&yaml).unwrap();
 
         assert_eq!(bean, restored);
     }
@@ -615,17 +615,17 @@ mod tests {
             attempt_log: Vec::new(),
         };
 
-        let yaml = serde_yaml::to_string(&bean).unwrap();
-        let restored: Bean = serde_yaml::from_str(&yaml).unwrap();
+        let yaml = serde_yml::to_string(&bean).unwrap();
+        let restored: Bean = serde_yml::from_str(&yaml).unwrap();
 
         assert_eq!(bean, restored);
     }
 
     #[test]
     fn status_serializes_as_lowercase() {
-        let open = serde_yaml::to_string(&Status::Open).unwrap();
-        let in_progress = serde_yaml::to_string(&Status::InProgress).unwrap();
-        let closed = serde_yaml::to_string(&Status::Closed).unwrap();
+        let open = serde_yml::to_string(&Status::Open).unwrap();
+        let in_progress = serde_yml::to_string(&Status::InProgress).unwrap();
+        let closed = serde_yml::to_string(&Status::Closed).unwrap();
 
         assert_eq!(open.trim(), "open");
         assert_eq!(in_progress.trim(), "in_progress");
@@ -635,7 +635,7 @@ mod tests {
     #[test]
     fn optional_fields_omitted_when_none() {
         let bean = Bean::new("1", "Minimal");
-        let yaml = serde_yaml::to_string(&bean).unwrap();
+        let yaml = serde_yml::to_string(&bean).unwrap();
 
         assert!(!yaml.contains("description:"));
         assert!(!yaml.contains("acceptance:"));
@@ -664,7 +664,7 @@ mod tests {
     #[test]
     fn timestamps_serialize_as_iso8601() {
         let bean = Bean::new("1", "Check timestamps");
-        let yaml = serde_yaml::to_string(&bean).unwrap();
+        let yaml = serde_yml::to_string(&bean).unwrap();
 
         // ISO 8601 timestamps contain 'T' between date and time
         for line in yaml.lines() {
@@ -716,7 +716,7 @@ priority: 3
 created_at: "2025-01-01T00:00:00Z"
 updated_at: "2025-01-01T00:00:00Z"
 "#;
-        let bean: Bean = serde_yaml::from_str(yaml).unwrap();
+        let bean: Bean = serde_yml::from_str(yaml).unwrap();
         assert_eq!(bean.id, "5");
         assert_eq!(bean.priority, 3);
         assert!(bean.description.is_none());
@@ -1074,7 +1074,7 @@ This should not override.
     #[test]
     fn on_close_empty_vec_not_serialized() {
         let bean = Bean::new("1", "No actions");
-        let yaml = serde_yaml::to_string(&bean).unwrap();
+        let yaml = serde_yml::to_string(&bean).unwrap();
         assert!(!yaml.contains("on_close"));
     }
 
@@ -1085,12 +1085,12 @@ This should not override.
             command: "echo hi".to_string(),
         }];
 
-        let yaml = serde_yaml::to_string(&bean).unwrap();
+        let yaml = serde_yml::to_string(&bean).unwrap();
         assert!(yaml.contains("on_close"));
         assert!(yaml.contains("action: run"));
         assert!(yaml.contains("echo hi"));
 
-        let restored: Bean = serde_yaml::from_str(&yaml).unwrap();
+        let restored: Bean = serde_yml::from_str(&yaml).unwrap();
         assert_eq!(restored.on_close, bean.on_close);
     }
 
@@ -1101,11 +1101,11 @@ This should not override.
             message: "Done!".to_string(),
         }];
 
-        let yaml = serde_yaml::to_string(&bean).unwrap();
+        let yaml = serde_yml::to_string(&bean).unwrap();
         assert!(yaml.contains("action: notify"));
         assert!(yaml.contains("Done!"));
 
-        let restored: Bean = serde_yaml::from_str(&yaml).unwrap();
+        let restored: Bean = serde_yml::from_str(&yaml).unwrap();
         assert_eq!(restored.on_close, bean.on_close);
     }
 
@@ -1124,8 +1124,8 @@ This should not override.
             },
         ];
 
-        let yaml = serde_yaml::to_string(&bean).unwrap();
-        let restored: Bean = serde_yaml::from_str(&yaml).unwrap();
+        let yaml = serde_yml::to_string(&bean).unwrap();
+        let restored: Bean = serde_yml::from_str(&yaml).unwrap();
         assert_eq!(restored.on_close.len(), 3);
         assert_eq!(restored.on_close, bean.on_close);
     }
@@ -1145,7 +1145,7 @@ on_close:
   - action: notify
     message: "Tests passed"
 "#;
-        let bean: Bean = serde_yaml::from_str(yaml).unwrap();
+        let bean: Bean = serde_yml::from_str(yaml).unwrap();
         assert_eq!(bean.on_close.len(), 2);
         assert_eq!(
             bean.on_close[0],
@@ -1168,19 +1168,19 @@ on_close:
     #[test]
     fn run_result_serializes_as_snake_case() {
         assert_eq!(
-            serde_yaml::to_string(&RunResult::Pass).unwrap().trim(),
+            serde_yml::to_string(&RunResult::Pass).unwrap().trim(),
             "pass"
         );
         assert_eq!(
-            serde_yaml::to_string(&RunResult::Fail).unwrap().trim(),
+            serde_yml::to_string(&RunResult::Fail).unwrap().trim(),
             "fail"
         );
         assert_eq!(
-            serde_yaml::to_string(&RunResult::Timeout).unwrap().trim(),
+            serde_yml::to_string(&RunResult::Timeout).unwrap().trim(),
             "timeout"
         );
         assert_eq!(
-            serde_yaml::to_string(&RunResult::Cancelled).unwrap().trim(),
+            serde_yml::to_string(&RunResult::Cancelled).unwrap().trim(),
             "cancelled"
         );
     }
@@ -1201,8 +1201,8 @@ on_close:
             output_snippet: None,
         };
 
-        let yaml = serde_yaml::to_string(&record).unwrap();
-        let restored: RunRecord = serde_yaml::from_str(&yaml).unwrap();
+        let yaml = serde_yml::to_string(&record).unwrap();
+        let restored: RunRecord = serde_yml::from_str(&yaml).unwrap();
         assert_eq!(record, restored);
 
         // Optional fields should be omitted
@@ -1231,15 +1231,15 @@ on_close:
             output_snippet: Some("FAILED: assertion error".to_string()),
         };
 
-        let yaml = serde_yaml::to_string(&record).unwrap();
-        let restored: RunRecord = serde_yaml::from_str(&yaml).unwrap();
+        let yaml = serde_yml::to_string(&record).unwrap();
+        let restored: RunRecord = serde_yml::from_str(&yaml).unwrap();
         assert_eq!(record, restored);
     }
 
     #[test]
     fn history_empty_not_serialized() {
         let bean = Bean::new("1", "No history");
-        let yaml = serde_yaml::to_string(&bean).unwrap();
+        let yaml = serde_yml::to_string(&bean).unwrap();
         assert!(!yaml.contains("history:"));
     }
 
@@ -1274,10 +1274,10 @@ on_close:
             },
         ];
 
-        let yaml = serde_yaml::to_string(&bean).unwrap();
+        let yaml = serde_yml::to_string(&bean).unwrap();
         assert!(yaml.contains("history:"));
 
-        let restored: Bean = serde_yaml::from_str(&yaml).unwrap();
+        let restored: Bean = serde_yml::from_str(&yaml).unwrap();
         assert_eq!(restored.history.len(), 2);
         assert_eq!(restored.history[0].result, RunResult::Fail);
         assert_eq!(restored.history[1].result, RunResult::Pass);
@@ -1309,7 +1309,7 @@ history:
     result: pass
     exit_code: 0
 "#;
-        let bean: Bean = serde_yaml::from_str(yaml).unwrap();
+        let bean: Bean = serde_yml::from_str(yaml).unwrap();
         assert_eq!(bean.history.len(), 2);
         assert_eq!(bean.history[0].result, RunResult::Timeout);
         assert_eq!(bean.history[0].exit_code, Some(124));
@@ -1324,7 +1324,7 @@ history:
     #[test]
     fn on_fail_none_not_serialized() {
         let bean = Bean::new("1", "No fail action");
-        let yaml = serde_yaml::to_string(&bean).unwrap();
+        let yaml = serde_yml::to_string(&bean).unwrap();
         assert!(!yaml.contains("on_fail"));
     }
 
@@ -1336,13 +1336,13 @@ history:
             delay_secs: Some(10),
         });
 
-        let yaml = serde_yaml::to_string(&bean).unwrap();
+        let yaml = serde_yml::to_string(&bean).unwrap();
         assert!(yaml.contains("on_fail"));
         assert!(yaml.contains("action: retry"));
         assert!(yaml.contains("max: 5"));
         assert!(yaml.contains("delay_secs: 10"));
 
-        let restored: Bean = serde_yaml::from_str(&yaml).unwrap();
+        let restored: Bean = serde_yml::from_str(&yaml).unwrap();
         assert_eq!(restored.on_fail, bean.on_fail);
     }
 
@@ -1354,13 +1354,13 @@ history:
             delay_secs: None,
         });
 
-        let yaml = serde_yaml::to_string(&bean).unwrap();
+        let yaml = serde_yml::to_string(&bean).unwrap();
         assert!(yaml.contains("action: retry"));
         // Optional fields should be omitted
         assert!(!yaml.contains("max:"));
         assert!(!yaml.contains("delay_secs:"));
 
-        let restored: Bean = serde_yaml::from_str(&yaml).unwrap();
+        let restored: Bean = serde_yml::from_str(&yaml).unwrap();
         assert_eq!(restored.on_fail, bean.on_fail);
     }
 
@@ -1372,12 +1372,12 @@ history:
             message: Some("Needs attention".to_string()),
         });
 
-        let yaml = serde_yaml::to_string(&bean).unwrap();
+        let yaml = serde_yml::to_string(&bean).unwrap();
         assert!(yaml.contains("action: escalate"));
         assert!(yaml.contains("priority: 0"));
         assert!(yaml.contains("Needs attention"));
 
-        let restored: Bean = serde_yaml::from_str(&yaml).unwrap();
+        let restored: Bean = serde_yml::from_str(&yaml).unwrap();
         assert_eq!(restored.on_fail, bean.on_fail);
     }
 
@@ -1389,7 +1389,7 @@ history:
             message: None,
         });
 
-        let yaml = serde_yaml::to_string(&bean).unwrap();
+        let yaml = serde_yml::to_string(&bean).unwrap();
         assert!(yaml.contains("action: escalate"));
         // The on_fail block should not contain priority or message
         // (the bean itself has a top-level priority field, so check within on_fail)
@@ -1408,7 +1408,7 @@ history:
             "on_fail block should not contain message"
         );
 
-        let restored: Bean = serde_yaml::from_str(&yaml).unwrap();
+        let restored: Bean = serde_yml::from_str(&yaml).unwrap();
         assert_eq!(restored.on_fail, bean.on_fail);
     }
 
@@ -1426,7 +1426,7 @@ on_fail:
   max: 3
   delay_secs: 30
 "#;
-        let bean: Bean = serde_yaml::from_str(yaml).unwrap();
+        let bean: Bean = serde_yml::from_str(yaml).unwrap();
         assert_eq!(
             bean.on_fail,
             Some(OnFailAction::Retry {
@@ -1450,7 +1450,7 @@ on_fail:
   priority: 0
   message: "Critical failure"
 "#;
-        let bean: Bean = serde_yaml::from_str(yaml).unwrap();
+        let bean: Bean = serde_yml::from_str(yaml).unwrap();
         assert_eq!(
             bean.on_fail,
             Some(OnFailAction::Escalate {
@@ -1476,9 +1476,9 @@ on_fail:
             output_snippet: None,
         };
 
-        let yaml = serde_yaml::to_string(&record).unwrap();
+        let yaml = serde_yml::to_string(&record).unwrap();
         assert!(yaml.contains("cancelled"));
-        let restored: RunRecord = serde_yaml::from_str(&yaml).unwrap();
+        let restored: RunRecord = serde_yml::from_str(&yaml).unwrap();
         assert_eq!(restored.result, RunResult::Cancelled);
     }
 
@@ -1489,7 +1489,7 @@ on_fail:
     #[test]
     fn outputs_none_not_serialized() {
         let bean = Bean::new("1", "No outputs");
-        let yaml = serde_yaml::to_string(&bean).unwrap();
+        let yaml = serde_yml::to_string(&bean).unwrap();
         assert!(
             !yaml.contains("outputs:"),
             "outputs field should be omitted when None, got:\n{yaml}"
@@ -1508,10 +1508,10 @@ on_fail:
             "coverage": 87.5
         }));
 
-        let yaml = serde_yaml::to_string(&bean).unwrap();
+        let yaml = serde_yml::to_string(&bean).unwrap();
         assert!(yaml.contains("outputs"));
 
-        let restored: Bean = serde_yaml::from_str(&yaml).unwrap();
+        let restored: Bean = serde_yml::from_str(&yaml).unwrap();
         assert_eq!(restored.outputs, bean.outputs);
         let out = restored.outputs.unwrap();
         assert_eq!(out["test_results"]["passed"], 42);
@@ -1523,8 +1523,8 @@ on_fail:
         let mut bean = Bean::new("1", "Array outputs");
         bean.outputs = Some(serde_json::json!(["artifact1.tar.gz", "artifact2.zip"]));
 
-        let yaml = serde_yaml::to_string(&bean).unwrap();
-        let restored: Bean = serde_yaml::from_str(&yaml).unwrap();
+        let yaml = serde_yml::to_string(&bean).unwrap();
+        let restored: Bean = serde_yml::from_str(&yaml).unwrap();
         assert_eq!(restored.outputs, bean.outputs);
         let arr = restored.outputs.unwrap();
         assert_eq!(arr.as_array().unwrap().len(), 2);
@@ -1536,20 +1536,20 @@ on_fail:
         // String value
         let mut bean = Bean::new("1", "String output");
         bean.outputs = Some(serde_json::json!("just a string"));
-        let yaml = serde_yaml::to_string(&bean).unwrap();
-        let restored: Bean = serde_yaml::from_str(&yaml).unwrap();
+        let yaml = serde_yml::to_string(&bean).unwrap();
+        let restored: Bean = serde_yml::from_str(&yaml).unwrap();
         assert_eq!(restored.outputs, bean.outputs);
 
         // Number value
         bean.outputs = Some(serde_json::json!(42));
-        let yaml = serde_yaml::to_string(&bean).unwrap();
-        let restored: Bean = serde_yaml::from_str(&yaml).unwrap();
+        let yaml = serde_yml::to_string(&bean).unwrap();
+        let restored: Bean = serde_yml::from_str(&yaml).unwrap();
         assert_eq!(restored.outputs, bean.outputs);
 
         // Boolean value
         bean.outputs = Some(serde_json::json!(true));
-        let yaml = serde_yaml::to_string(&bean).unwrap();
-        let restored: Bean = serde_yaml::from_str(&yaml).unwrap();
+        let yaml = serde_yml::to_string(&bean).unwrap();
+        let restored: Bean = serde_yml::from_str(&yaml).unwrap();
         assert_eq!(restored.outputs, bean.outputs);
     }
 
@@ -1557,7 +1557,7 @@ on_fail:
     fn max_loops_defaults_to_none() {
         let bean = Bean::new("1", "No max_loops");
         assert_eq!(bean.max_loops, None);
-        let yaml = serde_yaml::to_string(&bean).unwrap();
+        let yaml = serde_yml::to_string(&bean).unwrap();
         assert!(!yaml.contains("max_loops:"));
     }
 
@@ -1566,10 +1566,10 @@ on_fail:
         let mut bean = Bean::new("1", "With max_loops");
         bean.max_loops = Some(5);
 
-        let yaml = serde_yaml::to_string(&bean).unwrap();
+        let yaml = serde_yml::to_string(&bean).unwrap();
         assert!(yaml.contains("max_loops: 5"));
 
-        let restored: Bean = serde_yaml::from_str(&yaml).unwrap();
+        let restored: Bean = serde_yml::from_str(&yaml).unwrap();
         assert_eq!(restored.max_loops, Some(5));
     }
 
@@ -1613,7 +1613,7 @@ outputs:
   checksums:
     sha256: abc123
 "#;
-        let bean: Bean = serde_yaml::from_str(yaml).unwrap();
+        let bean: Bean = serde_yml::from_str(yaml).unwrap();
         assert!(bean.outputs.is_some());
         let out = bean.outputs.unwrap();
         assert_eq!(out["binary"], "/tmp/build/app");

@@ -49,7 +49,7 @@ pub fn validate_and_save(path: &Path, content: &str) -> Result<()> {
 
     // Serialize the validated bean back to YAML
     let validated_yaml =
-        serde_yaml::to_string(&bean).with_context(|| "Failed to serialize validated bean")?;
+        serde_yml::to_string(&bean).with_context(|| "Failed to serialize validated bean")?;
 
     // Write to disk
     fs::write(path, validated_yaml)

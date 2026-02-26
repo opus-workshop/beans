@@ -247,14 +247,14 @@ impl Index {
         let contents = fs::read_to_string(&index_path)
             .with_context(|| format!("Failed to read {}", index_path.display()))?;
         let index: Index =
-            serde_yaml::from_str(&contents).with_context(|| "Failed to parse index.yaml")?;
+            serde_yml::from_str(&contents).with_context(|| "Failed to parse index.yaml")?;
         Ok(index)
     }
 
     /// Save the index to .beans/index.yaml.
     pub fn save(&self, beans_dir: &Path) -> Result<()> {
         let index_path = beans_dir.join("index.yaml");
-        let yaml = serde_yaml::to_string(self).with_context(|| "Failed to serialize index")?;
+        let yaml = serde_yml::to_string(self).with_context(|| "Failed to serialize index")?;
         fs::write(&index_path, yaml)
             .with_context(|| format!("Failed to write {}", index_path.display()))?;
         Ok(())
