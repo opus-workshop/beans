@@ -1,0 +1,4 @@
+# Formatting config for beans
+# Run: cargo fmt
+# Check: cargo fmt --check
+max_width = 100

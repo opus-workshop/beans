@@ -9,6 +9,7 @@
 //! - Release: Locks are released when the agent finishes or is killed.
 
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -65,26 +66,11 @@ fn lock_file_path(beans_dir: &Path, file_path: &str) -> Result<PathBuf> {
 ///
 /// Returns `Ok(true)` if the lock was acquired, `Ok(false)` if already locked
 /// by another live process. Stale locks (dead PID) are automatically cleaned.
+///
+/// Uses atomic file creation (`O_CREAT | O_EXCL`) to prevent TOCTOU races
+/// when multiple agents attempt to lock the same file concurrently.
 pub fn acquire(beans_dir: &Path, bean_id: &str, pid: u32, file_path: &str) -> Result<bool> {
     let lock_path = lock_file_path(beans_dir, file_path)?;
-
-    // Check for existing lock
-    if lock_path.exists() {
-        match read_lock(&lock_path) {
-            Some(existing) => {
-                if is_process_alive(existing.pid) {
-                    // Lock is held by a live process
-                    return Ok(false);
-                }
-                // Stale lock — remove it
-                let _ = fs::remove_file(&lock_path);
-            }
-            None => {
-                // Corrupt lock file — remove it
-                let _ = fs::remove_file(&lock_path);
-            }
-        }
-    }
 
     let info = LockInfo {
         bean_id: bean_id.to_string(),
@@ -96,10 +82,46 @@ pub fn acquire(beans_dir: &Path, bean_id: &str, pid: u32, file_path: &str) -> Re
     let content = serde_json::to_string_pretty(&info)
         .context("Failed to serialize lock info")?;
 
-    fs::write(&lock_path, content)
-        .with_context(|| format!("Failed to write lock file: {}", lock_path.display()))?;
+    // Attempt atomic creation — retries once after cleaning a stale lock.
+    for _ in 0..2 {
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&lock_path)
+        {
+            Ok(mut file) => {
+                file.write_all(content.as_bytes())
+                    .with_context(|| {
+                        format!("Failed to write lock file: {}", lock_path.display())
+                    })?;
+                return Ok(true);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                match read_lock(&lock_path) {
+                    Some(existing) if existing.bean_id == bean_id && existing.pid == pid => {
+                        // Same owner re-acquiring — idempotent success
+                        return Ok(true);
+                    }
+                    Some(existing) if is_process_alive(existing.pid) => {
+                        // Held by a live process
+                        return Ok(false);
+                    }
+                    _ => {
+                        // Stale or corrupt — remove and retry
+                        let _ = fs::remove_file(&lock_path);
+                    }
+                }
+            }
+            Err(e) => {
+                return Err(e).with_context(|| {
+                    format!("Failed to create lock file: {}", lock_path.display())
+                });
+            }
+        }
+    }
 
-    Ok(true)
+    // Both attempts failed — another agent won the race
+    Ok(false)
 }
 
 /// Release a lock on a file.
@@ -148,7 +170,7 @@ pub fn clear_all(beans_dir: &Path) -> Result<u32> {
     Ok(cleared)
 }
 
-/// List all active locks.
+/// List all active locks, cleaning stale ones (dead PIDs) along the way.
 pub fn list_locks(beans_dir: &Path) -> Result<Vec<ActiveLock>> {
     let dir = lock_dir(beans_dir)?;
     let mut locks = Vec::new();
@@ -167,11 +189,17 @@ pub fn list_locks(beans_dir: &Path) -> Result<Vec<ActiveLock>> {
             continue;
         }
 
-        if let Some(info) = read_lock(&path) {
-            locks.push(ActiveLock {
-                info,
-                lock_path: path,
-            });
+        match read_lock(&path) {
+            Some(info) if is_process_alive(info.pid) => {
+                locks.push(ActiveLock {
+                    info,
+                    lock_path: path,
+                });
+            }
+            _ => {
+                // Stale or corrupt — clean up
+                let _ = fs::remove_file(&path);
+            }
         }
     }
 
@@ -217,8 +245,15 @@ fn read_lock(path: &Path) -> Option<LockInfo> {
 }
 
 fn is_process_alive(pid: u32) -> bool {
-    // signal 0 checks existence without actually signaling
-    unsafe { libc::kill(pid as i32, 0) == 0 }
+    // signal 0 checks existence without actually signaling.
+    // Returns 0 if alive and we have permission to signal.
+    // Returns -1 with EPERM if alive but owned by another user.
+    // Returns -1 with ESRCH if the process does not exist.
+    let ret = unsafe { libc::kill(pid as i32, 0) };
+    if ret == 0 {
+        return true;
+    }
+    std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
 // ---------------------------------------------------------------------------
@@ -343,5 +378,61 @@ mod tests {
         // Acquire should clean the stale lock and succeed
         let acquired = acquire(&beans_dir, "6.2", std::process::id(), "/tmp/stale2.rs").unwrap();
         assert!(acquired);
+    }
+
+    #[test]
+    fn same_owner_reacquire_is_idempotent() {
+        let (_dir, beans_dir) = temp_beans_dir();
+        let pid = std::process::id();
+
+        let first = acquire(&beans_dir, "7.1", pid, "/tmp/idem.rs").unwrap();
+        assert!(first);
+
+        // Same bean + PID re-acquiring should succeed, not block itself
+        let second = acquire(&beans_dir, "7.1", pid, "/tmp/idem.rs").unwrap();
+        assert!(second);
+
+        // Lock should still be valid
+        let info = check_lock(&beans_dir, "/tmp/idem.rs").unwrap();
+        assert!(info.is_some());
+        assert_eq!(info.unwrap().bean_id, "7.1");
+    }
+
+    #[test]
+    fn different_owner_blocked_by_live_lock() {
+        let (_dir, beans_dir) = temp_beans_dir();
+        let pid = std::process::id();
+
+        let first = acquire(&beans_dir, "8.1", pid, "/tmp/contested.rs").unwrap();
+        assert!(first);
+
+        // Different bean trying to acquire the same file should be blocked
+        let second = acquire(&beans_dir, "8.2", pid + 1, "/tmp/contested.rs").unwrap();
+        assert!(!second);
+    }
+
+    #[test]
+    fn list_locks_filters_stale() {
+        let (_dir, beans_dir) = temp_beans_dir();
+        let pid = std::process::id();
+
+        // One live lock
+        acquire(&beans_dir, "9.1", pid, "/tmp/live.rs").unwrap();
+
+        // One stale lock (manually planted)
+        let stale_path = lock_file_path(&beans_dir, "/tmp/ghost.rs").unwrap();
+        let stale = LockInfo {
+            bean_id: "9.2".to_string(),
+            pid: 999_999_999,
+            file_path: "/tmp/ghost.rs".to_string(),
+            locked_at: 0,
+        };
+        fs::write(&stale_path, serde_json::to_string(&stale).unwrap()).unwrap();
+
+        // list_locks should return only the live one and clean the stale one
+        let locks = list_locks(&beans_dir).unwrap();
+        assert_eq!(locks.len(), 1);
+        assert_eq!(locks[0].info.bean_id, "9.1");
+        assert!(!stale_path.exists());
     }
 }

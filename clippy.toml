@@ -1,0 +1,3 @@
+# Clippy config for beans
+# Run: cargo clippy -- -D warnings
+too-many-arguments-threshold = 8
