@@ -325,13 +325,13 @@ The `verify` field is a shell command that proves the bean is done. `bn close` r
 verify: npm test -- --grep "token.*refresh"
 
 # Multiple gates
-verify: npm test && npm run lint && npm run type-check
+verify: pytest tests/test_auth.py && mypy src/auth/
 
 # Custom script
 verify: ./scripts/verify-auth-refresh.sh
 
-# Cargo test with specific module
-verify: cargo test --lib auth::refresh -- --nocapture
+# Go test with specific package
+verify: go test ./internal/auth/... -run TestRefresh
 ```
 
 #### Poor Verify Commands
@@ -540,12 +540,12 @@ bn claim 1.1
 
 Status transitions: **open → in_progress**. The bean is now claimed by this agent.
 
-**What the agent sees:**
-- Read `.beans/1.1.yaml` directly (no CLI needed)
+**What the agent sees via `bn context 1.1`:**
 - Full description with context
 - Acceptance criteria
 - Verification command
 - Notes from previous attempts (if retried)
+- Referenced file contents
 
 ### Step 2: Agent Works
 
@@ -596,8 +596,7 @@ Verify fails (exit code non-zero):
 
 Agent 1 claimed 1.1, worked, failed verify, released.
 Agent 2 runs `bn status`, sees 1.1 in the Ready section.
-Agent 2 claims 1.1, reads `.beans/1.1.yaml` and notes from Agent 1.
-Agent 2 runs `bn context 1.1` and sees the full briefing including Agent 1's attempt notes.
+Agent 2 claims 1.1, runs `bn context 1.1` and sees the full briefing including Agent 1's attempt notes.
 Agent 2 knows what was tried and avoids the same mistake.
 
 #### Middle Path: Release Without Closing
@@ -980,7 +979,7 @@ Empty. Let's fill it in.
 
 #### Step 3: Edit the Bean
 
-Open `.beans/1.yaml` in your editor and fill in:
+Fill in the details with `bn edit 1` or `bn update`:
 
 ```yaml
 id: '1'
@@ -1030,7 +1029,7 @@ verify: npm test -- --grep "register" && npm run build
 bn claim 1
 ```
 
-Agent reads `.beans/1.yaml` and starts work.
+Agent runs `bn context 1` and starts work.
 
 #### Step 5: Agent Checks Progress
 
@@ -1068,7 +1067,7 @@ bn create "Complete Authentication System"
 
 Output: `New bean: 2`
 
-Edit `.beans/2.yaml`:
+Fill in the parent bean details:
 
 ```yaml
 id: '2'
@@ -1125,7 +1124,7 @@ Output: `New bean: 2.2`
 bn dep add 2.2 2.1
 ```
 
-Edit `.beans/2.1.yaml` and `.beans/2.2.yaml` with full descriptions (like Walkthrough 1).
+Fill in `.beans/2.1` and `.beans/2.2` with full descriptions (like Walkthrough 1).
 
 #### Step 3: Create Phase 2 (Token Refresh)
 
@@ -1237,7 +1236,7 @@ description: |
 bn claim 2.1
 ```
 
-Agent reads `.beans/2.1.yaml`, sees notes and updated description.
+Agent runs `bn context 2.1`, sees notes, updated description, and referenced files.
 Agent checks connection pool, finds and fixes the issue.
 
 ```bash
