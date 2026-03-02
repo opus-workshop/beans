@@ -20,7 +20,7 @@ pub mod mcp;
 pub mod memory_context;
 pub mod plan;
 pub mod quick;
-pub mod race;
+
 pub mod ready;
 pub mod recall;
 pub mod reopen;
@@ -60,7 +60,7 @@ pub use mcp::cmd_mcp_serve;
 pub use memory_context::cmd_memory_context;
 pub use plan::cmd_plan;
 pub use quick::cmd_quick;
-pub use race::{cmd_race, cmd_race_pick, RaceArgs};
+
 pub use ready::{cmd_blocked, cmd_ready};
 pub use recall::cmd_recall;
 pub use reopen::cmd_reopen;

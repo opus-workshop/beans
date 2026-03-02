@@ -803,38 +803,6 @@ Examples:
     #[command(display_order = 52, name = "verify-facts")]
     VerifyFacts,
 
-    // -- RACE --
-    /// Race N agents on the same bean, then pick the best implementation
-    ///
-    /// Spawns N agents in parallel worktrees on the same bean. All agents run to
-    /// completion (not first-wins). Then use `bn race pick <id>` to review diff stats
-    /// and merge the winner.
-    #[command(
-        display_order = 39,
-        hide = true,
-        after_help = "\
-Examples:
-  bn race 5 --copies 3            Race with 3 agents (default)
-  bn race 5 --copies 5            Race with 5 agents
-  bn race 5 --timeout 60          Kill agents after 60 minutes
-  bn race pick 5                  Review candidates and merge winner"
-    )]
-    Race {
-        #[command(subcommand)]
-        command: Option<RaceCommand>,
-
-        /// Bean ID to race (required unless using a subcommand)
-        id: Option<String>,
-
-        /// Number of parallel agents to spawn
-        #[arg(long, default_value = "3")]
-        copies: usize,
-
-        /// Max time per agent in minutes (kills agents that exceed this)
-        #[arg(long)]
-        timeout: Option<u64>,
-    },
-
     // -- TRACE --
     /// Walk bean lineage and dependency chain
     ///
@@ -981,21 +949,6 @@ pub enum ConfigCommand {
 pub enum McpCommand {
     /// Start MCP server on stdio (JSON-RPC 2.0)
     Serve,
-}
-
-#[derive(Subcommand)]
-pub enum RaceCommand {
-    /// Review candidates and pick a winner to merge back
-    ///
-    /// Shows diff stats and verify results for each candidate.
-    /// The selected winner's branch is merged; all worktrees are cleaned up.
-    #[command(after_help = "\
-Examples:
-  bn race pick 5          Interactive pick for bean 5")]
-    Pick {
-        /// Bean ID
-        id: String,
-    },
 }
 
 #[derive(Subcommand)]

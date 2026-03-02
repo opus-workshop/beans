@@ -14,16 +14,16 @@ use bn::commands::{
     cmd_adopt, cmd_agents, cmd_blocked, cmd_claim, cmd_close, cmd_config_get, cmd_config_set,
     cmd_context, cmd_create, cmd_delete, cmd_dep_add, cmd_dep_cycles, cmd_dep_list, cmd_dep_remove,
     cmd_dep_tree, cmd_doctor, cmd_edit, cmd_fact, cmd_graph, cmd_init, cmd_list, cmd_locks,
-    cmd_locks_clear, cmd_logs, cmd_mcp_serve, cmd_memory_context, cmd_plan, cmd_quick, cmd_race,
-    cmd_race_pick, cmd_ready, cmd_recall, cmd_release, cmd_reopen, cmd_run, cmd_show, cmd_stats,
+    cmd_locks_clear, cmd_logs, cmd_mcp_serve, cmd_memory_context, cmd_plan, cmd_quick,
+    cmd_ready, cmd_recall, cmd_release, cmd_reopen, cmd_run, cmd_show, cmd_stats,
     cmd_status, cmd_sync, cmd_tidy, cmd_trace, cmd_tree, cmd_trust, cmd_unarchive, cmd_update,
-    cmd_verify, cmd_verify_facts, race::RaceArgs,
+    cmd_verify, cmd_verify_facts,
     review::{cmd_review, ReviewArgs},
 };
 use bn::discovery::find_beans_dir;
 use bn::index::Index;
 use bn::util::validate_bean_id;
-use cli::{Cli, Command, ConfigCommand, CreateOpts, CreateSubcommand, DepCommand, McpCommand, RaceCommand};
+use cli::{Cli, Command, ConfigCommand, CreateOpts, CreateSubcommand, DepCommand, McpCommand};
 
 // Helper to resolve a single bean ID (handles @latest selector or plain IDs)
 fn resolve_bean_id(id: &str, beans_dir: &std::path::Path) -> Result<String> {
@@ -719,31 +719,6 @@ fn main() -> Result<()> {
         Command::Mcp { command } => match command {
             McpCommand::Serve => cmd_mcp_serve(&beans_dir),
         },
-
-        Command::Race { command, id, copies, timeout } => {
-            match command {
-                Some(RaceCommand::Pick { id: pick_id }) => {
-                    validate_bean_id(&pick_id)?;
-                    let resolved_id = resolve_bean_id(&pick_id, &beans_dir)?;
-                    cmd_race_pick(&beans_dir, &resolved_id)
-                }
-                None => {
-                    let bean_id = id.ok_or_else(|| anyhow::anyhow!(
-                        "Usage: bn race <bean-id> [--copies N]\n       bn race pick <bean-id>"
-                    ))?;
-                    validate_bean_id(&bean_id)?;
-                    let resolved_id = resolve_bean_id(&bean_id, &beans_dir)?;
-                    cmd_race(
-                        &beans_dir,
-                        RaceArgs {
-                            bean_id: resolved_id,
-                            copies,
-                            timeout_minutes: timeout,
-                        },
-                    )
-                }
-            }
-        }
 
         Command::Trace { id, json } => {
             validate_bean_id(&id)?;
