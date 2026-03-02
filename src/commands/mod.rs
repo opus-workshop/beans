@@ -60,7 +60,6 @@ pub use memory_context::cmd_memory_context;
 pub use plan::cmd_plan;
 pub use quick::cmd_quick;
 
-
 pub use recall::cmd_recall;
 pub use reopen::cmd_reopen;
 pub use review::{cmd_review, ReviewArgs};

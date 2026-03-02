@@ -657,8 +657,8 @@ pub fn cmd_close(
         // acting on a foreign repository when CWD is polluted.
         let worktree_info = worktree::detect_worktree().unwrap_or(None);
         let worktree_info = worktree_info.filter(|wt_info| {
-            let canonical_root = std::fs::canonicalize(project_root)
-                .unwrap_or_else(|_| project_root.to_path_buf());
+            let canonical_root =
+                std::fs::canonicalize(project_root).unwrap_or_else(|_| project_root.to_path_buf());
             canonical_root.starts_with(&wt_info.worktree_path)
         });
         if let Some(ref wt_info) = worktree_info {

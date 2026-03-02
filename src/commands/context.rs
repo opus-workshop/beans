@@ -353,9 +353,10 @@ fn resolve_dependency_context(beans_dir: &Path, bean: &Bean) -> Vec<DepProvider>
     let mut providers = Vec::new();
 
     for required in &bean.requires {
-        let producer = index.beans.iter().find(|e| {
-            e.id != bean.id && e.parent == bean.parent && e.produces.contains(required)
-        });
+        let producer = index
+            .beans
+            .iter()
+            .find(|e| e.id != bean.id && e.parent == bean.parent && e.produces.contains(required));
 
         if let Some(entry) = producer {
             let desc = find_bean_file(beans_dir, &entry.id)
@@ -592,11 +593,7 @@ pub fn cmd_context(beans_dir: &Path, id: &str, json: bool, structure_only: bool)
         // 5. Structural summaries
         let structure_pairs: Vec<(&str, String)> = entries
             .iter()
-            .filter_map(|e| {
-                e.structure
-                    .as_ref()
-                    .map(|s| (e.path.as_str(), s.clone()))
-            })
+            .filter_map(|e| e.structure.as_ref().map(|s| (e.path.as_str(), s.clone())))
             .collect();
 
         if let Some(structure_block) = format_structure_block(&structure_pairs) {

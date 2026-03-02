@@ -23,8 +23,6 @@ impl ProjectType {
             ProjectType::Unknown => None,
         }
     }
-
-
 }
 
 /// Detect the project type from the project directory
