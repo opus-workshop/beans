@@ -10,14 +10,14 @@ Task tracker for AI agents.
 Markdown files that track dependencies and require verification to close.
 
 ```bash
-bn create "Add /health endpoint" --verify "curl -sf localhost:8080/health"
-bn close 1   # Runs the curl. Only closes if it succeeds.
+bn create "Add CSV export" --verify "cargo test csv::export"
+bn close 1   # Runs the test. Only closes if it passes.
 ```
 
 Verify commands must **fail first** by default — proving the test is real, not `assert True`:
 
 ```bash
-bn create "Fix unicode bug" --verify "pytest test_unicode.py"
+bn create "Fix timezone handling" --verify "pytest test_timezones.py"
 # Test must FAIL first (proves it tests something real)
 # Then passes after implementation → bean closes
 ```
@@ -71,7 +71,7 @@ cp target/release/bn ~/.local/bin/
 
 ```bash
 bn init                                              # Create .beans/ directory
-bn quick "Fix auth bug" --verify "npm test auth"     # Create + claim task
+bn quick "Fix CSV export" --verify "cargo test csv"  # Create + claim task
 bn status                                            # See what's claimed/ready/blocked
 bn close 1                                           # Run verify, close if passes
 ```
@@ -88,9 +88,9 @@ bn logs 3                                            # View agent output for bea
 Capture project knowledge:
 
 ```bash
-bn fact "API uses Express 5" --verify "grep -q '\"express\": \"5' package.json"
+bn fact "DB is PostgreSQL" --verify "grep -q 'postgres' docker-compose.yml"
 bn context                                           # Memory context: stale facts, in-progress, recent work
-bn recall "auth"                                     # Search across all beans
+bn recall "database"                                 # Search across all beans
 ```
 
 ## Features
@@ -124,7 +124,7 @@ Tasks are Markdown files with YAML frontmatter:
 
 ```
 .beans/
-├── 1-fix-auth-bug.md      # Task 1
+├── 1-add-csv-export.md    # Task 1
 ├── 2-add-tests.md         # Task 2
 ├── 2.1-unit-tests.md      # Task 2.1 (child of 2)
 └── archive/2026/01/       # Closed tasks auto-archive
@@ -135,20 +135,20 @@ A bean looks like:
 ```yaml
 ---
 id: "1"
-title: Fix authentication bug
+title: Add CSV export
 status: in_progress
-verify: cargo test auth::login
+verify: cargo test csv::export
 attempts: 0
 ---
 
-The login endpoint returns 500 when password contains special chars.
+Add a `--format csv` flag to the export command.
 
-**Files:** src/auth/login.rs, tests/auth_test.rs
+**Files:** src/export.rs, tests/export_test.rs
 ```
 
 The `verify` field is the contract. When you run `bn close 1`:
 
-1. Beans runs `cargo test auth::login`
+1. Beans runs `cargo test csv::export`
 2. Exit 0 → task closes, moves to archive
 3. Exit non-zero → task stays open, failure appended to notes, ready for another agent
 
@@ -194,26 +194,26 @@ When verify fails, beans appends the error output to the bean's notes:
 ```yaml
 ---
 id: "3"
-title: Fix unicode URLs
+title: Fix date parsing for ISO 8601
 status: open
-verify: pytest test_urls.py
+verify: pytest test_dates.py
 attempts: 2
 ---
 
-Handle unicode characters in URL paths.
+Parse dates with timezone offsets correctly.
 
 ## Attempt 1 — 2024-01-15T14:32:00Z
 Exit code: 1
 ```
-FAILED test_urls.py::test_unicode_path
-  AssertionError: Expected '/café' but got '/caf%C3%A9'
+FAILED test_dates.py::test_timezone_offset
+  AssertionError: Expected '2024-01-15T14:32+05:30' but got '2024-01-15T09:02Z'
 ```
 
 ## Attempt 2 — 2024-01-15T15:10:00Z
 Exit code: 1
 ```
-FAILED test_urls.py::test_unicode_path
-  UnicodeDecodeError: 'ascii' codec can't decode byte 0xc3
+FAILED test_dates.py::test_timezone_offset
+  ValueError: unconverted data remains: +05:30
 ```
 ```
 
@@ -228,19 +228,19 @@ Output is truncated to first 50 + last 50 lines to keep beans readable while pre
 Parent-child via dot notation:
 
 ```bash
-bn create "Auth system" --verify "make test-auth"
+bn create "Search feature" --verify "make test-search"
 #> Created: 1
 
-bn create "Login endpoint" --parent 1 --verify "curl -sf localhost:3000/login -d '{\"user\":\"test\"}'"
+bn create "Index builder" --parent 1 --verify "cargo test index::build"
 #> Created: 1.1
 
-bn create "Token refresh" --parent 1 --verify "pytest tests/test_refresh.py"
+bn create "Query parser" --parent 1 --verify "cargo test query::parse"
 #> Created: 1.2
 
 bn tree 1
-#> [ ] 1. Auth system
-#>   [ ] 1.1 Login endpoint
-#>   [ ] 1.2 Token refresh
+#> [ ] 1. Search feature
+#>   [ ] 1.1 Index builder
+#>   [ ] 1.2 Query parser
 ```
 
 ## Smart Dependencies
@@ -248,27 +248,27 @@ bn tree 1
 Dependencies auto-infer from `produces`/`requires`:
 
 ```bash
-bn create "Define auth types" --parent 1 \
-  --produces "AuthProvider,AuthConfig" \
-  --verify "tsc --noEmit src/auth/types.ts"
+bn create "Define schema types" --parent 1 \
+  --produces "Schema,FieldType" \
+  --verify "cargo test schema::types"
 
-bn create "Implement JWT" --parent 1 \
-  --requires "AuthProvider" \
-  --verify "node --test test/jwt.test.js"
+bn create "Build query engine" --parent 1 \
+  --requires "Schema" \
+  --verify "cargo test query::engine"
 ```
 
-When the JWT bean requires `AuthProvider` and the auth types bean produces it, JWT is automatically blocked until auth types closes. No explicit `bn dep add` needed.
+When the query engine requires `Schema` and the schema types bean produces it, the query engine is automatically blocked until schema types closes. No explicit `bn dep add` needed.
 
 ```bash
 bn status
 #> ## Ready (1)
-#>   1.1 [ ] Define auth types     # ready (no requires)
+#>   1.1 [ ] Define schema types   # ready (no requires)
 
 bn close 1.1
 
 bn status
 #> ## Ready (1)
-#>   1.2 [ ] Implement JWT         # now ready (producer closed)
+#>   1.2 [ ] Build query engine    # now ready (producer closed)
 ```
 
 Children can be created in any order without manual dependency wiring.
@@ -294,10 +294,10 @@ $ bn create
 
 Creating a new bean
 
-? Title › fix auth timeout
-✔ Parent (type to filter) › 3 — Auth system
-✔ Verify command (empty to skip) · pytest tests/test_auth_timeout.py
-✔ Acceptance criteria (empty to skip) · Timeout returns 408, not 500
+? Title › add retry logic
+✔ Parent (type to filter) › 1 — Search feature
+✔ Verify command (empty to skip) · cargo test retry::backoff
+✔ Acceptance criteria (empty to skip) · Retries 3 times with exponential backoff
 ✔ Priority · P1 (high)
 ✔ Open editor for description? · no
 ✔ Produces (comma-separated, empty to skip) ·
@@ -305,14 +305,14 @@ Creating a new bean
 ✔ Add labels? · no
 
 ─── Bean Summary ───────────────────────
-  Title:      fix auth timeout
-  Parent:     3
-  Verify:     cargo test auth::timeout
-  Acceptance: Timeout returns 408, not 500
+  Title:      add retry logic
+  Parent:     1
+  Verify:     cargo test retry::backoff
+  Acceptance: Retries 3 times with exponential backoff
   Priority:   P1
 ────────────────────────────────────────
 ? Create this bean? · yes
-Created bean 3.4: fix auth timeout (2k tokens ✓)
+Created bean 1.3: add retry logic (2k tokens ✓)
 ```
 
 The wizard activates when **no title is provided** and **stderr is a TTY**. Use `-i` / `--interactive` to force it even with partial flags:
@@ -338,13 +338,13 @@ Beans is a Unix citizen. Commands produce structured output and accept piped inp
 
 ```bash
 # Create and capture the bean ID
-ID=$(bn create "fix bug" --verify "cargo test" -p --json | jq -r '.id')
+ID=$(bn create "fix parser" --verify "cargo test" -p --json | jq -r '.id')
 
 # Query beans as JSON
 bn list --json | jq '.[] | select(.priority == 0)'
 bn show 3 --json | jq '.verify'
 bn verify 3 --json            # {"id":"3","passed":false}
-bn context 3 --json           # {"id":"3","files":[{"path":"src/auth.rs","content":"..."}]}
+bn context 3 --json           # {"id":"3","files":[{"path":"src/export.rs","content":"..."}]}
 ```
 
 ### List formatting
@@ -363,13 +363,13 @@ Use `-` to read field values from stdin:
 
 ```bash
 # Pipe description from a file or command
-cat spec.md | bn create "feat: login" --description - --verify "cargo test auth"
+cat spec.md | bn create "add pagination" --description - --verify "cargo test paginate"
 
 # Pipe notes from build output
 cargo build 2>&1 | bn update 3 --notes -
 
 # Pipe acceptance criteria
-echo "All auth tests pass" | bn update 3 --acceptance -
+echo "All edge cases handled" | bn update 3 --acceptance -
 ```
 
 ### Batch operations
@@ -389,7 +389,7 @@ bn create "task" --verify "make check" -p --json | jq -r '.id' | xargs bn claim
 
 ```bash
 # Batch create and collect IDs
-for task in "fix auth" "add tests" "update docs"; do
+for task in "fix parser" "add tests" "update docs"; do
   bn create "$task" --verify "cargo test" -p --json
 done | jq -r '.id'
 
@@ -531,8 +531,8 @@ Beans has built-in agent orchestration. Configure your agent once, then dispatch
 bn init --agent claude
 
 # Or set manually
-bn config set run "claude -p 'implement bean {id} and run bn close {id}'"
-bn config set plan "claude -p 'decompose bean {id} into children using bn create'"
+bn config set run "claude -p 'read bean {id}, implement it, then run bn close {id}'"
+bn config set plan "claude -p 'read bean {id} and decompose it into children using bn create'"
 ```
 
 `{id}` is replaced with the bean ID. The spawned agent should read the bean, do the work, and run `bn close`.
@@ -581,9 +581,9 @@ bn logs 3                 # View agent output for bean 3
 While working on your main task, create beans for everything you notice — `bn run` picks them up automatically:
 
 ```bash
-bn create "bug: nil panic in logger" --verify "go test ./pkg/logger/..."
-bn create "test: no coverage for cache" --verify "pytest tests/test_cache.py"
-bn create "docs: stale API examples" --verify "grep -q 'v2' README.md"
+bn create "bug: panic on empty input" --verify "cargo test edge::empty_input"
+bn create "test: missing coverage for retry" --verify "cargo test retry"
+bn create "docs: update CLI examples" --verify "grep -q 'v2' README.md"
 ```
 
 ### Failure handling
@@ -591,14 +591,14 @@ bn create "docs: stale API examples" --verify "grep -q 'v2' README.md"
 Control what happens when a verify command fails:
 
 ```bash
-bn create "fix bug" --verify "npm test" --on-fail "retry:3"         # Retry up to 3 times
-bn create "critical" --verify "make ci" --on-fail "escalate:P0"     # Escalate priority on failure
+bn create "fix parser" --verify "cargo test" --on-fail "retry:3"       # Retry up to 3 times
+bn create "fix data loss" --verify "make ci" --on-fail "escalate:P0"   # Escalate priority on failure
 ```
 
 An agent can also explicitly give up:
 
 ```bash
-bn close --failed 5 --reason "blocked on upstream API"   # Release claim, bean stays open
+bn close --failed 5 --reason "needs upstream API change"   # Release claim, bean stays open
 ```
 
 ### Agent presets
@@ -636,7 +636,7 @@ Agents can also claim and work beans directly:
 ```bash
 bn status                 # Find available work
 #> ## Ready (2)
-#>   3 [ ] Implement token refresh
+#>   3 [ ] Add pagination
 #>   7 [ ] Add rate limiting
 
 bn claim 3                # Atomically claim (only one agent wins)
@@ -666,15 +666,15 @@ Facts are verified truths about your project that persist across agent sessions.
 ### Creating facts
 
 ```bash
-bn fact "API uses Express 5" --verify "grep -q '\"express\": \"5' package.json"
-bn fact "Auth tokens expire after 24h" --verify "grep -q 'TOKEN_TTL=86400' .env.example"
+bn fact "DB is PostgreSQL" --verify "grep -q 'postgres' docker-compose.yml" -p
+bn fact "Minimum Node version is 20" --verify "grep -q '\"node\": \">=20' package.json"
 bn fact "Tests require Docker" --verify "docker info >/dev/null 2>&1" --ttl 90
 ```
 
 Facts follow fail-first by default — the verify must fail initially. Use `-p` if the fact is already true:
 
 ```bash
-bn fact "DB is PostgreSQL" --verify "grep -q 'postgres' .env" -p
+bn fact "Uses ESM modules" --verify "grep -q '\"type\": \"module\"' package.json" -p
 ```
 
 ### Checking staleness
@@ -714,9 +714,9 @@ bn context --json         # Machine-readable
 ### Searching
 
 ```bash
-bn recall "auth"          # Search open beans by keyword
-bn recall "JWT" --all     # Include closed/archived beans
-bn recall "login" --json  # Machine-readable results
+bn recall "pagination"    # Search open beans by keyword
+bn recall "export" --all  # Include closed/archived beans
+bn recall "retry" --json  # Machine-readable results
 ```
 
 ## Adversarial Review
@@ -737,7 +737,7 @@ The review agent outputs a verdict:
 Configure the review agent:
 
 ```bash
-bn config set review.run "claude -p 'review bean {id}: verify correctness, reopen if wrong'"
+bn config set review.run "claude -p 'review bean {id}, verify correctness, reopen if wrong'"
 bn config set review.max_reopens 2   # Give up after 2 reopen cycles (default: 2)
 ```
 
@@ -758,8 +758,8 @@ Add to your IDE's MCP configuration to expose bean operations (create, list, sho
 Agent orchestration and project settings are configured via `bn config`:
 
 ```bash
-bn config set run "claude -p 'implement bean {id} and run bn close {id}'"
-bn config set plan "claude -p 'decompose bean {id} into children'"
+bn config set run "claude -p 'read bean {id}, implement it, then run bn close {id}'"
+bn config set plan "claude -p 'read bean {id} and decompose it into children using bn create'"
 bn config set max_concurrent 4
 bn config set poll_interval 30
 ```
@@ -794,7 +794,7 @@ Share config across projects with `extends`:
 extends:
   - ~/.beans/global-config.yaml
 project: my-app
-run: "claude -p 'implement bean {id}'"
+run: "claude -p 'read bean {id}, implement it, then run bn close {id}'"
 ```
 
 Child config values override parent values. Multiple parents are applied in order (last wins).
@@ -843,7 +843,7 @@ Inspired by Steve Yegge's [beads](https://github.com/steveyegge/beads) — beans
 
 ## For Agents
 
-You know what's exhausting? Vague tasks. "Improve the auth flow." Done... how? When the human squints at your PR and says "not quite what I meant," you've wasted tokens and time. No spec, no proof, no defense.
+You know what's exhausting? Vague tasks. "Improve the error handling." Done... how? When the human squints at your PR and says "not quite what I meant," you've wasted tokens and time. No spec, no proof, no defense.
 
 Beans fixes this.
 
@@ -851,7 +851,7 @@ Every bean has a `verify` command — a test that **must fail** when you create 
 
 No more `assert True`. No more lost context. No more ambiguity. The verify command is the contract. Hit it and you're done. Miss it and you're not.
 
-Tasks are just markdown files. `bn show 3`. No API, no auth, no waiting.
+Tasks are just markdown files. `bn show 3`. No API, no login, no waiting.
 
 ## Documentation
 
