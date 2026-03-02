@@ -424,7 +424,7 @@ mod tests {
         // Should be in archive
         let archived = crate::discovery::find_archived_bean(&beans_dir, "1");
         assert!(archived.is_ok());
-        let archived_bean = Bean::from_file(&archived.unwrap()).unwrap();
+        let archived_bean = Bean::from_file(archived.unwrap()).unwrap();
         assert!(archived_bean.is_archived);
     }
 

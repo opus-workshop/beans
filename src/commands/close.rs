@@ -1358,7 +1358,7 @@ mod tests {
         // Bean should NOT be archived or closed
         let not_archived = crate::discovery::find_bean_file(&beans_dir, "1");
         assert!(not_archived.is_ok());
-        let updated = Bean::from_file(&not_archived.unwrap()).unwrap();
+        let updated = Bean::from_file(not_archived.unwrap()).unwrap();
         assert_eq!(updated.status, Status::Open);
         assert!(!updated.is_archived);
     }
@@ -1565,19 +1565,19 @@ mod tests {
         // Bean 1 should be archived
         let archived1 = crate::discovery::find_archived_bean(&beans_dir, "1");
         assert!(archived1.is_ok());
-        let bean1_result = Bean::from_file(&archived1.unwrap()).unwrap();
+        let bean1_result = Bean::from_file(archived1.unwrap()).unwrap();
         assert_eq!(bean1_result.status, Status::Closed);
 
         // Bean 2 should NOT be archived (rejected by hook)
         let open2 = crate::discovery::find_bean_file(&beans_dir, "2");
         assert!(open2.is_ok());
-        let bean2_result = Bean::from_file(&open2.unwrap()).unwrap();
+        let bean2_result = Bean::from_file(open2.unwrap()).unwrap();
         assert_eq!(bean2_result.status, Status::Open);
 
         // Bean 3 should be archived
         let archived3 = crate::discovery::find_archived_bean(&beans_dir, "3");
         assert!(archived3.is_ok());
-        let bean3_result = Bean::from_file(&archived3.unwrap()).unwrap();
+        let bean3_result = Bean::from_file(archived3.unwrap()).unwrap();
         assert_eq!(bean3_result.status, Status::Closed);
     }
 
@@ -1728,7 +1728,7 @@ mod tests {
         // Parent should still be open
         let parent_still_open = crate::discovery::find_bean_file(&beans_dir, "1");
         assert!(parent_still_open.is_ok());
-        let parent_bean = Bean::from_file(&parent_still_open.unwrap()).unwrap();
+        let parent_bean = Bean::from_file(parent_still_open.unwrap()).unwrap();
         assert_eq!(parent_bean.status, Status::Open);
 
         // Close second child - parent should auto-close now
@@ -1737,7 +1737,7 @@ mod tests {
         // Parent should now be archived
         let parent_archived = crate::discovery::find_archived_bean(&beans_dir, "1");
         assert!(parent_archived.is_ok(), "Parent should be auto-archived");
-        let parent_result = Bean::from_file(&parent_archived.unwrap()).unwrap();
+        let parent_result = Bean::from_file(parent_archived.unwrap()).unwrap();
         assert_eq!(parent_result.status, Status::Closed);
         assert!(parent_result
             .close_reason
@@ -1778,7 +1778,7 @@ mod tests {
         // Parent should still be open (not all children closed)
         let parent_still_open = crate::discovery::find_bean_file(&beans_dir, "1");
         assert!(parent_still_open.is_ok());
-        let parent_bean = Bean::from_file(&parent_still_open.unwrap()).unwrap();
+        let parent_bean = Bean::from_file(parent_still_open.unwrap()).unwrap();
         assert_eq!(parent_bean.status, Status::Open);
     }
 
@@ -1831,7 +1831,7 @@ mod tests {
         // Parent should still be open (auto-close disabled)
         let parent_still_open = crate::discovery::find_bean_file(&beans_dir, "1");
         assert!(parent_still_open.is_ok());
-        let parent_bean = Bean::from_file(&parent_still_open.unwrap()).unwrap();
+        let parent_bean = Bean::from_file(parent_still_open.unwrap()).unwrap();
         assert_eq!(parent_bean.status, Status::Open);
     }
 
@@ -1876,14 +1876,14 @@ mod tests {
         assert!(gp_archived.is_ok(), "Grandparent should be auto-archived");
 
         // Check auto-close reasons
-        let p_bean = Bean::from_file(&p_archived.unwrap()).unwrap();
+        let p_bean = Bean::from_file(p_archived.unwrap()).unwrap();
         assert!(p_bean
             .close_reason
             .as_ref()
             .unwrap()
             .contains("Auto-closed"));
 
-        let gp_bean = Bean::from_file(&gp_archived.unwrap()).unwrap();
+        let gp_bean = Bean::from_file(gp_archived.unwrap()).unwrap();
         assert!(gp_bean
             .close_reason
             .as_ref()
@@ -1907,7 +1907,7 @@ mod tests {
         // Bean should be archived
         let archived = crate::discovery::find_archived_bean(&beans_dir, "1");
         assert!(archived.is_ok());
-        let bean_result = Bean::from_file(&archived.unwrap()).unwrap();
+        let bean_result = Bean::from_file(archived.unwrap()).unwrap();
         assert_eq!(bean_result.status, Status::Closed);
     }
 
@@ -3239,7 +3239,7 @@ mod tests {
                 .args(args)
                 .current_dir(dir)
                 .output()
-                .unwrap_or_else(|e| panic!("git {:?} failed to execute: {}", args, e));
+                .unwrap_or_else(|e| unreachable!("git {:?} failed to execute: {}", args, e));
             assert!(
                 output.status.success(),
                 "git {:?} in {} failed (exit {:?}):\nstdout: {}\nstderr: {}",

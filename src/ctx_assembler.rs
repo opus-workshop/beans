@@ -143,12 +143,12 @@ fn detect_language(path: &str) -> &str {
 /// A markdown-formatted string with the file header and code fence
 ///
 /// # Format
-/// ```text
+/// ````text
 /// ## File: {path}
 /// ```{lang}
 /// {content}
 /// ```
-/// ```
+/// ````
 pub fn format_file_block(path: &str, content: &str) -> String {
     let language = detect_language(path);
     format!("## File: {}\n```{}\n{}\n```\n", path, language, content)
@@ -467,7 +467,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let bad_file = temp_dir.path().join("bad.rs");
         // Invalid UTF-8 sequence without null bytes
-        fs::write(&bad_file, &[0xFF, 0xFE, 0x41, 0x42]).unwrap();
+        fs::write(&bad_file, [0xFF, 0xFE, 0x41, 0x42]).unwrap();
 
         let result = read_file(&bad_file);
         assert!(result.is_err());

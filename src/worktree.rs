@@ -157,14 +157,6 @@ pub fn detect_worktree() -> Result<Option<WorktreeInfo>> {
 }
 
 /// Check if the current directory is in the main worktree (or not in a worktree at all).
-///
-/// Returns:
-/// - `Ok(true)` if in the main worktree or not in a git repo
-/// - `Ok(false)` if in a secondary worktree
-pub fn is_main_worktree() -> Result<bool> {
-    Ok(detect_worktree()?.is_none())
-}
-
 /// Commit all changes in the current worktree.
 ///
 /// Runs `git add -A` followed by `git commit -m <message>`.
@@ -410,13 +402,6 @@ branch refs/heads/feature-x
         assert!(result.is_ok());
     }
 
-    #[test]
-    fn is_main_worktree_runs_without_panic() {
-        // This test just ensures the function doesn't panic
-        let result = is_main_worktree();
-        assert!(result.is_ok());
-    }
-
     // Merge-related tests
     mod merge {
         use super::*;
@@ -437,7 +422,7 @@ branch refs/heads/feature-x
                 assert_eq!(files.len(), 2);
                 assert!(files.contains(&"file1.txt".to_string()));
             } else {
-                panic!("Expected Conflict variant");
+                unreachable!("Expected Conflict variant");
             }
         }
 

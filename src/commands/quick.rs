@@ -367,8 +367,8 @@ mod tests {
         cmd_quick(&beans_dir, args2).unwrap();
 
         // Verify both exist with correct IDs
-        let bean1 = Bean::from_file(&beans_dir.join("1-first.md")).unwrap();
-        let bean2 = Bean::from_file(&beans_dir.join("2-second.md")).unwrap();
+        let bean1 = Bean::from_file(beans_dir.join("1-first.md")).unwrap();
+        let bean2 = Bean::from_file(beans_dir.join("2-second.md")).unwrap();
         assert_eq!(bean1.id, "1");
         assert_eq!(bean2.id, "2");
     }
@@ -425,7 +425,7 @@ mod tests {
 
         cmd_quick(&beans_dir, args).unwrap();
 
-        let bean = Bean::from_file(&beans_dir.join("1-full-bean.md")).unwrap();
+        let bean = Bean::from_file(beans_dir.join("1-full-bean.md")).unwrap();
         assert_eq!(bean.title, "Full bean");
         assert_eq!(bean.description, Some("A description".to_string()));
         assert_eq!(bean.acceptance, Some("All tests pass".to_string()));

@@ -407,7 +407,8 @@ impl LockedIndex {
 
 impl Drop for LockedIndex {
     fn drop(&mut self) {
-        let _ = self.lock_file.unlock();
+        // Use fs2's unlock explicitly (std's File::unlock stabilized in 1.89, above our MSRV)
+        let _ = fs2::FileExt::unlock(&self.lock_file);
     }
 }
 

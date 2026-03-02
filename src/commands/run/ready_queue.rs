@@ -445,7 +445,6 @@ pub(super) fn run_single_direct(
             false,
             Some(format!("Idle timeout exceeded ({}m)", idle_timeout_minutes)),
         ),
-        MonitorResult::Killed => (false, Some("Process was killed".to_string())),
     };
 
     // Release all file locks held by this bean.

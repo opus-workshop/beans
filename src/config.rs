@@ -412,7 +412,7 @@ mod tests {
         .unwrap();
 
         let loaded = Config::load(dir.path()).unwrap();
-        assert_eq!(loaded.auto_close_parent, true);
+        assert!(loaded.auto_close_parent);
     }
 
     #[test]
@@ -440,7 +440,7 @@ mod tests {
         config.save(dir.path()).unwrap();
 
         let loaded = Config::load(dir.path()).unwrap();
-        assert_eq!(loaded.auto_close_parent, false);
+        assert!(!loaded.auto_close_parent);
     }
 
     #[test]
@@ -695,11 +695,11 @@ mod tests {
         let b_path = dir.path().join("b.yaml");
         write_yaml(
             &a_path,
-            &format!("project: a\nnext_id: 1\nextends:\n  - \"b.yaml\"\nmax_tokens: 40000\n"),
+            "project: a\nnext_id: 1\nextends:\n  - \"b.yaml\"\nmax_tokens: 40000\n",
         );
         write_yaml(
             &b_path,
-            &format!("project: b\nnext_id: 1\nextends:\n  - \"a.yaml\"\nmax_tokens: 50000\n"),
+            "project: b\nnext_id: 1\nextends:\n  - \"a.yaml\"\nmax_tokens: 50000\n",
         );
 
         write_local_config(&beans_dir, &["a.yaml"], "");

@@ -7,23 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-03-01
+
 ### Added
 - File locking to prevent concurrent agent writes
 - Atomic file writes for crash safety
 - CONTRIBUTING.md
-
-### Changed
-- Improved robustness for parallel agent workflows
-
-### Removed
-- `bn ready` — use `bn status` (shows ready beans in the Ready section, `--json` for scripting)
-- `bn blocked` — use `bn status` (shows blocked beans in the Blocked section)
-- `bn dep tree` — use `bn graph` (richer output with ASCII, Mermaid, DOT formats)
-- `bn dep cycles` — use `bn doctor` (runs cycle detection among other health checks)
-
-## [0.4.0] - 2026-02-28
-
-### Added
 - **Agent orchestration** — `bn run` dispatches ready beans to agents with ready-queue scheduling
 - **Loop mode** — `bn run --loop-mode` continuously dispatches until no work remains
 - **Auto-planning** — `bn run --auto-plan` decomposes large beans before dispatch
@@ -48,18 +37,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Structure-only context** — `bn context --structure-only` for signatures and imports only
 - **Unarchive** — `bn unarchive` restores archived beans
 - **Lock management** — `bn locks` views and clears file locks
-
-### Changed
-- Package renamed from `bn` to `beans-cli` for crates.io publication
-- Improved help text and README for all current commands
-
-### Fixed
-- `bn context` crash on corrupt archive YAML
-- Missing `rules_file` and `memory` fields in test struct literals
-
-## [0.2.0] - 2026-02-01
-
-### Added
 - **Quick create** — `bn quick` creates and claims a bean in one step
 - **Status overview** — `bn status` shows claimed, ready, and blocked beans
 - **Context command** — `bn context` assembles file context from bean descriptions
@@ -72,19 +49,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Agent liveness** — `bn status` shows whether claimed beans have active agents
 - **Better failure feedback** — verify failures show actionable output
 - **Acceptance criteria** — `--acceptance` field for human-readable done conditions
-
-### Changed
-- Improved `bn show` rendering with better formatting
-- README rewritten with table of contents and consolidated documentation
-
-### Fixed
-- Shell escaping in verify commands
-- File extension preservation during archiving
-- `.md` format support in dep and verify commands
-
-## [0.1.0] - 2026-01-15
-
-### Added
 - **Core CLI** — `bn init`, `bn create`, `bn show`, `bn list`, `bn close`
 - **Verification gates** — every bean has a verify command that must pass to close
 - **Hierarchical tasks** — dot notation (`3.1` is a child of `3`), `bn tree` for visualization
@@ -102,7 +66,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Archive system** — closed beans auto-archive to `.beans/archive/YYYY/MM/`
 - **Git-native** — all state in `.beans/` directory, clean diffs, works offline
 
-[Unreleased]: https://github.com/kfcafe/beans/compare/v0.4.0...HEAD
-[0.4.0]: https://github.com/kfcafe/beans/compare/v0.1.0...v0.4.0
-[0.2.0]: https://github.com/kfcafe/beans/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/kfcafe/beans/releases/tag/v0.1.0
+### Changed
+- Improved robustness for parallel agent workflows
+- Package renamed from `bn` to `beans-cli` for crates.io publication
+- Improved help text and README for all current commands
+- Improved `bn show` rendering with better formatting
+- README rewritten with table of contents and consolidated documentation
+
+### Removed
+- `bn ready` — use `bn status` (shows ready beans in the Ready section, `--json` for scripting)
+- `bn blocked` — use `bn status` (shows blocked beans in the Blocked section)
+- `bn dep tree` — use `bn graph` (richer output with ASCII, Mermaid, DOT formats)
+- `bn dep cycles` — use `bn doctor` (runs cycle detection among other health checks)
+
+### Fixed
+- `bn context` crash on corrupt archive YAML
+- Missing `rules_file` and `memory` fields in test struct literals
+- Shell escaping in verify commands
+- File extension preservation during archiving
+- `.md` format support in dep and verify commands
+
+[Unreleased]: https://github.com/kfcafe/beans/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/kfcafe/beans/releases/tag/v0.2.0

@@ -122,35 +122,11 @@ pub fn acquire(beans_dir: &Path, bean_id: &str, pid: u32, file_path: &str) -> Re
     Ok(false)
 }
 
-/// Release a lock on a file.
-///
-/// Safe to call even if the lock doesn't exist or is held by another process.
-pub fn release(beans_dir: &Path, file_path: &str) -> Result<()> {
-    let lock_path = lock_file_path(beans_dir, file_path)?;
-    match fs::remove_file(&lock_path) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(e).with_context(|| format!("Failed to remove lock: {}", lock_path.display())),
-    }
-}
-
 /// Release all locks held by a specific bean.
 pub fn release_all_for_bean(beans_dir: &Path, bean_id: &str) -> Result<u32> {
     let mut released = 0;
     for lock in list_locks(beans_dir)? {
         if lock.info.bean_id == bean_id {
-            let _ = fs::remove_file(&lock.lock_path);
-            released += 1;
-        }
-    }
-    Ok(released)
-}
-
-/// Release all locks held by a specific PID.
-pub fn release_all_for_pid(beans_dir: &Path, pid: u32) -> Result<u32> {
-    let mut released = 0;
-    for lock in list_locks(beans_dir)? {
-        if lock.info.pid == pid {
             let _ = fs::remove_file(&lock.lock_path);
             released += 1;
         }
@@ -270,29 +246,21 @@ mod tests {
     }
 
     #[test]
-    fn acquire_and_release() {
+    fn acquire_and_release_via_bean() {
         let (_dir, beans_dir) = temp_beans_dir();
         let pid = std::process::id();
 
         let acquired = acquire(&beans_dir, "1.1", pid, "/tmp/test.rs").unwrap();
         assert!(acquired);
 
-        // Second acquire by same PID succeeds (we don't block ourselves in bn)
-        // but in practice the pi extension handles re-entrancy
         let info = check_lock(&beans_dir, "/tmp/test.rs").unwrap();
         assert!(info.is_some());
         assert_eq!(info.unwrap().bean_id, "1.1");
 
-        release(&beans_dir, "/tmp/test.rs").unwrap();
+        release_all_for_bean(&beans_dir, "1.1").unwrap();
 
         let info = check_lock(&beans_dir, "/tmp/test.rs").unwrap();
         assert!(info.is_none());
-    }
-
-    #[test]
-    fn release_nonexistent_is_ok() {
-        let (_dir, beans_dir) = temp_beans_dir();
-        release(&beans_dir, "/tmp/nonexistent.rs").unwrap();
     }
 
     #[test]

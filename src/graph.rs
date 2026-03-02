@@ -289,7 +289,7 @@ mod tests {
         fs::create_dir(&beans_dir).unwrap();
 
         for (id, deps) in specs {
-            let mut bean = Bean::new(id, &format!("Task {}", id));
+            let mut bean = Bean::new(id, format!("Task {}", id));
             bean.dependencies = deps.iter().map(|s| s.to_string()).collect();
             bean.to_file(beans_dir.join(format!("{}.yaml", id)))
                 .unwrap();
@@ -344,7 +344,7 @@ mod tests {
         fs::create_dir(&beans_dir).unwrap();
 
         for (id, parent, attempts) in specs {
-            let mut bean = Bean::new(id, &format!("Task {}", id));
+            let mut bean = Bean::new(id, format!("Task {}", id));
             bean.parent = parent.map(|s| s.to_string());
             bean.attempts = attempts;
             let slug = crate::util::title_to_slug(&bean.title);

@@ -406,7 +406,6 @@ mod tests {
     fn plan_help_contains_plan() {
         // This is verified by the bean's verify command: bn plan --help 2>&1 | grep -q 'plan'
         // Here we just verify the module exists and compiles
-        assert!(true);
     }
 
     #[test]

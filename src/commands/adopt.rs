@@ -294,7 +294,7 @@ mod tests {
 
         // Create children
         for i in 2..=4 {
-            let mut child = Bean::new(&i.to_string(), &format!("Child {}", i));
+            let mut child = Bean::new(i.to_string(), format!("Child {}", i));
             child.slug = Some(format!("child-{}", i));
             child.verify = Some("true".to_string());
             child
@@ -451,7 +451,7 @@ mod tests {
         assert_eq!(adopted.unwrap().parent, Some("1".to_string()));
 
         // Old ID should not be in index
-        assert!(index.beans.iter().find(|b| b.id == "2").is_none());
+        assert!(!index.beans.iter().any(|b| b.id == "2"));
     }
 
     #[test]

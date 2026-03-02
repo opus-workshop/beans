@@ -21,8 +21,6 @@ pub enum MonitorResult {
     TotalTimeout,
     /// Idle timeout exceeded (no output) — process was killed.
     IdleTimeout,
-    /// Process was killed for another reason.
-    Killed,
 }
 
 /// Monitor a child process's stdout, enforcing total and idle timeouts.

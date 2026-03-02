@@ -437,7 +437,7 @@ mod tests {
         // No hook exists
         let result = execute_hook(HookEvent::PreCreate, &bean, temp_dir.path(), None);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), true);
+        assert!(result.unwrap());
     }
 
     #[test]
@@ -486,7 +486,7 @@ mod tests {
         let result = execute_hook(HookEvent::PreCreate, &bean, project_dir, None);
 
         assert!(result.is_ok(), "Hook execution failed: {:?}", result.err());
-        assert_eq!(result.unwrap(), true);
+        assert!(result.unwrap());
     }
 
     #[test]
@@ -513,7 +513,7 @@ mod tests {
         let result = execute_hook(HookEvent::PreCreate, &bean, project_dir, None);
 
         assert!(result.is_ok(), "Hook execution failed: {:?}", result.err());
-        assert_eq!(result.unwrap(), false);
+        assert!(!result.unwrap());
     }
 
     #[test]
@@ -720,7 +720,7 @@ mod tests {
         // If trust is disabled, hook should not even check executability
         let result = execute_hook(HookEvent::PreCreate, &bean, project_dir, None);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), true); // Returns true but doesn't execute
+        assert!(result.unwrap()); // Returns true but doesn't execute
     }
 
     #[test]
@@ -748,7 +748,7 @@ mod tests {
         // Hook should execute successfully
         let result = execute_hook(HookEvent::PreCreate, &bean, project_dir, None);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), true);
+        assert!(result.unwrap());
     }
 
     #[test]
@@ -773,7 +773,7 @@ mod tests {
         // Hook should NOT execute (returns Ok(true) silently)
         let result = execute_hook(HookEvent::PreCreate, &bean, project_dir, None);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), true);
+        assert!(result.unwrap());
     }
 
     // =====================================================================

@@ -219,7 +219,7 @@ pub fn open_editor(path: &Path) -> Result<()> {
 /// * `path` - Path to the file to backup
 ///
 /// # Returns
-/// * Ok(Vec<u8>) containing the file content
+/// * `Ok(Vec<u8>)` containing the file content
 /// * Err if:
 ///   - File does not exist
 ///   - Permission denied reading the file

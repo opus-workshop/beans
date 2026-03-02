@@ -1,5 +1,5 @@
 project: beans
-next_id: 111
+next_id: 119
 auto_close_parent: true
 max_tokens: 50000
 run: pi @.beans/{id}-*.md "implement this bean and run bn close {id} when done"

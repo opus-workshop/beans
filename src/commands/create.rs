@@ -579,8 +579,8 @@ mod tests {
         cmd_create(&beans_dir, args2).unwrap();
 
         // Verify both exist with correct IDs and new filenames
-        let bean1 = Bean::from_file(&beans_dir.join("1-first.md")).unwrap();
-        let bean2 = Bean::from_file(&beans_dir.join("2-second.md")).unwrap();
+        let bean1 = Bean::from_file(beans_dir.join("1-first.md")).unwrap();
+        let bean2 = Bean::from_file(beans_dir.join("2-second.md")).unwrap();
         assert_eq!(bean1.id, "1");
         assert_eq!(bean2.id, "2");
     }
@@ -638,7 +638,7 @@ mod tests {
         cmd_create(&beans_dir, child_args).unwrap();
 
         // Verify child ID is 1.1 with new filename
-        let bean = Bean::from_file(&beans_dir.join("1.1-child-1.md")).unwrap();
+        let bean = Bean::from_file(beans_dir.join("1.1-child-1.md")).unwrap();
         assert_eq!(bean.id, "1.1");
         assert_eq!(bean.parent, Some("1".to_string()));
     }
@@ -737,7 +737,7 @@ mod tests {
 
         cmd_create(&beans_dir, args).unwrap();
 
-        let bean = Bean::from_file(&beans_dir.join("1-complex-bean.md")).unwrap();
+        let bean = Bean::from_file(beans_dir.join("1-complex-bean.md")).unwrap();
         assert_eq!(bean.title, "Complex bean");
         assert_eq!(bean.description, Some("A description".to_string()));
         assert_eq!(bean.acceptance, Some("All tests pass".to_string()));
@@ -806,13 +806,13 @@ mod tests {
         let bean5 = Bean::new("parent.5", "Child 5");
 
         bean1
-            .to_file(&beans_dir.join("parent.1-child-1.md"))
+            .to_file(beans_dir.join("parent.1-child-1.md"))
             .unwrap();
         bean2
-            .to_file(&beans_dir.join("parent.2-child-2.md"))
+            .to_file(beans_dir.join("parent.2-child-2.md"))
             .unwrap();
         bean5
-            .to_file(&beans_dir.join("parent.5-child-5.md"))
+            .to_file(beans_dir.join("parent.5-child-5.md"))
             .unwrap();
 
         let id = assign_child_id(&beans_dir, "parent").unwrap();

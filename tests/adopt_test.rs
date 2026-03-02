@@ -188,7 +188,7 @@ fn test_adopt_updates_index() {
     assert_eq!(adopted.unwrap().parent, Some("100".to_string()));
 
     // Old ID should not exist in index
-    assert!(index.beans.iter().find(|b| b.id == "101").is_none());
+    assert!(!index.beans.iter().any(|b| b.id == "101"));
 }
 
 #[test]

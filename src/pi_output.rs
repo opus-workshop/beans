@@ -8,8 +8,6 @@
 /// High-level events extracted from pi's JSON output stream.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AgentEvent {
-    /// Agent session started (first assistant message with a model).
-    Started { model: String },
     /// Thinking delta (extended-thinking / chain-of-thought).
     Thinking { text: String },
     /// Text delta (visible assistant output).
@@ -33,8 +31,6 @@ pub enum AgentEvent {
     },
     /// Agent run finished.
     Finished { total_tokens: u64, cost: f64 },
-    /// Parse / stream error.
-    Error { message: String },
 }
 
 /// Parse a single JSON line (as a [`serde_json::Value`]) from pi's `--mode json`
@@ -292,7 +288,7 @@ mod tests {
                 assert_eq!(name, "Read");
                 assert_eq!(arguments, json!({ "path": "src/main.rs" }));
             }
-            other => panic!("expected ToolEnd, got {:?}", other),
+            other => unreachable!("expected ToolEnd, got {:?}", other),
         }
     }
 

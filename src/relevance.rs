@@ -64,19 +64,6 @@ fn count_dependency_overlap(bean: &Bean, working_deps: &[String]) -> u32 {
     count
 }
 
-/// Extract file paths from the current working directory context.
-/// Used to determine which paths are "active" for relevance scoring.
-pub fn extract_working_paths(cwd: &std::path::Path, project_root: &std::path::Path) -> Vec<String> {
-    // Get relative path of cwd within project
-    if let Ok(rel) = cwd.strip_prefix(project_root) {
-        let rel_str = rel.to_string_lossy().to_string();
-        if !rel_str.is_empty() {
-            return vec![rel_str];
-        }
-    }
-    Vec::new()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

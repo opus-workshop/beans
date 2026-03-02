@@ -24,31 +24,7 @@ impl ProjectType {
         }
     }
 
-    /// Get all common verify commands for this project type
-    pub fn common_verify_commands(&self) -> Vec<&'static str> {
-        match self {
-            ProjectType::Rust => vec![
-                "cargo test",
-                "cargo build",
-                "cargo clippy",
-                "cargo fmt --check",
-            ],
-            ProjectType::Node => vec![
-                "npm test",
-                "npm run build",
-                "npm run lint",
-                "npx tsc --noEmit",
-            ],
-            ProjectType::Python => vec!["pytest", "python -m pytest", "mypy .", "ruff check ."],
-            ProjectType::Go => vec!["go test ./...", "go build ./...", "go vet ./..."],
-            ProjectType::Ruby => vec![
-                "bundle exec rspec",
-                "bundle exec rake test",
-                "bundle exec rubocop",
-            ],
-            ProjectType::Unknown => vec![],
-        }
-    }
+
 }
 
 /// Detect the project type from the project directory
@@ -147,20 +123,11 @@ mod tests {
     #[test]
     fn rust_verify_suggestions() {
         assert_eq!(ProjectType::Rust.suggested_verify(), Some("cargo test"));
-        assert!(ProjectType::Rust
-            .common_verify_commands()
-            .contains(&"cargo test"));
-        assert!(ProjectType::Rust
-            .common_verify_commands()
-            .contains(&"cargo build"));
     }
 
     #[test]
     fn node_verify_suggestions() {
         assert_eq!(ProjectType::Node.suggested_verify(), Some("npm test"));
-        assert!(ProjectType::Node
-            .common_verify_commands()
-            .contains(&"npm test"));
     }
 
     #[test]
@@ -173,6 +140,5 @@ mod tests {
     #[test]
     fn unknown_has_no_suggestions() {
         assert_eq!(ProjectType::Unknown.suggested_verify(), None);
-        assert!(ProjectType::Unknown.common_verify_commands().is_empty());
     }
 }

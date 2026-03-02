@@ -34,7 +34,7 @@ pub fn resolve_stdin_value(value: String) -> Result<String> {
     }
 }
 
-/// Resolve an Option<String> that might contain "-".
+/// Resolve an `Option<String>` that might contain "-".
 pub fn resolve_stdin_opt(value: Option<String>) -> Result<Option<String>> {
     match value {
         Some(v) if v == "-" => Ok(Some(read_stdin()?)),

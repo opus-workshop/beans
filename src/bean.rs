@@ -495,7 +495,7 @@ impl Bean {
         let canonical = self.clone();
 
         // Serialize to JSON (deterministic)
-        let json = serde_json::to_string(&canonical).unwrap();
+        let json = serde_json::to_string(&canonical).expect("Bean serialization to JSON cannot fail");
         let mut hasher = Sha256::new();
         hasher.update(json.as_bytes());
         format!("{:x}", hasher.finalize())

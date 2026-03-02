@@ -211,7 +211,7 @@ fn format_duration(secs: f64) -> String {
 fn format_tokens(tokens: u64) -> String {
     if tokens < 1000 {
         tokens.to_string()
-    } else if tokens.is_multiple_of(1000) {
+    } else if tokens % 1000 == 0 {
         format!("{}k", tokens / 1000)
     } else {
         // Round to nearest hundred for one decimal place
