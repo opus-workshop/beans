@@ -19,3 +19,4 @@
 *~
 *.orig
 .vibecheck/
+.beans/race/

@@ -36,7 +36,6 @@ No databases. No daemons. Just `.beans/` files you can `cat`, `grep`, and `git d
 - [Agent Workflow](#agent-workflow)
 - [Memory System](#memory-system)
 - [MCP Server](#mcp-server)
-- [Racing Agents](#racing-agents)
 - [Adversarial Review](#adversarial-review)
 - [Configuration](#configuration)
 - [Shell Completions](#shell-completions)
@@ -414,7 +413,6 @@ bn close --failed <id>              # Mark attempt failed (release claim, stays 
 bn run                              # Dispatch ready beans to agents
 bn run <id>                         # Dispatch a specific bean
 bn plan <id>                        # Decompose a large bean into children
-bn race <id>                        # Race N agents, pick best implementation
 bn review <id>                      # Adversarial review of implementation
 bn agents                           # Show running/completed agents
 bn logs <id>                        # View agent output for a bean
@@ -497,8 +495,6 @@ bn completions <shell>              # Generate shell completions
 | `bn run --json-stream` | Emit JSON events to stdout |
 | `bn plan [id] [--auto]` | Decompose a large bean into children |
 | `bn plan --dry-run` | Preview split without creating |
-| `bn race <id>` | Race N agents in parallel worktrees |
-| `bn race pick <id>` | Review candidates and merge winner |
 | `bn review <id>` | Adversarial review of a bean's implementation |
 | `bn agents [--json]` | Show running/completed agents |
 | `bn logs <id>` | View agent output (`-f` to follow, `--all` for all runs) |
@@ -707,24 +703,6 @@ bn recall "auth"          # Search open beans by keyword
 bn recall "JWT" --all     # Include closed/archived beans
 bn recall "login" --json  # Machine-readable results
 ```
-
-## Racing Agents
-
-Race multiple agents on the same bean and pick the best implementation:
-
-```bash
-bn race 5                 # Spawn 3 agents in parallel worktrees (default)
-bn race 5 --copies 5      # Race with 5 agents
-bn race 5 --timeout 60    # Kill agents after 60 minutes
-```
-
-All agents run to completion — not first-wins. Each works in its own git worktree so there are no conflicts. Then review the results and merge the winner:
-
-```bash
-bn race pick 5            # Interactive: compare diff stats, verify results, merge winner
-```
-
-All worktrees are cleaned up after picking.
 
 ## Adversarial Review
 

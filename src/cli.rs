@@ -41,7 +41,6 @@ Commands:
   AGENTS
     run          Dispatch ready beans to agents
     plan         Interactively plan a large bean into children
-    race         Race N agents on the same bean, pick the best
     review       Adversarial post-close review of an implementation
     agents       Show running and recently completed agents
     logs         View agent output from log files
@@ -812,6 +811,7 @@ Examples:
     /// and merge the winner.
     #[command(
         display_order = 39,
+        hide = true,
         after_help = "\
 Examples:
   bn race 5 --copies 3            Race with 3 agents (default)
