@@ -7,7 +7,6 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 
 use crate::bean::{Bean, Status};
-use crate::config::Config;
 use crate::index::{Index, IndexEntry};
 use crate::pi_output::{self, AgentEvent};
 use crate::prompt::{build_agent_prompt, PromptOptions};
