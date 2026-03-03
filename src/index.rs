@@ -82,7 +82,7 @@ pub struct Index {
 }
 
 // Files to exclude when scanning for bean YAMLs.
-const EXCLUDED_FILES: &[&str] = &["config.yaml", "index.yaml", "bean.yaml"];
+const EXCLUDED_FILES: &[&str] = &["config.yaml", "index.yaml", "bean.yaml", "archive.yaml"];
 
 /// Check if a filename represents a bean file (not a config/index/template file).
 fn is_bean_filename(filename: &str) -> bool {
