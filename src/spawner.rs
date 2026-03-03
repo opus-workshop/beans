@@ -14,7 +14,7 @@ use anyhow::{anyhow, Context, Result};
 
 use crate::commands::agents::{save_agents, AgentEntry};
 use crate::commands::logs;
-use crate::config::Config;
+use crate::config::{resolve_identity, Config};
 
 // ---------------------------------------------------------------------------
 // Types
@@ -116,6 +116,7 @@ impl Spawner {
         bean_title: &str,
         action: AgentAction,
         config: &Config,
+        beans_dir: Option<&std::path::Path>,
     ) -> Result<()> {
         if self.running.contains_key(bean_id) {
             return Err(anyhow!("Bean {} already has a running agent", bean_id));
@@ -135,8 +136,11 @@ impl Spawner {
         let cmd = substitute_template(template, bean_id);
         let log_path = build_log_path(bean_id)?;
 
-        // Claim the bean before spawning
-        claim_bean(bean_id)?;
+        // Build agent identity: user/agent-N (namespaced under the user who spawned)
+        let agent_identity = build_agent_identity(beans_dir);
+
+        // Claim the bean before spawning with agent identity
+        claim_bean(bean_id, agent_identity.as_deref())?;
 
         // Open log file for output capture
         let log_file = OpenOptions::new()
@@ -283,10 +287,27 @@ impl Default for Spawner {
 // Bean lifecycle helpers (shell out to `bn`)
 // ---------------------------------------------------------------------------
 
+/// Build an agent identity string: `user/agent-PID` or just `agent-PID`.
+fn build_agent_identity(beans_dir: Option<&std::path::Path>) -> Option<String> {
+    let pid = std::process::id();
+    let user = beans_dir.and_then(resolve_identity);
+    match user {
+        Some(u) => Some(format!("{}/agent-{}", u, pid)),
+        None => Some(format!("agent-{}", pid)),
+    }
+}
+
 /// Claim a bean by running `bn claim {id}`.
-fn claim_bean(bean_id: &str) -> Result<()> {
+fn claim_bean(bean_id: &str, by: Option<&str>) -> Result<()> {
+    let mut args = vec!["claim", bean_id, "--force"];
+    let by_owned;
+    if let Some(identity) = by {
+        args.push("--by");
+        by_owned = identity.to_string();
+        args.push(&by_owned);
+    }
     let status = Command::new("bn")
-        .args(["claim", bean_id])
+        .args(&args)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status()
@@ -643,6 +664,8 @@ mod tests {
             review: None,
             user: None,
             user_email: None,
+            user: None,
+            user_email: None,
         };
 
         let result = spawner.spawn("1", "Test", AgentAction::Implement, &config, None);
@@ -671,6 +694,8 @@ mod tests {
             post_plan: None,
             verify_timeout: None,
             review: None,
+            user: None,
+            user_email: None,
             user: None,
             user_email: None,
         };

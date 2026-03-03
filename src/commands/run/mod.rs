@@ -636,11 +636,14 @@ mod tests {
             extends: vec![],
             rules_file: None,
             file_locking: false,
+            worktree: false,
             on_close: None,
             on_fail: None,
             post_plan: None,
             verify_timeout: None,
             review: None,
+            user: None,
+            user_email: None,
         };
         let mode = determine_spawn_mode(&config);
         assert_eq!(
@@ -666,11 +669,14 @@ mod tests {
             extends: vec![],
             rules_file: None,
             file_locking: false,
+            worktree: false,
             on_close: None,
             on_fail: None,
             post_plan: None,
             verify_timeout: None,
             review: None,
+            user: None,
+            user_email: None,
         };
         let mode = determine_spawn_mode(&config);
         assert_eq!(mode, SpawnMode::Direct);

@@ -6,6 +6,7 @@ use chrono::Utc;
 use crate::bean::{Bean, Status};
 use crate::discovery::{archive_path_for_bean, find_bean_file};
 use crate::index::{ArchiveIndex, Index};
+use crate::output::Output;
 use crate::util::title_to_slug;
 
 /// A record of one bean that was (or would be) archived during tidy.
@@ -98,8 +99,8 @@ fn has_running_agents() -> bool {
 /// beans, and rebuild the index.
 ///
 /// Delegates to `cmd_tidy_inner` with the real agent-detection function.
-pub fn cmd_tidy(beans_dir: &Path, dry_run: bool) -> Result<()> {
-    cmd_tidy_inner(beans_dir, dry_run, has_running_agents)
+pub fn cmd_tidy(beans_dir: &Path, dry_run: bool, out: &Output) -> Result<()> {
+    cmd_tidy_inner(beans_dir, dry_run, has_running_agents, out)
 }
 
 /// Inner implementation of tidy, with an injectable agent-check function
@@ -132,7 +133,7 @@ pub fn cmd_tidy(beans_dir: &Path, dry_run: bool) -> Result<()> {
 ///
 /// With `dry_run = true` we report what would change without touching
 /// any files.
-fn cmd_tidy_inner(beans_dir: &Path, dry_run: bool, check_agents: fn() -> bool) -> Result<()> {
+fn cmd_tidy_inner(beans_dir: &Path, dry_run: bool, check_agents: fn() -> bool, out: &Output) -> Result<()> {
     // Step 1 — Build a fresh index so we're working from the truth on disk,
     // not a potentially stale cache.
     let index = Index::build(beans_dir).context("Failed to build index")?;
@@ -269,10 +270,10 @@ fn cmd_tidy_inner(beans_dir: &Path, dry_run: bool, check_agents: fn() -> bool) -
             // Agents are running — we can't safely release in-progress
             // beans because one of them might be actively being worked on.
             // Just report them.
-            eprintln!(
-                "Note: {} in-progress bean(s) found, but agent processes are running — skipping release.",
+            out.warn(&format!(
+                "{} in-progress bean(s) found, but agent processes are running — skipping release",
                 in_progress.len()
-            );
+            ));
         } else {
             // No agents running — all in-progress beans are stale.
             for entry in &in_progress {
@@ -341,39 +342,39 @@ fn cmd_tidy_inner(beans_dir: &Path, dry_run: bool, check_agents: fn() -> bool) -
     let release_verb = if dry_run { "Would release" } else { "Released" };
 
     if tidied.is_empty() && skipped_parent_ids.is_empty() && released.is_empty() {
-        println!("Nothing to tidy — all beans look good.");
+        out.info("Nothing to tidy — all beans look good.");
     }
 
     if !tidied.is_empty() {
-        println!("{} {} bean(s):", archive_verb, tidied.len());
+        out.info(&format!("{} {} bean(s):", archive_verb, tidied.len()));
         for t in &tidied {
-            println!("  → {}. {} → {}", t.id, t.title, t.archive_path);
+            out.info(&format!("  → {}. {} → {}", t.id, t.title, t.archive_path));
         }
     }
 
     if !released.is_empty() {
-        println!(
+        out.info(&format!(
             "{} {} stale in-progress bean(s):",
             release_verb,
             released.len()
-        );
+        ));
         for r in &released {
-            println!("  → {}. {} ({})", r.id, r.title, r.reason);
+            out.info(&format!("  → {}. {} ({})", r.id, r.title, r.reason));
         }
     }
 
     if !skipped_parent_ids.is_empty() {
-        println!(
+        out.warn(&format!(
             "Skipped {} closed parent(s) with open children: {}",
             skipped_parent_ids.len(),
             skipped_parent_ids.join(", ")
-        );
+        ));
     }
 
-    println!(
+    out.info(&format!(
         "Index rebuilt: {} bean(s) indexed.",
         final_index.beans.len()
-    );
+    ));
 
     Ok(())
 }
@@ -386,6 +387,7 @@ fn cmd_tidy_inner(beans_dir: &Path, dry_run: bool, check_agents: fn() -> bool) -
 mod tests {
     use super::*;
     use crate::bean::Bean;
+    use crate::output::Output;
     use crate::util::title_to_slug;
     use std::fs;
     use tempfile::TempDir;
@@ -426,7 +428,7 @@ mod tests {
         bean.closed_at = Some(chrono::Utc::now());
         write_bean(&beans_dir, &bean);
 
-        cmd_tidy_inner(&beans_dir, false, no_agents).unwrap();
+        cmd_tidy_inner(&beans_dir, false, no_agents, &Output::new()).unwrap();
 
         // Should no longer be in main directory
         assert!(find_bean_file(&beans_dir, "1").is_err());
@@ -444,7 +446,7 @@ mod tests {
         let bean = Bean::new("1", "Open task");
         write_bean(&beans_dir, &bean);
 
-        cmd_tidy_inner(&beans_dir, false, no_agents).unwrap();
+        cmd_tidy_inner(&beans_dir, false, no_agents, &Output::new()).unwrap();
 
         // Should still be in main directory
         assert!(find_bean_file(&beans_dir, "1").is_ok());
@@ -460,9 +462,9 @@ mod tests {
         write_bean(&beans_dir, &bean);
 
         // First tidy archives it
-        cmd_tidy_inner(&beans_dir, false, no_agents).unwrap();
+        cmd_tidy_inner(&beans_dir, false, no_agents, &Output::new()).unwrap();
         // Second tidy should be a no-op (no panic, no error)
-        cmd_tidy_inner(&beans_dir, false, no_agents).unwrap();
+        cmd_tidy_inner(&beans_dir, false, no_agents, &Output::new()).unwrap();
 
         let archived = crate::discovery::find_archived_bean(&beans_dir, "1");
         assert!(archived.is_ok());
@@ -479,7 +481,7 @@ mod tests {
         bean.closed_at = Some(chrono::Utc::now());
         write_bean(&beans_dir, &bean);
 
-        cmd_tidy_inner(&beans_dir, true, no_agents).unwrap();
+        cmd_tidy_inner(&beans_dir, true, no_agents, &Output::new()).unwrap();
 
         // File should still be in main directory (dry-run)
         assert!(find_bean_file(&beans_dir, "1").is_ok());
@@ -502,7 +504,7 @@ mod tests {
         child.parent = Some("1".to_string());
         write_bean(&beans_dir, &child);
 
-        cmd_tidy_inner(&beans_dir, false, no_agents).unwrap();
+        cmd_tidy_inner(&beans_dir, false, no_agents, &Output::new()).unwrap();
 
         // Parent should NOT be archived because child is still open
         assert!(find_bean_file(&beans_dir, "1").is_ok());
@@ -527,7 +529,7 @@ mod tests {
         child.closed_at = Some(chrono::Utc::now());
         write_bean(&beans_dir, &child);
 
-        cmd_tidy_inner(&beans_dir, false, no_agents).unwrap();
+        cmd_tidy_inner(&beans_dir, false, no_agents, &Output::new()).unwrap();
 
         // Both should be archived
         assert!(find_bean_file(&beans_dir, "1").is_err());
@@ -552,7 +554,7 @@ mod tests {
         );
         write_bean(&beans_dir, &bean);
 
-        cmd_tidy_inner(&beans_dir, false, no_agents).unwrap();
+        cmd_tidy_inner(&beans_dir, false, no_agents, &Output::new()).unwrap();
 
         let archived = crate::discovery::find_archived_bean(&beans_dir, "1").unwrap();
         // The archive path should contain 2025/06 (from closed_at)
@@ -583,7 +585,7 @@ mod tests {
         write_bean(&beans_dir, &in_progress);
 
         // With no agents running, in_progress beans get released
-        cmd_tidy_inner(&beans_dir, false, no_agents).unwrap();
+        cmd_tidy_inner(&beans_dir, false, no_agents, &Output::new()).unwrap();
 
         // Open bean untouched
         let b1 = Bean::from_file(find_bean_file(&beans_dir, "1").unwrap()).unwrap();
@@ -608,7 +610,7 @@ mod tests {
         write_bean(&beans_dir, &bean);
 
         // With agents running, in_progress beans are NOT released
-        cmd_tidy_inner(&beans_dir, false, agents_running).unwrap();
+        cmd_tidy_inner(&beans_dir, false, agents_running, &Output::new()).unwrap();
 
         let updated = Bean::from_file(find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert_eq!(updated.status, Status::InProgress);
@@ -631,7 +633,7 @@ mod tests {
         );
         write_bean(&beans_dir, &bean);
 
-        cmd_tidy_inner(&beans_dir, false, no_agents).unwrap();
+        cmd_tidy_inner(&beans_dir, false, no_agents, &Output::new()).unwrap();
 
         // Bean should be released back to open
         let updated = Bean::from_file(find_bean_file(&beans_dir, "1").unwrap()).unwrap();
@@ -650,7 +652,7 @@ mod tests {
         // No claimed_at, no claimed_by — definitely stale
         write_bean(&beans_dir, &bean);
 
-        cmd_tidy_inner(&beans_dir, false, no_agents).unwrap();
+        cmd_tidy_inner(&beans_dir, false, no_agents, &Output::new()).unwrap();
 
         let updated = Bean::from_file(find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert_eq!(updated.status, Status::Open);
@@ -665,7 +667,7 @@ mod tests {
         bean.claimed_at = Some(chrono::Utc::now());
         write_bean(&beans_dir, &bean);
 
-        cmd_tidy_inner(&beans_dir, true, no_agents).unwrap();
+        cmd_tidy_inner(&beans_dir, true, no_agents, &Output::new()).unwrap();
 
         // Bean should still be in_progress (dry-run)
         let updated = Bean::from_file(find_bean_file(&beans_dir, "1").unwrap()).unwrap();
@@ -693,7 +695,7 @@ mod tests {
         stale_bean.claimed_at = Some(chrono::Utc::now());
         write_bean(&beans_dir, &stale_bean);
 
-        cmd_tidy_inner(&beans_dir, false, no_agents).unwrap();
+        cmd_tidy_inner(&beans_dir, false, no_agents, &Output::new()).unwrap();
 
         // Open bean untouched
         let b1 = Bean::from_file(find_bean_file(&beans_dir, "1").unwrap()).unwrap();
@@ -721,7 +723,7 @@ mod tests {
         bean.claimed_at = Some(chrono::Utc::now());
         write_bean(&beans_dir, &bean);
 
-        cmd_tidy_inner(&beans_dir, false, no_agents).unwrap();
+        cmd_tidy_inner(&beans_dir, false, no_agents, &Output::new()).unwrap();
 
         let updated = Bean::from_file(find_bean_file(&beans_dir, "1").unwrap()).unwrap();
         assert_eq!(updated.status, Status::Open);
@@ -735,7 +737,7 @@ mod tests {
     fn tidy_empty_project() {
         let (_dir, beans_dir) = setup();
         // Should succeed with nothing to do
-        cmd_tidy_inner(&beans_dir, false, no_agents).unwrap();
+        cmd_tidy_inner(&beans_dir, false, no_agents, &Output::new()).unwrap();
     }
 
     // ── Index is rebuilt ───────────────────────────────────────────
@@ -752,7 +754,7 @@ mod tests {
         closed_bean.closed_at = Some(chrono::Utc::now());
         write_bean(&beans_dir, &closed_bean);
 
-        cmd_tidy_inner(&beans_dir, false, no_agents).unwrap();
+        cmd_tidy_inner(&beans_dir, false, no_agents, &Output::new()).unwrap();
 
         // Index should only contain the open bean (closed was archived)
         let index = Index::load(&beans_dir).unwrap();
@@ -775,7 +777,7 @@ mod tests {
         bean2.closed_at = Some(chrono::Utc::now());
         write_bean(&beans_dir, &bean2);
 
-        cmd_tidy_inner(&beans_dir, false, no_agents).unwrap();
+        cmd_tidy_inner(&beans_dir, false, no_agents, &Output::new()).unwrap();
 
         // archive.yaml should exist and contain both archived beans
         assert!(beans_dir.join("archive.yaml").exists());
@@ -795,7 +797,7 @@ mod tests {
         bean.closed_at = Some(chrono::Utc::now());
         write_bean(&beans_dir, &bean);
 
-        cmd_tidy_inner(&beans_dir, true, no_agents).unwrap();
+        cmd_tidy_inner(&beans_dir, true, no_agents, &Output::new()).unwrap();
 
         // archive.yaml should NOT be created in dry-run mode
         assert!(!beans_dir.join("archive.yaml").exists());

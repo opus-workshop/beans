@@ -8,13 +8,14 @@ use anyhow::{anyhow, Context, Result};
 use crate::bean::Bean;
 use crate::config::Config;
 use crate::discovery::find_bean_file;
+use crate::output::Output;
 
 /// Run the verify command for a bean without closing it.
 ///
 /// Returns `Ok(true)` if the command exits 0, `Ok(false)` if non-zero or timed out.
 /// If no verify command is set, prints a message and returns `Ok(true)`.
 /// Respects `verify_timeout` from the bean or project config.
-pub fn cmd_verify(beans_dir: &Path, id: &str) -> Result<bool> {
+pub fn cmd_verify(beans_dir: &Path, id: &str, out: &Output) -> Result<bool> {
     let bean_path = find_bean_file(beans_dir, id).map_err(|_| anyhow!("Bean not found: {}", id))?;
 
     let bean =
@@ -23,7 +24,7 @@ pub fn cmd_verify(beans_dir: &Path, id: &str) -> Result<bool> {
     let verify_cmd = match &bean.verify {
         Some(cmd) => cmd.clone(),
         None => {
-            println!("no verify command set for bean {}", id);
+            out.info(&format!("no verify command set for bean {}", id));
             return Ok(true);
         }
     };
@@ -38,9 +39,9 @@ pub fn cmd_verify(beans_dir: &Path, id: &str) -> Result<bool> {
         .parent()
         .ok_or_else(|| anyhow!("Cannot determine project root from beans dir"))?;
 
-    println!("Running: {}", verify_cmd);
+    out.info(&format!("Running: {}", verify_cmd));
     if let Some(secs) = timeout_secs {
-        println!("Timeout: {}s", secs);
+        out.info(&format!("Timeout: {}s", secs));
     }
 
     let mut child = ShellCommand::new("sh")
@@ -96,7 +97,8 @@ pub fn cmd_verify(beans_dir: &Path, id: &str) -> Result<bool> {
     let stdout_str = stdout_thread.join().unwrap_or_default();
     let stderr_str = stderr_thread.join().unwrap_or_default();
 
-    // Print captured output so the user can see what happened.
+    // Print captured subprocess output so the user can see what happened.
+    // These relay raw process output and bypass the Output abstraction.
     if !stdout_str.trim().is_empty() {
         print!("{}", stdout_str);
     }
@@ -105,20 +107,20 @@ pub fn cmd_verify(beans_dir: &Path, id: &str) -> Result<bool> {
     }
 
     if timed_out {
-        println!(
+        out.warn(&format!(
             "Verify timed out after {}s for bean {}",
             timeout_secs.unwrap_or(0),
             id
-        );
+        ));
         return Ok(false);
     }
 
     let status = exit_status.expect("exit_status is Some when not timed_out");
     if status.success() {
-        println!("Verify passed for bean {}", id);
+        out.success(id, "Verify passed");
         Ok(true)
     } else {
-        println!("Verify failed for bean {}", id);
+        out.error(&format!("Verify failed for bean {}", id));
         Ok(false)
     }
 }

@@ -5,6 +5,7 @@ use anyhow::Result;
 
 use crate::bean::Status;
 use crate::blocking::check_blocked;
+use crate::config::resolve_identity;
 use crate::index::{Index, IndexEntry};
 use crate::util::{natural_cmp, parse_status};
 
@@ -27,6 +28,7 @@ pub fn cmd_list(
     parent_filter: Option<&str>,
     label_filter: Option<&str>,
     assignee_filter: Option<&str>,
+    mine: bool,
     all: bool,
     json: bool,
     ids: bool,
@@ -37,6 +39,20 @@ pub fn cmd_list(
 
     // Parse status filter
     let status_filter = status_filter.and_then(parse_status);
+
+    // Resolve current user for --mine filter
+    let current_user = if mine {
+        let user = resolve_identity(beans_dir);
+        if user.is_none() {
+            anyhow::bail!(
+                "Cannot use --mine: no identity configured.\n\
+                 Set one with: bn config set user <name>"
+            );
+        }
+        user
+    } else {
+        None
+    };
 
     // Start with beans from the main index
     let mut filtered = index.beans.clone();
@@ -88,6 +104,18 @@ pub fn cmd_list(
             // We need to load the full bean to check assignee (not in index)
             // For now, skip this optimization and check during rendering
             return true;
+        }
+
+        // --mine filter: show beans claimed by or assigned to the current user
+        if let Some(ref user) = current_user {
+            let claimed_match = entry
+                .claimed_by
+                .as_ref()
+                .is_some_and(|c| c == user || c.starts_with(&format!("{}/", user)));
+            let assignee_match = entry.assignee.as_deref() == Some(user.as_str());
+            if !claimed_match && !assignee_match {
+                return false;
+            }
         }
 
         true

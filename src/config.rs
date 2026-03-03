@@ -70,6 +70,12 @@ pub struct Config {
     /// from clobbering the same file.
     #[serde(default, skip_serializing_if = "is_false_bool")]
     pub file_locking: bool,
+    /// Enable git worktree isolation for parallel agents (default: false).
+    /// When enabled, `bn run` creates a separate git worktree for each agent.
+    /// Each agent works in its own directory, preventing file contention.
+    /// On `bn close`, the worktree branch is merged back to main.
+    #[serde(default, skip_serializing_if = "is_false_bool")]
+    pub worktree: bool,
     /// Shell command template to run after a bean is successfully closed.
     /// Supports template variables: {id}, {title}, {status}, {branch}.
     /// Runs asynchronously — failures are logged but don't affect the close.
@@ -135,6 +141,7 @@ impl Default for Config {
             extends: Vec::new(),
             rules_file: None,
             file_locking: false,
+            worktree: false,
             on_close: None,
             on_fail: None,
             post_plan: None,
@@ -225,6 +232,9 @@ impl Config {
             if !config.file_locking {
                 config.file_locking = parent.file_locking;
             }
+            if !config.worktree {
+                config.worktree = parent.worktree;
+            }
             if config.on_close.is_none() {
                 config.on_close = parent.on_close.clone();
             }
@@ -239,6 +249,12 @@ impl Config {
             }
             if config.review.is_none() {
                 config.review = parent.review.clone();
+            }
+            if config.user.is_none() {
+                config.user = parent.user.clone();
+            }
+            if config.user_email.is_none() {
+                config.user_email = parent.user_email.clone();
             }
             // Never inherit: project, next_id, extends
         }
@@ -293,6 +309,106 @@ impl Config {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Global config (~/.config/beans/config.yaml)
+// ---------------------------------------------------------------------------
+
+/// Minimal global config stored at `~/.config/beans/config.yaml`.
+/// Only holds user identity fields — project-level config has everything else.
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct GlobalConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_email: Option<String>,
+}
+
+impl GlobalConfig {
+    /// Path to global config file: `~/.config/beans/config.yaml`.
+    pub fn path() -> Result<PathBuf> {
+        let home = dirs::home_dir().ok_or_else(|| anyhow!("Cannot determine home directory"))?;
+        Ok(home.join(".config").join("beans").join("config.yaml"))
+    }
+
+    /// Load global config. Returns Default if file doesn't exist.
+    pub fn load() -> Result<Self> {
+        let path = Self::path()?;
+        if !path.exists() {
+            return Ok(Self::default());
+        }
+        let contents = fs::read_to_string(&path)
+            .with_context(|| format!("Failed to read global config at {}", path.display()))?;
+        let config: GlobalConfig = serde_yml::from_str(&contents)
+            .with_context(|| format!("Failed to parse global config at {}", path.display()))?;
+        Ok(config)
+    }
+
+    /// Save global config, creating parent directories if needed.
+    pub fn save(&self) -> Result<()> {
+        let path = Self::path()?;
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("Failed to create {}", parent.display()))?;
+        }
+        let contents = serde_yml::to_string(self).context("Failed to serialize global config")?;
+        fs::write(&path, &contents)
+            .with_context(|| format!("Failed to write global config at {}", path.display()))?;
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Identity resolution
+// ---------------------------------------------------------------------------
+
+/// Resolve the current user identity using a priority chain:
+///
+/// 1. Project config `user` field (from `.beans/config.yaml`)
+/// 2. Global config `user` field (from `~/.config/beans/config.yaml`)
+/// 3. `git config user.name` (fallback)
+/// 4. `$USER` environment variable (last resort)
+///
+/// Returns `None` only if all sources fail.
+pub fn resolve_identity(beans_dir: &Path) -> Option<String> {
+    // 1. Project config
+    if let Ok(config) = Config::load(beans_dir) {
+        if let Some(ref user) = config.user {
+            if !user.is_empty() {
+                return Some(user.clone());
+            }
+        }
+    }
+
+    // 2. Global config
+    if let Ok(global) = GlobalConfig::load() {
+        if let Some(ref user) = global.user {
+            if !user.is_empty() {
+                return Some(user.clone());
+            }
+        }
+    }
+
+    // 3. git config user.name
+    if let Some(git_user) = git_config_user_name() {
+        return Some(git_user);
+    }
+
+    // 4. $USER env var
+    std::env::var("USER").ok().filter(|u| !u.is_empty())
+}
+
+/// Try to get `git config user.name`. Returns None on failure.
+fn git_config_user_name() -> Option<String> {
+    Command::new("git")
+        .args(["config", "user.name"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -313,11 +429,14 @@ mod tests {
             extends: vec![],
             rules_file: None,
             file_locking: false,
+            worktree: false,
             on_close: None,
             on_fail: None,
             post_plan: None,
             verify_timeout: None,
             review: None,
+            user: None,
+            user_email: None,
         };
 
         config.save(dir.path()).unwrap();
@@ -340,11 +459,14 @@ mod tests {
             extends: vec![],
             rules_file: None,
             file_locking: false,
+            worktree: false,
             on_close: None,
             on_fail: None,
             post_plan: None,
             verify_timeout: None,
             review: None,
+            user: None,
+            user_email: None,
         };
 
         assert_eq!(config.increment_id(), 1);
@@ -383,11 +505,14 @@ mod tests {
             extends: vec![],
             rules_file: None,
             file_locking: false,
+            worktree: false,
             on_close: None,
             on_fail: None,
             post_plan: None,
             verify_timeout: None,
             review: None,
+            user: None,
+            user_email: None,
         };
         config.save(dir.path()).unwrap();
 
@@ -425,11 +550,14 @@ mod tests {
             extends: vec![],
             rules_file: None,
             file_locking: false,
+            worktree: false,
             on_close: None,
             on_fail: None,
             post_plan: None,
             verify_timeout: None,
             review: None,
+            user: None,
+            user_email: None,
         };
         config.save(dir.path()).unwrap();
 
@@ -479,11 +607,14 @@ mod tests {
             extends: vec![],
             rules_file: None,
             file_locking: false,
+            worktree: false,
             on_close: None,
             on_fail: None,
             post_plan: None,
             verify_timeout: None,
             review: None,
+            user: None,
+            user_email: None,
         };
         config.save(dir.path()).unwrap();
 
@@ -509,11 +640,14 @@ mod tests {
             extends: vec![],
             rules_file: None,
             file_locking: false,
+            worktree: false,
             on_close: None,
             on_fail: None,
             post_plan: None,
             verify_timeout: None,
             review: None,
+            user: None,
+            user_email: None,
         };
         config.save(dir.path()).unwrap();
 
@@ -549,11 +683,14 @@ mod tests {
             extends: vec![],
             rules_file: None,
             file_locking: false,
+            worktree: false,
             on_close: None,
             on_fail: None,
             post_plan: None,
             verify_timeout: None,
             review: None,
+            user: None,
+            user_email: None,
         };
         config.save(dir.path()).unwrap();
 
@@ -763,11 +900,14 @@ mod tests {
             extends: vec![],
             rules_file: None,
             file_locking: false,
+            worktree: false,
             on_close: None,
             on_fail: None,
             post_plan: None,
             verify_timeout: None,
             review: None,
+            user: None,
+            user_email: None,
         };
         config.save(dir.path()).unwrap();
 
@@ -818,11 +958,14 @@ mod tests {
             extends: vec![],
             rules_file: None,
             file_locking: false,
+            worktree: false,
             on_close: None,
             on_fail: None,
             post_plan: None,
             verify_timeout: None,
             review: None,
+            user: None,
+            user_email: None,
         };
         config.save(dir.path()).unwrap();
 
@@ -845,11 +988,14 @@ mod tests {
             extends: vec![],
             rules_file: None,
             file_locking: false,
+            worktree: false,
             on_close: None,
             on_fail: None,
             post_plan: None,
             verify_timeout: None,
             review: None,
+            user: None,
+            user_email: None,
         };
         config.save(dir.path()).unwrap();
 
@@ -885,11 +1031,14 @@ mod tests {
             extends: vec![],
             rules_file: None,
             file_locking: false,
+            worktree: false,
             on_close: None,
             on_fail: None,
             post_plan: None,
             verify_timeout: None,
             review: None,
+            user: None,
+            user_email: None,
         };
         config.save(dir.path()).unwrap();
 
@@ -925,11 +1074,14 @@ mod tests {
             extends: vec![],
             rules_file: None,
             file_locking: false,
+            worktree: false,
             on_close: None,
             on_fail: None,
             post_plan: None,
             verify_timeout: None,
             review: None,
+            user: None,
+            user_email: None,
         };
         config.save(dir.path()).unwrap();
 
@@ -1030,11 +1182,14 @@ mod tests {
             extends: vec![],
             rules_file: None,
             file_locking: false,
+            worktree: false,
             on_close: None,
             on_fail: None,
             post_plan: None,
             verify_timeout: None,
             review: None,
+            user: None,
+            user_email: None,
         };
 
         config.save(dir.path()).unwrap();

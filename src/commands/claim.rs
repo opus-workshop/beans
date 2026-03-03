@@ -5,6 +5,7 @@ use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 
 use crate::bean::{AttemptOutcome, AttemptRecord, Bean, Status};
+use crate::config::resolve_identity;
 use crate::discovery::find_bean_file;
 use crate::index::Index;
 
@@ -91,9 +92,12 @@ pub fn cmd_claim(beans_dir: &Path, id: &str, by: Option<String>, force: bool) ->
         bean.checkpoint = git_head_sha(project_root);
     }
 
+    // Resolve identity: explicit --by > resolved identity > "anonymous"
+    let resolved_by = by.or_else(|| resolve_identity(beans_dir));
+
     let now = Utc::now();
     bean.status = Status::InProgress;
-    bean.claimed_by = by.clone();
+    bean.claimed_by = resolved_by.clone();
     bean.claimed_at = Some(now);
     bean.updated_at = now;
 
@@ -103,7 +107,7 @@ pub fn cmd_claim(beans_dir: &Path, id: &str, by: Option<String>, force: bool) ->
         num: attempt_num,
         outcome: AttemptOutcome::Abandoned, // default until close/release updates it
         notes: None,
-        agent: by.clone(),
+        agent: resolved_by.clone(),
         started_at: Some(now),
         finished_at: None,
     });
@@ -111,7 +115,7 @@ pub fn cmd_claim(beans_dir: &Path, id: &str, by: Option<String>, force: bool) ->
     bean.to_file(&bean_path)
         .with_context(|| format!("Failed to save bean: {}", id))?;
 
-    let claimer = by.as_deref().unwrap_or("anonymous");
+    let claimer = resolved_by.as_deref().unwrap_or("anonymous");
     println!("Claimed bean {}: {} (by {})", id, bean.title, claimer);
 
     // Rebuild index

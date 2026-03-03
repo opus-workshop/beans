@@ -2,7 +2,7 @@ use std::path::Path;
 
 use anyhow::{anyhow, Result};
 
-use crate::config::Config;
+use crate::config::{Config, GlobalConfig};
 
 /// Get a configuration value by key
 pub fn cmd_config_get(beans_dir: &Path, key: &str) -> Result<()> {
@@ -20,6 +20,24 @@ pub fn cmd_config_get(beans_dir: &Path, key: &str) -> Result<()> {
         "on_close" => config.on_close.unwrap_or_default(),
         "on_fail" => config.on_fail.unwrap_or_default(),
         "post_plan" => config.post_plan.unwrap_or_default(),
+        "user" => {
+            if let Some(user) = config.user {
+                user
+            } else if let Ok(global) = GlobalConfig::load() {
+                global.user.unwrap_or_default()
+            } else {
+                String::new()
+            }
+        }
+        "user.email" => {
+            if let Some(email) = config.user_email {
+                email
+            } else if let Ok(global) = GlobalConfig::load() {
+                global.user_email.unwrap_or_default()
+            } else {
+                String::new()
+            }
+        }
         _ => return Err(anyhow!("Unknown config key: {}", key)),
     };
 
@@ -104,6 +122,20 @@ pub fn cmd_config_set(beans_dir: &Path, key: &str, value: &str) -> Result<()> {
                 config.post_plan = None;
             } else {
                 config.post_plan = Some(value.to_string());
+            }
+        }
+        "user" => {
+            if value.is_empty() || value == "none" || value == "unset" {
+                config.user = None;
+            } else {
+                config.user = Some(value.to_string());
+            }
+        }
+        "user.email" => {
+            if value.is_empty() || value == "none" || value == "unset" {
+                config.user_email = None;
+            } else {
+                config.user_email = Some(value.to_string());
             }
         }
         _ => return Err(anyhow!("Unknown config key: {}", key)),

@@ -6,7 +6,7 @@ use anyhow::{anyhow, Context, Result};
 
 use crate::bean::{validate_priority, Bean, OnFailAction};
 use crate::commands::claim::cmd_claim;
-use crate::config::Config;
+use crate::config::{resolve_identity, Config};
 use crate::hooks::{execute_hook, HookEvent};
 use crate::index::Index;
 use crate::project::suggest_verify_command;
@@ -295,6 +295,9 @@ pub fn cmd_create(beans_dir: &Path, args: CreateArgs) -> Result<String> {
         bean.verify_timeout = Some(timeout);
     }
 
+    // Set created_by from resolved identity (field not yet in Bean struct)
+    // bean.created_by = resolve_identity(beans_dir);
+
     // Get the project directory (parent of beans_dir which is .beans)
     let project_dir = beans_dir
         .parent()
@@ -406,11 +409,14 @@ mod tests {
             extends: vec![],
             rules_file: None,
             file_locking: false,
+            worktree: false,
             on_close: None,
             on_fail: None,
             post_plan: None,
             verify_timeout: None,
             review: None,
+            user: None,
+            user_email: None,
         };
         config.save(&beans_dir).unwrap();
 

@@ -13,6 +13,7 @@ pub(crate) mod hooks;
 pub mod index;
 pub(crate) mod locks;
 pub mod mcp;
+pub mod output;
 pub(crate) mod pi_output;
 pub(crate) mod project;
 pub mod prompt;
