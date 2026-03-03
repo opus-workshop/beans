@@ -295,8 +295,8 @@ pub fn cmd_create(beans_dir: &Path, args: CreateArgs) -> Result<String> {
         bean.verify_timeout = Some(timeout);
     }
 
-    // Set created_by from resolved identity (field not yet in Bean struct)
-    // bean.created_by = resolve_identity(beans_dir);
+    // Set created_by from resolved identity
+    bean.created_by = resolve_identity(beans_dir);
 
     // Get the project directory (parent of beans_dir which is .beans)
     let project_dir = beans_dir
