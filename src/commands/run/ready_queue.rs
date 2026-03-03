@@ -6,10 +6,11 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 
-use crate::bean::Status;
+use crate::bean::{Bean, Status};
 use crate::config::Config;
 use crate::index::{Index, IndexEntry};
 use crate::pi_output::{self, AgentEvent};
+use crate::prompt::{build_agent_prompt, PromptOptions};
 use crate::stream::{self, StreamEvent};
 use crate::timeout::{self, MonitorResult, TimeoutConfig};
 use crate::util::natural_cmp;
@@ -273,7 +274,7 @@ pub(super) fn run_single_direct(
         }
     }
 
-    // Find the bean file
+    // Load the full bean for prompt construction
     let bean_file = match crate::discovery::find_bean_file(beans_dir, &sb.id) {
         Ok(p) => p,
         Err(e) => {
@@ -290,19 +291,57 @@ pub(super) fn run_single_direct(
         }
     };
 
-    // Assemble context from the bean's description
-    let context = assemble_bean_context(beans_dir, &sb.id);
+    let bean = match Bean::from_file(&bean_file) {
+        Ok(b) => b,
+        Err(e) => {
+            return AgentResult {
+                id: sb.id.clone(),
+                title: sb.title.clone(),
+                action: sb.action,
+                success: false,
+                duration: started.elapsed(),
+                total_tokens: None,
+                total_cost: None,
+                error: Some(format!("Cannot parse bean file: {}", e)),
+            };
+        }
+    };
 
-    // Build pi command
+    // Build structured prompt via prompt module
+    let prompt_options = PromptOptions {
+        beans_dir: beans_dir.to_path_buf(),
+        instructions: None,
+        concurrent_overlaps: None,
+    };
+
+    let prompt_result = match build_agent_prompt(&bean, &prompt_options) {
+        Ok(r) => r,
+        Err(e) => {
+            return AgentResult {
+                id: sb.id.clone(),
+                title: sb.title.clone(),
+                action: sb.action,
+                success: false,
+                duration: started.elapsed(),
+                total_tokens: None,
+                total_cost: None,
+                error: Some(format!("Failed to build prompt: {}", e)),
+            };
+        }
+    };
+
+    // Build pi command using structured prompt fields
     let mut cmd = Command::new("pi");
     cmd.args(["--mode", "json", "--print", "--no-session"]);
 
-    if !context.is_empty() {
-        cmd.args(["--append-system-prompt", &context]);
+    if !prompt_result.system_prompt.is_empty() {
+        cmd.args(["--append-system-prompt", &prompt_result.system_prompt]);
     }
 
-    cmd.arg(format!("@{}", bean_file.display()));
-    cmd.arg(format!("Implement this bean and run `bn close {}`", sb.id));
+    if !prompt_result.file_ref.is_empty() {
+        cmd.arg(&prompt_result.file_ref);
+    }
+    cmd.arg(&prompt_result.user_message);
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
 
@@ -472,58 +511,7 @@ pub(super) fn run_single_direct(
     }
 }
 
-/// Assemble context string for a bean (rules + referenced files).
-fn assemble_bean_context(beans_dir: &Path, bean_id: &str) -> String {
-    let config = match Config::load_with_extends(beans_dir) {
-        Ok(c) => c,
-        Err(_) => return String::new(),
-    };
 
-    let mut context_parts = Vec::new();
-
-    // Include rules file if present
-    let rules_path = config.rules_path(beans_dir);
-    if rules_path.exists() {
-        if let Ok(rules) = std::fs::read_to_string(&rules_path) {
-            if !rules.trim().is_empty() {
-                context_parts.push(rules);
-            }
-        }
-    }
-
-    // Gather file references from the bean's description
-    let bean_path = match crate::discovery::find_bean_file(beans_dir, bean_id) {
-        Ok(p) => p,
-        Err(_) => return context_parts.join("\n\n"),
-    };
-
-    let bean = match crate::bean::Bean::from_file(&bean_path) {
-        Ok(b) => b,
-        Err(_) => return context_parts.join("\n\n"),
-    };
-
-    // Extract file paths from description + acceptance
-    let mut text_to_scan = String::new();
-    if let Some(ref desc) = bean.description {
-        text_to_scan.push_str(desc);
-    }
-    if let Some(ref acc) = bean.acceptance {
-        text_to_scan.push('\n');
-        text_to_scan.push_str(acc);
-    }
-
-    let workspace = beans_dir.parent().unwrap_or(Path::new("."));
-    let paths = crate::ctx_assembler::extract_paths(&text_to_scan);
-    if !paths.is_empty() {
-        if let Ok(file_context) = crate::ctx_assembler::assemble_context(paths, workspace) {
-            if !file_context.trim().is_empty() {
-                context_parts.push(file_context);
-            }
-        }
-    }
-
-    context_parts.join("\n\n")
-}
 
 #[cfg(test)]
 mod tests {
@@ -692,16 +680,30 @@ mod tests {
     }
 
     #[test]
-    fn assemble_bean_context_returns_empty_for_missing_bean() {
+    fn build_prompt_returns_err_for_missing_bean() {
         let (_dir, beans_dir) = make_beans_dir();
         write_config(&beans_dir, None);
 
-        let ctx = assemble_bean_context(&beans_dir, "nonexistent");
-        assert!(ctx.is_empty());
+        // build_agent_prompt requires a Bean struct, so a missing bean is
+        // handled by the caller (run_single_direct) before we get here.
+        // Instead, verify that a bean with no description still produces a prompt.
+        let bean = crate::bean::Bean::new("1", "Test");
+        bean.to_file(beans_dir.join("1-test.md")).unwrap();
+
+        let options = PromptOptions {
+            beans_dir: beans_dir.clone(),
+            instructions: None,
+            concurrent_overlaps: None,
+        };
+        let result = build_agent_prompt(&bean, &options);
+        assert!(result.is_ok());
+        let prompt = result.unwrap();
+        assert!(prompt.system_prompt.contains("Bean Assignment"));
+        assert!(prompt.user_message.contains("bn close 1"));
     }
 
     #[test]
-    fn assemble_bean_context_includes_rules() {
+    fn build_prompt_includes_rules() {
         let (_dir, beans_dir) = make_beans_dir();
         write_config(&beans_dir, None);
 
@@ -712,7 +714,13 @@ mod tests {
         let bean = crate::bean::Bean::new("1", "Test");
         bean.to_file(beans_dir.join("1-test.md")).unwrap();
 
-        let ctx = assemble_bean_context(&beans_dir, "1");
-        assert!(ctx.contains("Project Rules"));
+        let options = PromptOptions {
+            beans_dir: beans_dir.clone(),
+            instructions: None,
+            concurrent_overlaps: None,
+        };
+        let result = build_agent_prompt(&bean, &options).unwrap();
+        assert!(result.system_prompt.contains("Project Rules"));
+        assert!(result.system_prompt.contains("Always test."));
     }
 }

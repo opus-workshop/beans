@@ -14,6 +14,7 @@ pub(crate) mod locks;
 pub mod mcp;
 pub(crate) mod pi_output;
 pub(crate) mod project;
+pub mod prompt;
 pub(crate) mod relevance;
 pub(crate) mod stream;
 pub(crate) mod timeout;

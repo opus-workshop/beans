@@ -416,6 +416,10 @@ Examples:
         /// Output only the structural summary (signatures, imports) — skip full file contents
         #[arg(long)]
         structure_only: bool,
+
+        /// Output the full structured agent prompt (what an agent sees during bn run)
+        #[arg(long, conflicts_with_all = ["json", "structure_only"])]
+        agent_prompt: bool,
     },
 
     /// Show hierarchical tree of beans

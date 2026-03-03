@@ -538,12 +538,13 @@ fn main() -> Result<()> {
             id,
             json,
             structure_only,
+            agent_prompt,
         } => {
             match id {
                 Some(ref id_str) => {
                     validate_bean_id(id_str)?;
                     let resolved_id = resolve_bean_id(id_str, &beans_dir)?;
-                    cmd_context(&beans_dir, &resolved_id, json, structure_only)
+                    cmd_context(&beans_dir, &resolved_id, json, structure_only, agent_prompt)
                 }
                 None => {
                     // No ID: output memory context

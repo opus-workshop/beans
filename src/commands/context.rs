@@ -8,6 +8,7 @@ use crate::config::Config;
 use crate::ctx_assembler::{assemble_context, extract_paths, read_file};
 use crate::discovery::find_bean_file;
 use crate::index::Index;
+use crate::prompt::{build_agent_prompt, PromptOptions};
 
 /// Load project rules from the configured rules file.
 ///
@@ -446,7 +447,7 @@ fn merge_paths(bean: &Bean) -> Vec<String> {
 /// regex-extracted paths from the description (fills gaps).
 ///
 /// When `structure_only` is true, only structural summaries are emitted.
-pub fn cmd_context(beans_dir: &Path, id: &str, json: bool, structure_only: bool) -> Result<()> {
+pub fn cmd_context(beans_dir: &Path, id: &str, json: bool, structure_only: bool, agent_prompt: bool) -> Result<()> {
     let bean_path =
         find_bean_file(beans_dir, id).context(format!("Could not find bean with ID: {}", id))?;
 
@@ -454,6 +455,18 @@ pub fn cmd_context(beans_dir: &Path, id: &str, json: bool, structure_only: bool)
         "Failed to parse bean from: {}",
         bean_path.display()
     ))?;
+
+    // --agent-prompt: output the full structured prompt that an agent sees during bn run
+    if agent_prompt {
+        let options = PromptOptions {
+            beans_dir: beans_dir.to_path_buf(),
+            instructions: None,
+            concurrent_overlaps: None,
+        };
+        let result = build_agent_prompt(&bean, &options)?;
+        println!("{}", result.system_prompt);
+        return Ok(());
+    }
 
     let project_dir = beans_dir
         .parent()
@@ -640,7 +653,7 @@ mod tests {
         bean.to_file(&bean_path).unwrap();
 
         // Should succeed but print a tip
-        let result = cmd_context(&beans_dir, "1", false, false);
+        let result = cmd_context(&beans_dir, "1", false, false, false);
         assert!(result.is_ok());
     }
 
@@ -661,7 +674,7 @@ mod tests {
         let bean_path = beans_dir.join(format!("1-{}.md", slug));
         bean.to_file(&bean_path).unwrap();
 
-        let result = cmd_context(&beans_dir, "1", false, false);
+        let result = cmd_context(&beans_dir, "1", false, false, false);
         assert!(result.is_ok());
     }
 
@@ -669,7 +682,7 @@ mod tests {
     fn context_bean_not_found() {
         let (_dir, beans_dir) = setup_test_env();
 
-        let result = cmd_context(&beans_dir, "999", false, false);
+        let result = cmd_context(&beans_dir, "999", false, false, false);
         assert!(result.is_err());
     }
 
@@ -849,7 +862,7 @@ mod tests {
         bean.to_file(&bean_path).unwrap();
 
         // The function prints to stdout — just verify it runs without error
-        let result = cmd_context(&beans_dir, "1", false, false);
+        let result = cmd_context(&beans_dir, "1", false, false, false);
         assert!(result.is_ok());
     }
 
@@ -869,7 +882,7 @@ mod tests {
         let bean_path = beans_dir.join(format!("1-{}.md", slug));
         bean.to_file(&bean_path).unwrap();
 
-        let result = cmd_context(&beans_dir, "1", true, false);
+        let result = cmd_context(&beans_dir, "1", true, false, false);
         assert!(result.is_ok());
     }
 }
