@@ -219,8 +219,8 @@ fn render_entry(
     }
 }
 
-/// Get status indicator and optional block reason suffix for an entry.
-/// Returns (indicator, reason_suffix) where reason_suffix is e.g. " (oversized)".
+/// Get status indicator and optional suffix for an entry.
+/// Returns (indicator, suffix) where suffix is e.g. " (waiting on 3.1)" or " (⚠ oversized)".
 fn get_status_indicator(entry: &IndexEntry, index: &Index) -> (String, String) {
     if let Some(reason) = check_blocked(entry, index) {
         ("[!]".to_string(), format!("  ({})", reason))
@@ -230,7 +230,11 @@ fn get_status_indicator(entry: &IndexEntry, index: &Index) -> (String, String) {
             Status::InProgress => "[-]",
             Status::Closed => "[x]",
         };
-        (indicator.to_string(), String::new())
+        // Scope warnings are non-blocking annotations
+        let suffix = crate::blocking::check_scope_warning(entry)
+            .map(|w| format!("  (⚠ {})", w))
+            .unwrap_or_default();
+        (indicator.to_string(), suffix)
     }
 }
 
@@ -370,28 +374,30 @@ mod tests {
     }
 
     #[test]
-    fn status_indicator_blocked_oversized() {
+    fn status_indicator_oversized_shows_warning() {
         let mut entry = make_scoped_entry("1", Status::Open);
         entry.produces = vec!["A".into(), "B".into(), "C".into(), "D".into()];
         let index = Index {
             beans: vec![entry.clone()],
         };
-        let (indicator, reason) = get_status_indicator(&entry, &index);
-        assert_eq!(indicator, "[!]");
-        assert!(reason.contains("oversized"));
+        let (indicator, suffix) = get_status_indicator(&entry, &index);
+        // Not blocked — still shows [ ] with a warning suffix
+        assert_eq!(indicator, "[ ]");
+        assert!(suffix.contains("oversized"));
     }
 
     #[test]
-    fn status_indicator_blocked_unscoped() {
+    fn status_indicator_unscoped_no_warning() {
         let mut entry = make_scoped_entry("1", Status::Open);
         entry.produces = Vec::new();
         entry.paths = Vec::new();
         let index = Index {
             beans: vec![entry.clone()],
         };
-        let (indicator, reason) = get_status_indicator(&entry, &index);
-        assert_eq!(indicator, "[!]");
-        assert!(reason.contains("unscoped"));
+        let (indicator, suffix) = get_status_indicator(&entry, &index);
+        // Unscoped is totally fine — no warning, no blocking
+        assert_eq!(indicator, "[ ]");
+        assert!(suffix.is_empty());
     }
 
     #[test]

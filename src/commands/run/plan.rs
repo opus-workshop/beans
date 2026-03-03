@@ -88,37 +88,40 @@ pub(super) fn plan_dispatch(
     }
 
     // Partition into dispatchable vs blocked.
-    // Dependency blocking is already handled above via all_deps_closed,
-    // so check_blocked here only catches dep-related issues.
+    // In simulate mode, skip blocking checks — we want to show the full plan.
+    // In normal mode, dependency blocking is already handled by all_deps_closed above,
+    // but check_blocked catches edge cases (e.g., missing deps not in index).
     // Scope warnings (oversized) are non-blocking — beans dispatch with a warning.
     let mut dispatch_beans: Vec<SizedBean> = Vec::new();
     let mut skipped: Vec<BlockedBean> = Vec::new();
     let mut warnings: Vec<(String, ScopeWarning)> = Vec::new();
 
     for entry in &candidate_entries {
-        if let Some(reason) = check_blocked(entry, &index) {
-            skipped.push(BlockedBean {
-                id: entry.id.clone(),
-                title: entry.title.clone(),
-                reason,
-            });
-        } else {
-            // Check for scope warnings (non-blocking)
-            if let Some(warning) = check_scope_warning(entry) {
-                warnings.push((entry.id.clone(), warning));
+        if !simulate {
+            if let Some(reason) = check_blocked(entry, &index) {
+                skipped.push(BlockedBean {
+                    id: entry.id.clone(),
+                    title: entry.title.clone(),
+                    reason,
+                });
+                continue;
             }
-            dispatch_beans.push(SizedBean {
-                id: entry.id.clone(),
-                title: entry.title.clone(),
-                action: BeanAction::Implement,
-                priority: entry.priority,
-                dependencies: entry.dependencies.clone(),
-                parent: entry.parent.clone(),
-                produces: entry.produces.clone(),
-                requires: entry.requires.clone(),
-                paths: entry.paths.clone(),
-            });
         }
+        // Check for scope warnings (non-blocking)
+        if let Some(warning) = check_scope_warning(entry) {
+            warnings.push((entry.id.clone(), warning));
+        }
+        dispatch_beans.push(SizedBean {
+            id: entry.id.clone(),
+            title: entry.title.clone(),
+            action: BeanAction::Implement,
+            priority: entry.priority,
+            dependencies: entry.dependencies.clone(),
+            parent: entry.parent.clone(),
+            produces: entry.produces.clone(),
+            requires: entry.requires.clone(),
+            paths: entry.paths.clone(),
+        });
     }
 
     let waves = compute_waves(&dispatch_beans, &index);
