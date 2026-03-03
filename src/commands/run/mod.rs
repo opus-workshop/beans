@@ -65,14 +65,12 @@ pub struct RunArgs {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BeanAction {
     Implement,
-    Plan,
 }
 
 impl fmt::Display for BeanAction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             BeanAction::Implement => write!(f, "implement"),
-            BeanAction::Plan => write!(f, "plan"),
         }
     }
 }
@@ -192,19 +190,11 @@ fn run_once(
         return Ok(());
     }
 
-    // Report skipped beans
+    // Report blocked beans (oversized/unscoped)
     if !plan.skipped.is_empty() && !args.json_stream {
-        eprintln!(
-            "{} bean(s) need planning, run `bn plan`:",
-            plan.skipped.len()
-        );
-        for sb in &plan.skipped {
-            eprintln!(
-                "  ⚠ {}  {}  ({}k tokens)",
-                sb.id,
-                sb.title,
-                sb.tokens / 1000
-            );
+        eprintln!("{} bean(s) blocked:", plan.skipped.len());
+        for bb in &plan.skipped {
+            eprintln!("  ⚠ {}  {}  ({})", bb.id, bb.title, bb.reason);
         }
         eprintln!();
     }

@@ -4,6 +4,7 @@ use std::path::Path;
 use anyhow::Result;
 
 use crate::bean::Status;
+use crate::blocking::{check_blocked, BlockReason};
 use crate::index::{Index, IndexEntry};
 use crate::util::natural_cmp;
 
@@ -147,6 +148,7 @@ fn output_ascii_graph(index: &Index) -> Result<()> {
             &blocked_by,
             &blocks,
             &id_map,
+            index,
             &mut printed,
             "",
             true,
@@ -168,7 +170,7 @@ fn output_ascii_graph(index: &Index) -> Result<()> {
     if !orphans.is_empty() {
         println!("\n┌─ Orphans (missing parent)");
         for orphan in orphans {
-            println!("│  {}", format_node(orphan));
+            println!("│  {}", format_node(orphan, index));
             printed.insert(&orphan.id);
         }
         println!("└─");
@@ -192,6 +194,7 @@ fn render_tree<'a>(
     blocked_by: &HashMap<&str, Vec<&str>>,
     blocks: &HashMap<&str, Vec<&str>>,
     id_map: &HashMap<&str, &IndexEntry>,
+    index: &Index,
     printed: &mut HashSet<&'a str>,
     prefix: &str,
     is_last: bool,
@@ -208,7 +211,7 @@ fn render_tree<'a>(
         "├── "
     };
 
-    let node_str = format_node(entry);
+    let node_str = format_node(entry, index);
 
     // Add dependency annotations
     let deps_annotation = if let Some(deps) = blocked_by.get(entry.id.as_str()) {
@@ -289,6 +292,7 @@ fn render_tree<'a>(
                 blocked_by,
                 blocks,
                 id_map,
+                index,
                 printed,
                 &new_prefix,
                 child_is_last,
@@ -298,14 +302,25 @@ fn render_tree<'a>(
     }
 }
 
-fn format_node(entry: &IndexEntry) -> String {
-    let status_icon = match entry.status {
-        Status::Closed => "[✓]",
-        Status::InProgress => "[●]",
-        Status::Open => "[ ]",
+fn format_node(entry: &IndexEntry, index: &Index) -> String {
+    let status_icon = match check_blocked(entry, index) {
+        Some(BlockReason::Oversized) => "[!]",
+        Some(BlockReason::Unscoped) => "[!]",
+        _ => match entry.status {
+            Status::Closed => "[✓]",
+            Status::InProgress => "[●]",
+            Status::Open => "[ ]",
+        },
     };
 
-    format!("{} {}  {}", status_icon, entry.id, entry.title)
+    let suffix = match check_blocked(entry, index) {
+        Some(reason @ BlockReason::Oversized) | Some(reason @ BlockReason::Unscoped) => {
+            format!("  ({})", reason)
+        }
+        _ => String::new(),
+    };
+
+    format!("{} {}  {}{}", status_icon, entry.id, entry.title, suffix)
 }
 
 fn output_dot_graph(index: &Index) -> Result<()> {
@@ -513,7 +528,7 @@ mod tests {
 
         // Verify the full title appears in format_node output
         let index = Index::load_or_rebuild(&beans_dir).unwrap();
-        let node = format_node(&index.beans[0]);
+        let node = format_node(&index.beans[0], &index);
         assert!(
             node.contains(long_title),
             "Full title should appear in graph node"

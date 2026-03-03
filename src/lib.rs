@@ -1,5 +1,6 @@
 pub mod api;
 pub mod bean;
+pub mod blocking;
 pub(crate) mod cli;
 pub mod commands;
 pub mod config;

@@ -10,6 +10,7 @@ use chrono::Utc;
 use serde_json::{json, Value};
 
 use crate::bean::{Bean, Status};
+use crate::blocking::check_blocked;
 use crate::config::Config;
 use crate::discovery::find_bean_file;
 use crate::index::{Index, IndexEntry};
@@ -315,7 +316,7 @@ fn handle_ready_beans(beans_dir: &Path) -> Result<String> {
         .filter(|entry| {
             entry.has_verify
                 && entry.status == Status::Open
-                && resolve_blocked(entry, &index).is_empty()
+                && check_blocked(entry, &index).is_none()
         })
         .collect();
 
@@ -629,14 +630,14 @@ fn handle_status(beans_dir: &Path) -> Result<String> {
     let mut claimed = Vec::new();
     let mut ready = Vec::new();
     let mut goals = Vec::new();
-    let mut blocked = Vec::new();
+    let mut blocked: Vec<(&IndexEntry, String)> = Vec::new();
 
     for entry in &index.beans {
         match entry.status {
             Status::InProgress => claimed.push(entry),
             Status::Open => {
-                if is_blocked(entry, &index) {
-                    blocked.push(entry);
+                if let Some(reason) = check_blocked(entry, &index) {
+                    blocked.push((entry, reason.to_string()));
                 } else if entry.has_verify {
                     ready.push(entry);
                 } else {
@@ -661,11 +662,24 @@ fn handle_status(beans_dir: &Path) -> Result<String> {
             .collect()
     };
 
+    let blocked_entries: Vec<Value> = blocked
+        .iter()
+        .map(|(e, reason)| {
+            json!({
+                "id": e.id,
+                "title": e.title,
+                "priority": format!("P{}", e.priority),
+                "claimed_by": e.claimed_by,
+                "block_reason": reason,
+            })
+        })
+        .collect();
+
     serde_json::to_string_pretty(&json!({
         "claimed": format_entries(&claimed),
         "ready": format_entries(&ready),
         "goals": format_entries(&goals),
-        "blocked": format_entries(&blocked),
+        "blocked": blocked_entries,
         "summary": format!(
             "{} claimed, {} ready, {} goals, {} blocked",
             claimed.len(), ready.len(), goals.len(), blocked.len()
@@ -707,41 +721,6 @@ fn handle_tree(args: &Value, beans_dir: &Path) -> Result<String> {
 // ---------------------------------------------------------------------------
 // Helper Functions
 // ---------------------------------------------------------------------------
-
-/// Check if a bean is blocked by any dependency.
-fn is_blocked(entry: &IndexEntry, index: &Index) -> bool {
-    !resolve_blocked(entry, index).is_empty()
-}
-
-/// Return list of dependency IDs that are not closed.
-fn resolve_blocked(entry: &IndexEntry, index: &Index) -> Vec<String> {
-    let mut blocked_by = Vec::new();
-
-    for dep_id in &entry.dependencies {
-        if let Some(dep_entry) = index.beans.iter().find(|e| &e.id == dep_id) {
-            if dep_entry.status != Status::Closed {
-                blocked_by.push(dep_id.clone());
-            }
-        } else {
-            blocked_by.push(dep_id.clone());
-        }
-    }
-
-    // Smart dependencies: requires vs sibling produces
-    for required in &entry.requires {
-        if let Some(producer) = index
-            .beans
-            .iter()
-            .find(|e| e.id != entry.id && e.parent == entry.parent && e.produces.contains(required))
-        {
-            if producer.status != Status::Closed && !blocked_by.contains(&producer.id) {
-                blocked_by.push(producer.id.clone());
-            }
-        }
-    }
-
-    blocked_by
-}
 
 /// Check if all children of a parent bean are closed.
 fn all_children_closed(beans_dir: &Path, parent_id: &str) -> Result<bool> {

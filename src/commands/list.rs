@@ -4,6 +4,7 @@ use std::path::Path;
 use anyhow::Result;
 
 use crate::bean::Status;
+use crate::blocking::check_blocked;
 use crate::index::{Index, IndexEntry};
 use crate::util::{natural_cmp, parse_status};
 
@@ -176,10 +177,10 @@ fn render_entry(
     index: &Index,
 ) {
     let indent = "  ".repeat(depth as usize);
-    let status_indicator = get_status_indicator(entry, index);
+    let (status_indicator, reason_suffix) = get_status_indicator(entry, index);
     output.push_str(&format!(
-        "{}{} {}. {}\n",
-        indent, status_indicator, entry.id, entry.title
+        "{}{} {}. {}{}\n",
+        indent, status_indicator, entry.id, entry.title, reason_suffix
     ));
 
     // Render children
@@ -190,29 +191,19 @@ fn render_entry(
     }
 }
 
-/// Get status indicator for an entry
-fn get_status_indicator(entry: &IndexEntry, index: &Index) -> String {
-    if is_blocked(entry, index) {
-        "[!]".to_string()
+/// Get status indicator and optional block reason suffix for an entry.
+/// Returns (indicator, reason_suffix) where reason_suffix is e.g. " (oversized)".
+fn get_status_indicator(entry: &IndexEntry, index: &Index) -> (String, String) {
+    if let Some(reason) = check_blocked(entry, index) {
+        ("[!]".to_string(), format!("  ({})", reason))
     } else {
-        match entry.status {
-            Status::Open => "[ ]".to_string(),
-            Status::InProgress => "[-]".to_string(),
-            Status::Closed => "[x]".to_string(),
-        }
+        let indicator = match entry.status {
+            Status::Open => "[ ]",
+            Status::InProgress => "[-]",
+            Status::Closed => "[x]",
+        };
+        (indicator.to_string(), String::new())
     }
-}
-
-/// Check if a bean is blocked by unresolved dependencies
-fn is_blocked(entry: &IndexEntry, index: &Index) -> bool {
-    for dep_id in &entry.dependencies {
-        if let Some(dep_entry) = index.beans.iter().find(|e| &e.id == dep_id) {
-            if dep_entry.status != Status::Closed {
-                return true;
-            }
-        }
-    }
-    false
 }
 
 #[cfg(test)]
@@ -275,90 +266,110 @@ mod tests {
     }
 
     #[test]
-    fn is_blocked_by_open_dependency() {
+    fn blocked_by_open_dependency() {
         let index = Index::build(&setup_test_beans().1).unwrap();
         let entry = index.beans.iter().find(|e| e.id == "3").unwrap();
         // bean 3 depends on bean 1 which is open, so bean 3 is blocked
-        assert!(is_blocked(entry, &index));
+        assert!(check_blocked(entry, &index).is_some());
     }
 
     #[test]
-    fn is_not_blocked_when_no_dependencies() {
+    fn not_blocked_when_no_dependencies() {
         let index = Index::build(&setup_test_beans().1).unwrap();
         let entry = index.beans.iter().find(|e| e.id == "1").unwrap();
-        assert!(!is_blocked(entry, &index));
+        // bean 1 has no deps, but also no produces/paths so it's unscoped
+        // (the shared check_blocked handles scope checks too)
+        let reason = check_blocked(entry, &index);
+        assert!(
+            reason.is_none()
+                || matches!(
+                    reason,
+                    Some(crate::blocking::BlockReason::Unscoped)
+                        | Some(crate::blocking::BlockReason::Oversized)
+                ),
+            "should not be blocked by dependencies"
+        );
+    }
+
+    fn make_scoped_entry(id: &str, status: Status) -> IndexEntry {
+        IndexEntry {
+            id: id.to_string(),
+            title: "Test".to_string(),
+            status,
+            priority: 2,
+            parent: None,
+            dependencies: Vec::new(),
+            labels: Vec::new(),
+            assignee: None,
+            updated_at: chrono::Utc::now(),
+            produces: vec!["Artifact".to_string()],
+            requires: Vec::new(),
+            has_verify: true,
+            claimed_by: None,
+            attempts: 0,
+            paths: vec!["src/test.rs".to_string()],
+        }
     }
 
     #[test]
     fn status_indicator_open() {
-        let entry = IndexEntry {
-            id: "1".to_string(),
-            title: "Test".to_string(),
-            status: Status::Open,
-            priority: 2,
-            parent: None,
-            dependencies: Vec::new(),
-            labels: Vec::new(),
-            assignee: None,
-            updated_at: chrono::Utc::now(),
-            produces: Vec::new(),
-            requires: Vec::new(),
-            has_verify: true,
-            claimed_by: None,
-            attempts: 0,
-        };
+        let entry = make_scoped_entry("1", Status::Open);
         let index = Index {
             beans: vec![entry.clone()],
         };
-        assert_eq!(get_status_indicator(&entry, &index), "[ ]");
+        assert_eq!(
+            get_status_indicator(&entry, &index),
+            ("[ ]".to_string(), String::new())
+        );
     }
 
     #[test]
     fn status_indicator_in_progress() {
-        let entry = IndexEntry {
-            id: "1".to_string(),
-            title: "Test".to_string(),
-            status: Status::InProgress,
-            priority: 2,
-            parent: None,
-            dependencies: Vec::new(),
-            labels: Vec::new(),
-            assignee: None,
-            updated_at: chrono::Utc::now(),
-            produces: Vec::new(),
-            requires: Vec::new(),
-            has_verify: true,
-            claimed_by: None,
-            attempts: 0,
-        };
+        let entry = make_scoped_entry("1", Status::InProgress);
         let index = Index {
             beans: vec![entry.clone()],
         };
-        assert_eq!(get_status_indicator(&entry, &index), "[-]");
+        assert_eq!(
+            get_status_indicator(&entry, &index),
+            ("[-]".to_string(), String::new())
+        );
     }
 
     #[test]
     fn status_indicator_closed() {
-        let entry = IndexEntry {
-            id: "1".to_string(),
-            title: "Test".to_string(),
-            status: Status::Closed,
-            priority: 2,
-            parent: None,
-            dependencies: Vec::new(),
-            labels: Vec::new(),
-            assignee: None,
-            updated_at: chrono::Utc::now(),
-            produces: Vec::new(),
-            requires: Vec::new(),
-            has_verify: true,
-            claimed_by: None,
-            attempts: 0,
-        };
+        let entry = make_scoped_entry("1", Status::Closed);
         let index = Index {
             beans: vec![entry.clone()],
         };
-        assert_eq!(get_status_indicator(&entry, &index), "[x]");
+        assert_eq!(
+            get_status_indicator(&entry, &index),
+            ("[x]".to_string(), String::new())
+        );
+    }
+
+    #[test]
+    fn status_indicator_blocked_oversized() {
+        let mut entry = make_scoped_entry("1", Status::Open);
+        entry.produces = vec!["A".into(), "B".into(), "C".into(), "D".into()];
+        let index = Index {
+            beans: vec![entry.clone()],
+        };
+        let (indicator, reason) = get_status_indicator(&entry, &index);
+        assert_eq!(indicator, "[!]");
+        assert!(reason.contains("oversized"));
+    }
+
+    #[test]
+    fn status_indicator_blocked_unscoped() {
+        let mut entry = make_scoped_entry("1", Status::Open);
+        entry.produces = Vec::new();
+        entry.paths = Vec::new();
+        let index = Index {
+            beans: vec![entry.clone()],
+        };
+        let (indicator, reason) = get_status_indicator(&entry, &index);
+        assert_eq!(indicator, "[!]");
+        assert!(reason.contains("unscoped"));
     }
 
     #[test]

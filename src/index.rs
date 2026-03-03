@@ -45,6 +45,9 @@ pub struct IndexEntry {
     /// Number of verify attempts so far
     #[serde(default)]
     pub attempts: u32,
+    /// File paths this bean touches (for scope-based blocking)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub paths: Vec<String>,
 }
 
 impl From<&Bean> for IndexEntry {
@@ -64,6 +67,7 @@ impl From<&Bean> for IndexEntry {
             has_verify: bean.verify.is_some(),
             claimed_by: bean.claimed_by.clone(),
             attempts: bean.attempts,
+            paths: bean.paths.clone(),
         }
     }
 }

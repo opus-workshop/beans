@@ -131,7 +131,7 @@ pub(super) fn run_wave(
 fn run_wave_template(
     beans: &[SizedBean],
     run_template: &str,
-    plan_template: Option<&str>,
+    _plan_template: Option<&str>,
     max_jobs: usize,
     _timeout_minutes: u32,
 ) -> Result<Vec<AgentResult>> {
@@ -146,24 +146,6 @@ fn run_wave_template(
             let sb = pending.remove(0);
             let template = match sb.action {
                 BeanAction::Implement => run_template,
-                BeanAction::Plan => {
-                    if let Some(pt) = plan_template {
-                        pt
-                    } else {
-                        // No plan template — skip with error
-                        results.push(AgentResult {
-                            id: sb.id.clone(),
-                            title: sb.title.clone(),
-                            action: sb.action,
-                            success: false,
-                            duration: Duration::ZERO,
-                            total_tokens: None,
-                            total_cost: None,
-                            error: Some("No plan template configured".to_string()),
-                        });
-                        continue;
-                    }
-                }
             };
 
             let cmd = template.replace("{id}", &sb.id);
@@ -326,7 +308,6 @@ mod tests {
             SizedBean {
                 id: "1".to_string(),
                 title: "A".to_string(),
-                tokens: 100,
                 action: BeanAction::Implement,
                 priority: 2,
                 dependencies: vec![],
@@ -338,7 +319,6 @@ mod tests {
             SizedBean {
                 id: "2".to_string(),
                 title: "B".to_string(),
-                tokens: 100,
                 action: BeanAction::Implement,
                 priority: 2,
                 dependencies: vec![],
@@ -360,7 +340,6 @@ mod tests {
             SizedBean {
                 id: "1".to_string(),
                 title: "A".to_string(),
-                tokens: 100,
                 action: BeanAction::Implement,
                 priority: 2,
                 dependencies: vec![],
@@ -372,7 +351,6 @@ mod tests {
             SizedBean {
                 id: "2".to_string(),
                 title: "B".to_string(),
-                tokens: 100,
                 action: BeanAction::Implement,
                 priority: 2,
                 dependencies: vec!["1".to_string()],
@@ -384,7 +362,6 @@ mod tests {
             SizedBean {
                 id: "3".to_string(),
                 title: "C".to_string(),
-                tokens: 100,
                 action: BeanAction::Implement,
                 priority: 2,
                 dependencies: vec!["2".to_string()],
@@ -409,7 +386,6 @@ mod tests {
             SizedBean {
                 id: "1".to_string(),
                 title: "Root".to_string(),
-                tokens: 100,
                 action: BeanAction::Implement,
                 priority: 2,
                 dependencies: vec![],
@@ -421,7 +397,6 @@ mod tests {
             SizedBean {
                 id: "2".to_string(),
                 title: "Left".to_string(),
-                tokens: 100,
                 action: BeanAction::Implement,
                 priority: 2,
                 dependencies: vec!["1".to_string()],
@@ -433,7 +408,6 @@ mod tests {
             SizedBean {
                 id: "3".to_string(),
                 title: "Right".to_string(),
-                tokens: 100,
                 action: BeanAction::Implement,
                 priority: 2,
                 dependencies: vec!["1".to_string()],
@@ -445,7 +419,6 @@ mod tests {
             SizedBean {
                 id: "4".to_string(),
                 title: "Join".to_string(),
-                tokens: 100,
                 action: BeanAction::Implement,
                 priority: 2,
                 dependencies: vec!["2".to_string(), "3".to_string()],
@@ -467,7 +440,6 @@ mod tests {
         let beans = vec![SizedBean {
             id: "1".to_string(),
             title: "Test".to_string(),
-            tokens: 100,
             action: BeanAction::Implement,
             priority: 2,
             dependencies: vec![],
@@ -484,12 +456,11 @@ mod tests {
     }
 
     #[test]
-    fn template_wave_plan_without_template_errors() {
+    fn template_wave_runs_implement_action() {
         let beans = vec![SizedBean {
             id: "1".to_string(),
             title: "Test".to_string(),
-            tokens: 100,
-            action: BeanAction::Plan,
+            action: BeanAction::Implement,
             priority: 2,
             dependencies: vec![],
             parent: None,
@@ -500,12 +471,8 @@ mod tests {
 
         let results = run_wave_template(&beans, "echo {id}", None, 4, 30).unwrap();
         assert_eq!(results.len(), 1);
-        assert!(!results[0].success);
-        assert!(results[0]
-            .error
-            .as_ref()
-            .unwrap()
-            .contains("No plan template"));
+        assert!(results[0].success);
+        assert_eq!(results[0].id, "1");
     }
 
     #[test]
@@ -513,7 +480,6 @@ mod tests {
         let beans = vec![SizedBean {
             id: "1".to_string(),
             title: "Fail".to_string(),
-            tokens: 100,
             action: BeanAction::Implement,
             priority: 2,
             dependencies: vec![],

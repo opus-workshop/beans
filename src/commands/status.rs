@@ -5,6 +5,7 @@ use anyhow::Result;
 use serde::Serialize;
 
 use crate::bean::Status;
+use crate::blocking::{check_blocked, BlockReason};
 use crate::index::{Index, IndexEntry};
 use crate::util::natural_cmp;
 
@@ -62,13 +63,21 @@ impl StatusEntry {
     }
 }
 
+/// Blocked entry with reason for JSON output
+#[derive(Serialize)]
+struct BlockedEntry {
+    #[serde(flatten)]
+    entry: IndexEntry,
+    block_reason: String,
+}
+
 /// JSON output structure for status command
 #[derive(Serialize)]
 struct StatusOutput {
     claimed: Vec<StatusEntry>,
     ready: Vec<IndexEntry>,
     goals: Vec<IndexEntry>,
-    blocked: Vec<IndexEntry>,
+    blocked: Vec<BlockedEntry>,
 }
 
 /// Show complete work picture: claimed, ready, goals (need decomposition), and blocked beans
@@ -79,7 +88,7 @@ pub fn cmd_status(json: bool, beans_dir: &Path) -> Result<()> {
     let mut claimed: Vec<&IndexEntry> = Vec::new();
     let mut ready: Vec<&IndexEntry> = Vec::new();
     let mut goals: Vec<&IndexEntry> = Vec::new();
-    let mut blocked: Vec<&IndexEntry> = Vec::new();
+    let mut blocked: Vec<(&IndexEntry, BlockReason)> = Vec::new();
 
     for entry in &index.beans {
         match entry.status {
@@ -87,8 +96,8 @@ pub fn cmd_status(json: bool, beans_dir: &Path) -> Result<()> {
                 claimed.push(entry);
             }
             Status::Open => {
-                if is_blocked(entry, &index) {
-                    blocked.push(entry);
+                if let Some(reason) = check_blocked(entry, &index) {
+                    blocked.push((entry, reason));
                 } else if entry.has_verify {
                     ready.push(entry);
                 } else {
@@ -102,7 +111,10 @@ pub fn cmd_status(json: bool, beans_dir: &Path) -> Result<()> {
     sort_beans(&mut claimed);
     sort_beans(&mut ready);
     sort_beans(&mut goals);
-    sort_beans(&mut blocked);
+    blocked.sort_by(|(a, _), (b, _)| match a.priority.cmp(&b.priority) {
+        std::cmp::Ordering::Equal => natural_cmp(&a.id, &b.id),
+        other => other,
+    });
 
     if json {
         let output = StatusOutput {
@@ -113,7 +125,13 @@ pub fn cmd_status(json: bool, beans_dir: &Path) -> Result<()> {
                 .collect(),
             ready: ready.into_iter().cloned().collect(),
             goals: goals.into_iter().cloned().collect(),
-            blocked: blocked.into_iter().cloned().collect(),
+            blocked: blocked
+                .iter()
+                .map(|(e, reason)| BlockedEntry {
+                    entry: (*e).clone(),
+                    block_reason: reason.to_string(),
+                })
+                .collect(),
         };
         let json_str = serde_json::to_string_pretty(&output)?;
         println!("{}", json_str);
@@ -153,26 +171,13 @@ pub fn cmd_status(json: bool, beans_dir: &Path) -> Result<()> {
         if blocked.is_empty() {
             println!("  (none)");
         } else {
-            for entry in blocked {
-                println!("  {} [!] {}", entry.id, entry.title);
+            for (entry, reason) in &blocked {
+                println!("  {} [!] {}  ({})", entry.id, entry.title, reason);
             }
         }
     }
 
     Ok(())
-}
-
-fn is_blocked(entry: &IndexEntry, index: &Index) -> bool {
-    for dep_id in &entry.dependencies {
-        if let Some(dep_entry) = index.beans.iter().find(|e| &e.id == dep_id) {
-            if dep_entry.status != Status::Closed {
-                return true;
-            }
-        } else {
-            return true;
-        }
-    }
-    false
 }
 
 fn sort_beans(beans: &mut Vec<&IndexEntry>) {
