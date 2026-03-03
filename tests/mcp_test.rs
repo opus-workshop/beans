@@ -31,26 +31,32 @@ fn setup_mcp_env() -> (TempDir, std::path::PathBuf) {
     )
     .unwrap();
 
-    // Bean 1: open with verify
+    // Bean 1: open with verify (scoped with produces/paths)
     let mut bean1 = Bean::new("1", "Fix login bug");
     bean1.slug = Some("fix-login-bug".to_string());
     bean1.verify = Some("echo pass".to_string());
     bean1.description = Some("Fix the login authentication flow".to_string());
+    bean1.produces = vec!["LoginFix".to_string()];
+    bean1.paths = vec!["src/login.rs".to_string()];
     bean1.to_file(beans_dir.join("1-fix-login-bug.md")).unwrap();
 
-    // Bean 2: open, depends on 1
+    // Bean 2: open, depends on 1 (scoped with produces/paths)
     let mut bean2 = Bean::new("2", "Add tests for login");
     bean2.slug = Some("add-tests-for-login".to_string());
     bean2.verify = Some("echo pass".to_string());
     bean2.dependencies = vec!["1".to_string()];
+    bean2.produces = vec!["LoginTests".to_string()];
+    bean2.paths = vec!["tests/login.rs".to_string()];
     bean2
         .to_file(beans_dir.join("2-add-tests-for-login.md"))
         .unwrap();
 
-    // Bean 3: open goal (no verify)
+    // Bean 3: open goal (no verify, but scoped)
     let mut bean3 = Bean::new("3", "Refactor auth module");
     bean3.slug = Some("refactor-auth-module".to_string());
     bean3.priority = 1;
+    bean3.produces = vec!["AuthRefactor".to_string()];
+    bean3.paths = vec!["src/auth.rs".to_string()];
     bean3
         .to_file(beans_dir.join("3-refactor-auth-module.md"))
         .unwrap();
