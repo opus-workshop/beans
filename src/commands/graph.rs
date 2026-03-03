@@ -4,7 +4,7 @@ use std::path::Path;
 use anyhow::Result;
 
 use crate::bean::Status;
-use crate::blocking::{check_blocked, BlockReason};
+use crate::blocking::check_blocked;
 use crate::index::{Index, IndexEntry};
 use crate::util::natural_cmp;
 
@@ -303,21 +303,26 @@ fn render_tree<'a>(
 }
 
 fn format_node(entry: &IndexEntry, index: &Index) -> String {
-    let status_icon = match check_blocked(entry, index) {
-        Some(BlockReason::Oversized) => "[!]",
-        Some(BlockReason::Unscoped) => "[!]",
-        _ => match entry.status {
-            Status::Closed => "[✓]",
-            Status::InProgress => "[●]",
-            Status::Open => "[ ]",
-        },
+    let status_icon = match entry.status {
+        Status::Closed => "[✓]",
+        Status::InProgress => "[●]",
+        Status::Open => {
+            if check_blocked(entry, index).is_some() {
+                "[!]"
+            } else {
+                "[ ]"
+            }
+        }
     };
 
     let suffix = match check_blocked(entry, index) {
-        Some(reason @ BlockReason::Oversized) | Some(reason @ BlockReason::Unscoped) => {
-            format!("  ({})", reason)
+        Some(reason) => format!("  ({})", reason),
+        None => {
+            // Show scope warning as annotation, not blocking indicator
+            crate::blocking::check_scope_warning(entry)
+                .map(|w| format!("  (⚠ {})", w))
+                .unwrap_or_default()
         }
-        _ => String::new(),
     };
 
     format!("{} {}  {}{}", status_icon, entry.id, entry.title, suffix)

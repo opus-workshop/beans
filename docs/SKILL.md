@@ -1,13 +1,14 @@
 ---
 name: beans
 description: >
-  Task tracker and agent orchestration. Create beans to delegate work — `bn run` dispatches agents
-  automatically. Default action: `bn create "task" --verify "cmd"` (don't claim — let orchestration handle it).
+  Task tracker and agent orchestrator for AI coding. Verified gates, dependency scheduling, multi-agent
+  dispatch. Create beans to delegate work — `bn run` dispatches agents automatically.
+  Default action: `bn create "task" --verify "cmd"` (don't claim — let orchestration handle it).
 ---
 
 # Beans — Quick Reference
 
-Beans is a task tracker where every task has a **verify gate** — a shell command that must exit 0 to close.
+Beans is a task tracker for AI agents where every task has a **verify gate** — a shell command that must exit 0 to close. `bn run` dispatches ready beans to agents, tracks failures, and re-dispatches as dependencies resolve.
 
 **For syntax and examples:** `bn --help` or `bn <command> --help`
 

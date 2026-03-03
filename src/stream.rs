@@ -3,6 +3,7 @@ use serde::Serialize;
 /// JSON-line events emitted by `bn run --json-stream` for programmatic consumers.
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
+#[allow(dead_code)]
 pub enum StreamEvent {
     RunStart {
         parent_id: String,

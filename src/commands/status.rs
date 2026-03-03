@@ -5,7 +5,7 @@ use anyhow::Result;
 use serde::Serialize;
 
 use crate::bean::Status;
-use crate::blocking::{check_blocked, BlockReason};
+use crate::blocking::{check_blocked, check_scope_warning, BlockReason};
 use crate::index::{Index, IndexEntry};
 use crate::util::natural_cmp;
 
@@ -152,7 +152,10 @@ pub fn cmd_status(json: bool, beans_dir: &Path) -> Result<()> {
             println!("  (none)");
         } else {
             for entry in ready {
-                println!("  {} [ ] {}", entry.id, entry.title);
+                let warning = check_scope_warning(entry)
+                    .map(|w| format!("  (⚠ {})", w))
+                    .unwrap_or_default();
+                println!("  {} [ ] {}{}", entry.id, entry.title, warning);
             }
         }
         println!();

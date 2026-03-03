@@ -305,17 +305,11 @@ mod tests {
     fn not_blocked_when_no_dependencies() {
         let index = Index::build(&setup_test_beans().1).unwrap();
         let entry = index.beans.iter().find(|e| e.id == "1").unwrap();
-        // bean 1 has no deps, but also no produces/paths so it's unscoped
-        // (the shared check_blocked handles scope checks too)
+        // bean 1 has no deps — unscoped beans are no longer blocked
         let reason = check_blocked(entry, &index);
         assert!(
-            reason.is_none()
-                || matches!(
-                    reason,
-                    Some(crate::blocking::BlockReason::Unscoped)
-                        | Some(crate::blocking::BlockReason::Oversized)
-                ),
-            "should not be blocked by dependencies"
+            reason.is_none(),
+            "should not be blocked: {:?}", reason
         );
     }
 

@@ -22,10 +22,13 @@ pub const MAX_PATHS: usize = 5;
 pub enum BlockReason {
     /// One or more dependency beans are not yet closed.
     WaitingOn(Vec<String>),
-    /// Scope is too large: `produces > MAX_PRODUCES` or `paths > MAX_PATHS`.
+}
+
+/// Soft scope warnings — displayed but don't block dispatch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ScopeWarning {
+    /// Scope is large: `produces > MAX_PRODUCES` or `paths > MAX_PATHS`.
     Oversized,
-    /// No scope defined: both `produces` and `paths` are empty.
-    Unscoped,
 }
 
 impl fmt::Display for BlockReason {
@@ -34,8 +37,14 @@ impl fmt::Display for BlockReason {
             BlockReason::WaitingOn(ids) => {
                 write!(f, "waiting on {}", ids.join(", "))
             }
-            BlockReason::Oversized => write!(f, "oversized"),
-            BlockReason::Unscoped => write!(f, "unscoped"),
+        }
+    }
+}
+
+impl fmt::Display for ScopeWarning {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ScopeWarning::Oversized => write!(f, "oversized"),
         }
     }
 }
@@ -50,8 +59,6 @@ impl fmt::Display for BlockReason {
 /// 1. **Explicit dependencies** — any dep that isn't closed (or doesn't exist).
 /// 2. **Requires/produces** — sibling beans that produce a required artifact
 ///    but aren't closed yet.
-/// 3. **Oversized** — `produces > 3` or `paths > 5`.
-/// 4. **Unscoped** — `produces == 0` and `paths == 0`.
 pub fn check_blocked(entry: &IndexEntry, index: &Index) -> Option<BlockReason> {
     let mut waiting_on = Vec::new();
 
@@ -80,15 +87,17 @@ pub fn check_blocked(entry: &IndexEntry, index: &Index) -> Option<BlockReason> {
         return Some(BlockReason::WaitingOn(waiting_on));
     }
 
-    // Scope checks
+    None
+}
+
+/// Check for scope warnings (non-blocking).
+///
+/// Returns a warning if scope is large (`produces > MAX_PRODUCES` or `paths > MAX_PATHS`).
+/// Beans with no scope (no produces, no paths) are fine — not every bean needs explicit paths.
+pub fn check_scope_warning(entry: &IndexEntry) -> Option<ScopeWarning> {
     if entry.produces.len() > MAX_PRODUCES || entry.paths.len() > MAX_PATHS {
-        return Some(BlockReason::Oversized);
+        return Some(ScopeWarning::Oversized);
     }
-
-    if entry.produces.is_empty() && entry.paths.is_empty() {
-        return Some(BlockReason::Unscoped);
-    }
-
     None
 }
 
@@ -248,20 +257,22 @@ mod tests {
         }
     }
 
-    // -- Oversized --
+    // -- Scope warnings (non-blocking) --
 
     #[test]
-    fn blocking_oversized_too_many_produces() {
+    fn warning_oversized_too_many_produces() {
         let mut entry = make_entry("1");
         entry.produces = vec!["A".into(), "B".into(), "C".into(), "D".into()]; // 4 > MAX_PRODUCES
         entry.paths = vec!["src/a.rs".into()];
 
+        // Not blocked — just a warning
         let index = make_index(vec![entry.clone()]);
-        assert_eq!(check_blocked(&entry, &index), Some(BlockReason::Oversized));
+        assert_eq!(check_blocked(&entry, &index), None);
+        assert_eq!(check_scope_warning(&entry), Some(ScopeWarning::Oversized));
     }
 
     #[test]
-    fn blocking_oversized_too_many_paths() {
+    fn warning_oversized_too_many_paths() {
         let mut entry = make_entry("1");
         entry.produces = vec!["A".into()];
         entry.paths = vec![
@@ -274,11 +285,12 @@ mod tests {
         ]; // 6 > MAX_PATHS
 
         let index = make_index(vec![entry.clone()]);
-        assert_eq!(check_blocked(&entry, &index), Some(BlockReason::Oversized));
+        assert_eq!(check_blocked(&entry, &index), None);
+        assert_eq!(check_scope_warning(&entry), Some(ScopeWarning::Oversized));
     }
 
     #[test]
-    fn blocking_not_oversized_at_threshold() {
+    fn warning_not_oversized_at_threshold() {
         let mut entry = make_entry("1");
         entry.produces = vec!["A".into(), "B".into(), "C".into()]; // exactly MAX_PRODUCES
         entry.paths = vec![
@@ -289,37 +301,34 @@ mod tests {
             "e.rs".into(),
         ]; // exactly MAX_PATHS
 
+        assert_eq!(check_scope_warning(&entry), None);
+    }
+
+    // -- Unscoped is NOT blocking --
+
+    #[test]
+    fn unscoped_bean_is_not_blocked() {
+        let entry = make_entry("1"); // produces=[], paths=[]
+
         let index = make_index(vec![entry.clone()]);
         assert_eq!(check_blocked(&entry, &index), None);
     }
 
-    // -- Unscoped --
-
     #[test]
-    fn blocking_unscoped_empty_produces_and_paths() {
-        let entry = make_entry("1"); // produces=[], paths=[]
-
-        let index = make_index(vec![entry.clone()]);
-        assert_eq!(check_blocked(&entry, &index), Some(BlockReason::Unscoped));
-    }
-
-    #[test]
-    fn blocking_not_unscoped_with_produces() {
+    fn not_blocked_with_produces_only() {
         let mut entry = make_entry("1");
         entry.produces = vec!["SomeType".into()];
 
         let index = make_index(vec![entry.clone()]);
-        // produces is NOT empty → not unscoped; 1 <= MAX_PRODUCES → not oversized
         assert_eq!(check_blocked(&entry, &index), None);
     }
 
     #[test]
-    fn blocking_not_unscoped_with_paths() {
+    fn not_blocked_with_paths_only() {
         let mut entry = make_entry("1");
         entry.paths = vec!["src/main.rs".into()];
 
         let index = make_index(vec![entry.clone()]);
-        // paths is NOT empty → not unscoped; 1 <= MAX_PATHS → not oversized
         assert_eq!(check_blocked(&entry, &index), None);
     }
 
@@ -332,19 +341,14 @@ mod tests {
     }
 
     #[test]
-    fn blocking_display_oversized() {
-        assert_eq!(format!("{}", BlockReason::Oversized), "oversized");
+    fn warning_display_oversized() {
+        assert_eq!(format!("{}", ScopeWarning::Oversized), "oversized");
     }
 
-    #[test]
-    fn blocking_display_unscoped() {
-        assert_eq!(format!("{}", BlockReason::Unscoped), "unscoped");
-    }
-
-    // -- Priority: deps checked before scope --
+    // -- Priority: deps still checked --
 
     #[test]
-    fn blocking_deps_take_priority_over_oversized() {
+    fn blocking_deps_still_block_oversized_beans() {
         let dep = make_entry("1"); // open
 
         let mut entry = make_entry("2");
@@ -353,7 +357,6 @@ mod tests {
         entry.paths = vec!["a.rs".into()];
 
         let index = make_index(vec![dep, entry.clone()]);
-        // Should return WaitingOn, not Oversized
         assert!(matches!(
             check_blocked(&entry, &index),
             Some(BlockReason::WaitingOn(_))
@@ -361,15 +364,14 @@ mod tests {
     }
 
     #[test]
-    fn blocking_deps_take_priority_over_unscoped() {
+    fn blocking_deps_still_block_unscoped_beans() {
         let dep = make_entry("1"); // open
 
         let mut entry = make_entry("2");
         entry.dependencies = vec!["1".into()];
-        // produces=[], paths=[] → would be unscoped
+        // produces=[], paths=[] → unscoped but deps block first
 
         let index = make_index(vec![dep, entry.clone()]);
-        // Should return WaitingOn, not Unscoped
         assert!(matches!(
             check_blocked(&entry, &index),
             Some(BlockReason::WaitingOn(_))

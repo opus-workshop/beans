@@ -3,12 +3,12 @@ name = "beans-cli"
 version = "0.2.0"
 edition = "2021"
 rust-version = "1.85"
-description = "Task tracker for coding agents"
+description = "Task tracker for AI coding agents — verified gates, dependency-aware scheduling, and multi-agent orchestration"
 license = "Apache-2.0"
 repository = "https://github.com/kfcafe/beans"
 homepage = "https://github.com/kfcafe/beans"
 readme = "README.md"
-keywords = ["cli", "task-tracker", "agents", "coding"]
+keywords = ["cli", "task-tracker", "ai-agents", "orchestration", "coding"]
 categories = ["command-line-utilities", "development-tools"]
 exclude = [
     ".beans/",

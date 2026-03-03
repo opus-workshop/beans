@@ -3,7 +3,7 @@ use std::path::Path;
 use anyhow::Result;
 
 use crate::bean::Status;
-use crate::blocking::{check_blocked, BlockReason};
+use crate::blocking::{check_blocked, check_scope_warning, BlockReason, ScopeWarning};
 use crate::config::Config;
 use crate::index::{ArchiveIndex, Index, IndexEntry};
 use crate::stream::{self, StreamEvent};
@@ -38,6 +38,8 @@ pub struct BlockedBean {
 pub struct DispatchPlan {
     pub waves: Vec<Wave>,
     pub skipped: Vec<BlockedBean>,
+    /// Scope warnings for beans that will dispatch but have large scope.
+    pub warnings: Vec<(String, ScopeWarning)>,
     /// Flat list of all beans to dispatch (for ready-queue mode).
     pub all_beans: Vec<SizedBean>,
     /// The index snapshot used for planning.
@@ -85,42 +87,37 @@ pub(super) fn plan_dispatch(
         }
     }
 
-    // Partition into dispatchable vs blocked (oversized/unscoped).
+    // Partition into dispatchable vs blocked.
     // Dependency blocking is already handled above via all_deps_closed,
-    // so check_blocked here only catches Oversized and Unscoped.
+    // so check_blocked here only catches dep-related issues.
+    // Scope warnings (oversized) are non-blocking — beans dispatch with a warning.
     let mut dispatch_beans: Vec<SizedBean> = Vec::new();
     let mut skipped: Vec<BlockedBean> = Vec::new();
+    let mut warnings: Vec<(String, ScopeWarning)> = Vec::new();
 
     for entry in &candidate_entries {
-        match check_blocked(entry, &index) {
-            Some(BlockReason::Oversized) => {
-                skipped.push(BlockedBean {
-                    id: entry.id.clone(),
-                    title: entry.title.clone(),
-                    reason: BlockReason::Oversized,
-                });
+        if let Some(reason) = check_blocked(entry, &index) {
+            skipped.push(BlockedBean {
+                id: entry.id.clone(),
+                title: entry.title.clone(),
+                reason,
+            });
+        } else {
+            // Check for scope warnings (non-blocking)
+            if let Some(warning) = check_scope_warning(entry) {
+                warnings.push((entry.id.clone(), warning));
             }
-            Some(BlockReason::Unscoped) => {
-                skipped.push(BlockedBean {
-                    id: entry.id.clone(),
-                    title: entry.title.clone(),
-                    reason: BlockReason::Unscoped,
-                });
-            }
-            _ => {
-                // Not blocked (or only dep-blocked, which we already filtered)
-                dispatch_beans.push(SizedBean {
-                    id: entry.id.clone(),
-                    title: entry.title.clone(),
-                    action: BeanAction::Implement,
-                    priority: entry.priority,
-                    dependencies: entry.dependencies.clone(),
-                    parent: entry.parent.clone(),
-                    produces: entry.produces.clone(),
-                    requires: entry.requires.clone(),
-                    paths: entry.paths.clone(),
-                });
-            }
+            dispatch_beans.push(SizedBean {
+                id: entry.id.clone(),
+                title: entry.title.clone(),
+                action: BeanAction::Implement,
+                priority: entry.priority,
+                dependencies: entry.dependencies.clone(),
+                parent: entry.parent.clone(),
+                produces: entry.produces.clone(),
+                requires: entry.requires.clone(),
+                paths: entry.paths.clone(),
+            });
         }
     }
 
@@ -129,6 +126,7 @@ pub(super) fn plan_dispatch(
     Ok(DispatchPlan {
         waves,
         skipped,
+        warnings,
         all_beans: dispatch_beans,
         index,
     })
@@ -139,7 +137,13 @@ pub(super) fn print_plan(plan: &DispatchPlan) {
     for (wave_idx, wave) in plan.waves.iter().enumerate() {
         println!("Wave {}: {} bean(s)", wave_idx + 1, wave.beans.len());
         for sb in &wave.beans {
-            println!("  {}  {}  {}", sb.id, sb.title, sb.action);
+            let warning = plan
+                .warnings
+                .iter()
+                .find(|(id, _)| id == &sb.id)
+                .map(|(_, w)| format!("  ⚠ {}", w))
+                .unwrap_or_default();
+            println!("  {}  {}  {}{}", sb.id, sb.title, sb.action, warning);
         }
     }
 
@@ -294,13 +298,13 @@ mod tests {
     }
 
     #[test]
-    fn oversized_bean_excluded_from_dispatch() {
+    fn oversized_bean_dispatched_with_warning() {
         let (_dir, beans_dir) = make_beans_dir();
         write_config(&beans_dir, Some("echo {id}"));
 
         let mut bean = crate::bean::Bean::new("1", "Oversized bean");
         bean.verify = Some("echo ok".to_string());
-        // 4 produces exceeds MAX_PRODUCES (3)
+        // 4 produces exceeds MAX_PRODUCES (3) — warning but not blocked
         bean.produces = vec![
             "A".to_string(),
             "B".to_string(),
@@ -313,35 +317,30 @@ mod tests {
         let config = Config::load_with_extends(&beans_dir).unwrap();
         let plan = plan_dispatch(&beans_dir, &config, None, false, false).unwrap();
 
-        assert!(plan.waves.is_empty());
-        assert_eq!(plan.skipped.len(), 1);
-        assert_eq!(plan.skipped[0].id, "1");
-        assert_eq!(
-            plan.skipped[0].reason,
-            crate::blocking::BlockReason::Oversized
-        );
+        assert_eq!(plan.waves.len(), 1);
+        assert_eq!(plan.waves[0].beans.len(), 1);
+        assert!(plan.skipped.is_empty());
+        assert_eq!(plan.warnings.len(), 1);
+        assert_eq!(plan.warnings[0].0, "1");
     }
 
     #[test]
-    fn unscoped_bean_excluded_from_dispatch() {
+    fn unscoped_bean_dispatched_normally() {
         let (_dir, beans_dir) = make_beans_dir();
         write_config(&beans_dir, Some("echo {id}"));
 
         let mut bean = crate::bean::Bean::new("1", "Unscoped bean");
         bean.verify = Some("echo ok".to_string());
-        // No produces, no paths → unscoped
+        // No produces, no paths — dispatched normally
         bean.to_file(beans_dir.join("1-unscoped.md")).unwrap();
 
         let config = Config::load_with_extends(&beans_dir).unwrap();
         let plan = plan_dispatch(&beans_dir, &config, None, false, false).unwrap();
 
-        assert!(plan.waves.is_empty());
-        assert_eq!(plan.skipped.len(), 1);
-        assert_eq!(plan.skipped[0].id, "1");
-        assert_eq!(
-            plan.skipped[0].reason,
-            crate::blocking::BlockReason::Unscoped
-        );
+        assert_eq!(plan.waves.len(), 1);
+        assert_eq!(plan.waves[0].beans.len(), 1);
+        assert!(plan.skipped.is_empty());
+        assert!(plan.warnings.is_empty());
     }
 
     #[test]

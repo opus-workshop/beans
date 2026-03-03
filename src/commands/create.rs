@@ -6,7 +6,7 @@ use anyhow::{anyhow, Context, Result};
 
 use crate::bean::{validate_priority, Bean, OnFailAction};
 use crate::commands::claim::cmd_claim;
-use crate::config::{resolve_identity, Config};
+use crate::config::Config;
 use crate::hooks::{execute_hook, HookEvent};
 use crate::index::Index;
 use crate::project::suggest_verify_command;
@@ -294,9 +294,6 @@ pub fn cmd_create(beans_dir: &Path, args: CreateArgs) -> Result<String> {
     if let Some(timeout) = args.verify_timeout {
         bean.verify_timeout = Some(timeout);
     }
-
-    // Set created_by from resolved identity
-    bean.created_by = resolve_identity(beans_dir);
 
     // Get the project directory (parent of beans_dir which is .beans)
     let project_dir = beans_dir

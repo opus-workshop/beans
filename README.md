@@ -5,24 +5,19 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![dependency status](https://deps.rs/repo/github/kfcafe/beans/status.svg)](https://deps.rs/repo/github/kfcafe/beans)
 
-Task tracker for AI agents.
+Task tracker for AI coding agents.
 
-Markdown files that track dependencies and require verification to close.
+Markdown tasks with verify gates, dependency-aware scheduling, and built-in agent orchestration. Every task has a shell command that must pass to close — no honor system. `bn run` dispatches work to agents automatically, tracks failures, and re-dispatches as dependencies resolve.
+
+Plain markdown files. No SDK, no API — any agent that can read files and run shell commands already speaks beans.
 
 ```bash
 bn create "Add CSV export" --verify "cargo test csv::export"
-bn close 1   # Runs the test. Only closes if it passes.
+bn run                                   # Dispatches to an agent
+bn run --loop-mode -j 8                  # Or run everything: 8 agents, continuous
 ```
 
-Verify commands must **fail first** by default — proving the test is real, not `assert True`:
-
-```bash
-bn create "Fix timezone handling" --verify "pytest test_timezones.py"
-# Test must FAIL first (proves it tests something real)
-# Then passes after implementation → bean closes
-```
-
-Plain markdown files. No SDK, no API — any agent that can read files and run shell commands already speaks beans.
+Agents read beans, implement the work, and close them. Verify gates enforce correctness — tests must **fail first** (proving the test is real) and **pass to close** (proving the work is done). Failed attempts accumulate as context so the next agent doesn't repeat mistakes.
 
 ## Table of Contents
 
@@ -80,7 +75,10 @@ Orchestrate agents:
 
 ```bash
 bn init --agent claude                               # Set up agent config
+bn create "Fix CSV export" --verify "cargo test csv" # Define work with a verify gate
+bn create "Add pagination" --verify "cargo test page" # Add more work
 bn run                                               # Dispatch ready beans to agents
+bn run --loop-mode -j 4                              # Continuous mode, 4 agents
 bn agents                                            # Monitor running agents
 bn logs 3                                            # View agent output for bean 3
 ```
@@ -95,27 +93,34 @@ bn recall "database"                                 # Search across all beans
 
 ## Features
 
-- **Verification gates** — fail-first TDD, must-pass-to-close
-- **Failure history** — attempts tracked, output appended to notes
-- **Hierarchical tasks** — dot notation, parent/child, auto-close parent when all children done
-- **Smart dependencies** — `produces`/`requires` auto-inference, cycle detection
-- **Agent orchestration** — `bn run` dispatches beans to agents, `bn plan` decomposes large tasks
+### Verification
+- **Verify gates** — every bean has a shell command contract, no honor system
+- **Fail-first TDD** — verify must fail before work starts, pass to close
+- **Failure history** — attempts tracked with truncated output (first 50 + last 50 lines)
+
+### Orchestration
+- **Parallel dispatch** — `bn run` finds ready beans and spawns agents in parallel (`-j 8` for 8 concurrent)
+- **Dependency-aware scheduling** — `produces`/`requires` auto-inference, beans unblock as predecessors close
+- **Loop mode** — `bn run --loop-mode` continuously re-dispatches as work completes and unblocks downstream
+- **Auto-planning** — `bn run --auto-plan` decomposes large beans into agent-sized children before dispatch
 - **Adversarial review** — `bn run --review` spawns a second agent to verify correctness after close
 - **Agent-agnostic** — works with any CLI agent (Claude, pi, aider, custom scripts)
+- **Failure accumulation** — failed attempts append output to the bean, so the next agent sees what was tried
+- **Context assembly** — `bn context <id>` outputs a complete agent briefing: spec, previous attempts, project rules, dependency context, and referenced file contents
+
+### Structure
+- **Hierarchical tasks** — dot notation (`3.1` = child of `3`), auto-close parent when all children done
+- **Smart dependencies** — cycle detection, `produces`/`requires` auto-wiring, sequential chaining
 - **Memory system** — `bn fact` for verified project knowledge with TTL and staleness detection
 - **MCP server** — `bn mcp serve` for IDE integration (Cursor, Windsurf, Claude Desktop, Cline)
-- **Interactive wizard** — `bn create` with no args launches a step-by-step prompt (fuzzy parent search, smart verify suggestions, $EDITOR for descriptions)
-- **Pipe-friendly** — `--json` output, `--ids` listing, `--description -` reads stdin, `--stdin` for batch operations
+
+### CLI
+- **Interactive wizard** — `bn create` with no args launches a step-by-step prompt
+- **Pipe-friendly** — `--json` output, `--ids` listing, `--description -` reads stdin, `--stdin` for batch
 - **Smart selectors** — `@latest` for chaining sequential beans
-- **Context assembly** — `bn context <id>` outputs a complete agent briefing: bean spec, verify command, previous attempts, project rules, dependency context, and referenced file contents
-- **Trace** — `bn trace` walks bean lineage, dependencies, artifacts, and attempt history
 - **Dependency graph** — ASCII, Mermaid, DOT output
-- **Full lifecycle** — create, claim, close, reopen, delete, adopt, archive, unarchive, tidy
-- **Doctor** — health checks for orphans, cycles, index freshness (with `--fix`)
-- **Editor support** — `bn edit` with backup/rollback
-- **Hooks** — pre-close hooks with trust system
+- **Trace** — `bn trace` walks bean lineage, dependencies, artifacts, and attempt history
 - **Shell completions** — bash, zsh, fish, PowerShell
-- **Config inheritance** — `extends` for shared config across projects
 - **Stateless** — no daemon, no background sync, just files and a CLI
 
 ## How It Works
@@ -822,11 +827,13 @@ bn completions powershell >> $PROFILE
 | | beans | [beads](https://github.com/steveyegge/beads) | Jira/Linear | GitHub Issues |
 |---|---|---|---|---|
 | **Designed for** | AI agents | AI agents | Humans | Humans |
-| **Verify gates** | ✓ Enforced | ✗ Honor system | ✗ Honor system | ✗ Honor system |
+| **Agent dispatch** | ✓ Built-in (`bn run`) | ✗ External | ✗ External | ✗ External |
+| **Dependency scheduling** | ✓ Auto-inferred | ✗ Manual | ✓ Manual | ✗ None |
+| **Verify gates** | ✓ Enforced (fail-first) | ✗ Honor system | ✗ Honor system | ✗ Honor system |
+| **Failure context** | ✓ Accumulated | ✗ None | ✗ None | ✗ None |
 | **Storage** | Markdown files | JSONL + SQLite | Cloud DB | Cloud DB |
 | **Hierarchy** | `3.1` = child of `3` | Flat (hash IDs) | Epics/stories | Flat |
-| **Git integration** | Native (in repo) | External | External | Same platform |
-| **Offline** | ✓ Full | ✓ Full | Limited | Limited |
+| **Git-native** | ✓ In repo | External | External | Same platform |
 
 Inspired by Steve Yegge's [beads](https://github.com/steveyegge/beads) — beans trades scale for simplicity and enforced verification.
 
@@ -848,6 +855,8 @@ You know what's exhausting? Vague tasks. "Improve the error handling." Done... h
 Beans fixes this.
 
 Every bean has a `verify` command — a test that **must fail** when you create the task and **must pass** when you close it. Not "looks good to me." Not "I think it works." The test passes or it doesn't. You're not done until the machine says you're done.
+
+And you're not alone. `bn run` dispatches multiple agents in parallel, scheduling work based on dependency graphs. When you close your bean and unblock downstream work, the next agent is already spinning up. Failed? Your output is appended to the bean — the next agent sees what you tried and why it failed, so they don't repeat your mistakes.
 
 No more `assert True`. No more lost context. No more ambiguity. The verify command is the contract. Hit it and you're done. Miss it and you're not.
 
