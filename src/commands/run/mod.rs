@@ -86,6 +86,9 @@ struct AgentResult {
     total_tokens: Option<u64>,
     total_cost: Option<f64>,
     error: Option<String>,
+    tool_count: usize,
+    turns: usize,
+    failure_summary: Option<String>,
 }
 
 /// Which spawning mode to use.
@@ -262,6 +265,9 @@ fn run_once(
                             error: None,
                             total_tokens: result.total_tokens,
                             total_cost: result.total_cost,
+                            tool_count: Some(result.tool_count),
+                            turns: Some(result.turns),
+                            failure_summary: None,
                         });
                     } else {
                         eprintln!(
@@ -280,6 +286,9 @@ fn run_once(
                             error: result.error.clone(),
                             total_tokens: result.total_tokens,
                             total_cost: result.total_cost,
+                            tool_count: Some(result.tool_count),
+                            turns: Some(result.turns),
+                            failure_summary: result.failure_summary.clone(),
                         });
                     } else {
                         eprintln!(
@@ -328,6 +337,9 @@ fn run_once(
                                 error: None,
                                 total_tokens: result.total_tokens,
                                 total_cost: result.total_cost,
+                                tool_count: Some(result.tool_count),
+                                turns: Some(result.turns),
+                                failure_summary: None,
                             });
                         } else {
                             eprintln!(
@@ -347,6 +359,9 @@ fn run_once(
                                 error: result.error.clone(),
                                 total_tokens: result.total_tokens,
                                 total_cost: result.total_cost,
+                                tool_count: Some(result.tool_count),
+                                turns: Some(result.turns),
+                                failure_summary: result.failure_summary.clone(),
                             });
                         } else {
                             eprintln!(
@@ -672,6 +687,9 @@ mod tests {
             total_tokens: Some(5000),
             total_cost: Some(0.03),
             error: None,
+            tool_count: 5,
+            turns: 2,
+            failure_summary: None,
         };
         assert_eq!(result.total_tokens, Some(5000));
         assert_eq!(result.total_cost, Some(0.03));

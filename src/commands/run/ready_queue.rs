@@ -154,6 +154,9 @@ pub(super) fn run_ready_queue_direct(
                     id: sb.id.clone(),
                     title: sb.title.clone(),
                     round,
+                    file_overlaps: None,
+                    attempt: None,
+                    priority: None,
                 });
             }
 
@@ -288,6 +291,9 @@ pub(super) fn run_single_direct(
                 total_tokens: None,
                 total_cost: None,
                 error: Some(format!("Cannot find bean file: {}", e)),
+                tool_count: 0,
+                turns: 0,
+                failure_summary: Some(format!("Cannot find bean file: {}", e)),
             };
         }
     };
@@ -304,6 +310,9 @@ pub(super) fn run_single_direct(
                 total_tokens: None,
                 total_cost: None,
                 error: Some(format!("Cannot parse bean file: {}", e)),
+                tool_count: 0,
+                turns: 0,
+                failure_summary: Some(format!("Cannot parse bean file: {}", e)),
             };
         }
     };
@@ -327,6 +336,9 @@ pub(super) fn run_single_direct(
                 total_tokens: None,
                 total_cost: None,
                 error: Some(format!("Failed to build prompt: {}", e)),
+                tool_count: 0,
+                turns: 0,
+                failure_summary: Some(format!("Failed to build prompt: {}", e)),
             };
         }
     };
@@ -359,6 +371,9 @@ pub(super) fn run_single_direct(
                 total_tokens: None,
                 total_cost: None,
                 error: Some(format!("Failed to spawn pi: {}", e)),
+                tool_count: 0,
+                turns: 0,
+                failure_summary: Some(format!("Failed to spawn pi: {}", e)),
             };
         }
     };
@@ -377,6 +392,9 @@ pub(super) fn run_single_direct(
                 total_tokens: None,
                 total_cost: None,
                 error: Some("Failed to capture stdout".to_string()),
+                tool_count: 0,
+                turns: 0,
+                failure_summary: Some("Failed to capture stdout".to_string()),
             };
         }
     };
@@ -524,7 +542,8 @@ pub(super) fn run_single_direct(
 
     // On failure, generate and append a structured failure summary as a bean note.
     // This gives the next retry agent context about what was tried and why it failed.
-    if !success {
+    let failure_summary = if !success {
+        let mut summary_result = None;
         if let Ok(bean_path) = crate::discovery::find_bean_file(beans_dir, &sb.id) {
             if let Ok(mut fresh_bean) = Bean::from_file(&bean_path) {
                 let ctx = failure::FailureContext {
@@ -548,12 +567,16 @@ pub(super) fn run_single_direct(
                         notes.push('\n');
                         notes.push_str(&summary);
                     }
-                    None => fresh_bean.notes = Some(summary),
+                    None => fresh_bean.notes = Some(summary.clone()),
                 }
                 let _ = fresh_bean.to_file(&bean_path);
+                summary_result = Some(summary);
             }
         }
-    }
+        summary_result
+    } else {
+        None
+    };
 
     AgentResult {
         id: sb.id.clone(),
@@ -572,6 +595,9 @@ pub(super) fn run_single_direct(
             None
         },
         error,
+        tool_count,
+        turns,
+        failure_summary: None,
     }
 }
 

@@ -164,6 +164,9 @@ fn run_wave_template(
                         total_tokens: None,
                         total_cost: None,
                         error: Some(format!("Failed to spawn: {}", e)),
+                        tool_count: 0,
+                        turns: 0,
+                        failure_summary: None,
                     });
                 }
             }
@@ -178,6 +181,11 @@ fn run_wave_template(
         for (sb, mut child, started) in children {
             match child.try_wait() {
                 Ok(Some(status)) => {
+                    let err = if status.success() {
+                        None
+                    } else {
+                        Some(format!("Exit code {}", status.code().unwrap_or(-1)))
+                    };
                     results.push(AgentResult {
                         id: sb.id.clone(),
                         title: sb.title.clone(),
@@ -186,11 +194,10 @@ fn run_wave_template(
                         duration: started.elapsed(),
                         total_tokens: None,
                         total_cost: None,
-                        error: if status.success() {
-                            None
-                        } else {
-                            Some(format!("Exit code {}", status.code().unwrap_or(-1)))
-                        },
+                        error: err,
+                        tool_count: 0,
+                        turns: 0,
+                        failure_summary: None,
                     });
                 }
                 Ok(None) => {
@@ -207,6 +214,9 @@ fn run_wave_template(
                         total_tokens: None,
                         total_cost: None,
                         error: Some(format!("Error checking process: {}", e)),
+                        tool_count: 0,
+                        turns: 0,
+                        failure_summary: None,
                     });
                 }
             }
@@ -251,6 +261,9 @@ fn run_wave_direct(
                     id: sb.id.clone(),
                     title: sb.title.clone(),
                     round: wave_number,
+                    file_overlaps: None,
+                    attempt: None,
+                    priority: None,
                 });
             }
 
