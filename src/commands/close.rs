@@ -863,16 +863,41 @@ pub fn cmd_close_failed(beans_dir: &Path, ids: Vec<String>, reason: Option<Strin
         bean.status = Status::Open;
         bean.updated_at = now;
 
-        // Append failure to notes for visibility
-        if let Some(ref reason_text) = reason {
-            let failure_note = format!(
-                "\n## Failed attempt — {}\n{}\n",
-                now.format("%Y-%m-%dT%H:%M:%SZ"),
-                reason_text
-            );
+        // Generate structured failure summary and append to notes.
+        // This is a lightweight summary (no tool logs or token data from the CLI
+        // path), but still captures duration, error, and suggestions for the
+        // next agent.
+        {
+            let attempt_num = bean.attempt_log.len() as u32;
+            let duration_secs = bean
+                .attempt_log
+                .last()
+                .and_then(|a| a.started_at)
+                .map(|started| (now - started).num_seconds().max(0) as u64)
+                .unwrap_or(0);
+
+            let ctx = failure::FailureContext {
+                bean_id: id.clone(),
+                bean_title: bean.title.clone(),
+                attempt: attempt_num.max(1),
+                duration_secs,
+                tool_count: 0,
+                turns: 0,
+                input_tokens: 0,
+                output_tokens: 0,
+                cost: 0.0,
+                error: reason.clone(),
+                tool_log: vec![],
+                verify_command: bean.verify.clone(),
+            };
+            let summary = failure::build_failure_summary(&ctx);
+
             match &mut bean.notes {
-                Some(notes) => notes.push_str(&failure_note),
-                None => bean.notes = Some(failure_note),
+                Some(notes) => {
+                    notes.push('\n');
+                    notes.push_str(&summary);
+                }
+                None => bean.notes = Some(summary),
             }
         }
 
