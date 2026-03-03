@@ -274,6 +274,10 @@ pub struct Bean {
     /// Tracks claim→close cycles for episodic memory.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub attempt_log: Vec<AttemptRecord>,
+
+    /// Identity of who created this bean (resolved from config/git/env).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_by: Option<String>,
 }
 
 fn default_priority() -> u8 {
@@ -351,6 +355,7 @@ impl Bean {
             stale_after: None,
             paths: Vec::new(),
             attempt_log: Vec::new(),
+            created_by: None,
         })
     }
 
@@ -619,6 +624,7 @@ mod tests {
             stale_after: None,
             paths: Vec::new(),
             attempt_log: Vec::new(),
+            created_by: Some("alice".to_string()),
         };
 
         let yaml = serde_yml::to_string(&bean).unwrap();
