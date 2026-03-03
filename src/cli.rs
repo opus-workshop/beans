@@ -217,6 +217,10 @@ Examples:
         #[arg(long)]
         assignee: Option<String>,
 
+        /// Show only beans claimed by or created by the current user
+        #[arg(long)]
+        mine: bool,
+
         /// Include closed beans
         #[arg(long)]
         all: bool,

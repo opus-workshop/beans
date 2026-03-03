@@ -390,6 +390,7 @@ fn main() -> Result<()> {
             label,
             assignee,
             all,
+            mine,
             json,
             ids,
             format,
@@ -400,7 +401,7 @@ fn main() -> Result<()> {
             parent.as_deref(),
             label.as_deref(),
             assignee.as_deref(),
-            false, // mine (not yet exposed in CLI)
+            mine,
             all,
             json,
             ids,
