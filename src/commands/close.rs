@@ -9,6 +9,7 @@ use chrono::Utc;
 use crate::bean::{Bean, OnCloseAction, OnFailAction, RunRecord, RunResult, Status};
 use crate::config::Config;
 use crate::discovery::{archive_path_for_bean, find_archived_bean, find_bean_file};
+use crate::failure;
 use crate::hooks::{
     current_git_branch, execute_config_hook, execute_hook, is_trusted, HookEvent, HookVars,
 };

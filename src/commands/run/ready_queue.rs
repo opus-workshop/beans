@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 
 use crate::bean::{Bean, Status};
+use crate::failure;
 use crate::history::{self, AgentHistoryEntry};
 use crate::index::{Index, IndexEntry};
 use crate::pi_output::{self, AgentEvent};
@@ -390,6 +391,10 @@ pub(super) fn run_single_direct(
     let mut cumulative_tokens: u64 = 0;
     let mut cumulative_cost: f64 = 0.0;
     let mut tool_count: usize = 0;
+    let mut cumulative_input_tokens: u64 = 0;
+    let mut cumulative_output_tokens: u64 = 0;
+    let mut tool_log: Vec<String> = Vec::new();
+    let mut turns: usize = 0;
     let bean_id = sb.id.clone();
 
     // Monitor the process, parsing JSON events
@@ -421,8 +426,13 @@ pub(super) fn run_single_direct(
                         ref name,
                         ref arguments,
                     } => {
+                        let file_path = pi_output::extract_file_path(name, arguments);
+                        tool_log.push(format!(
+                            "[tool] {} {}",
+                            name,
+                            file_path.as_deref().unwrap_or("")
+                        ));
                         if json_stream {
-                            let file_path = pi_output::extract_file_path(name, arguments);
                             stream::emit(&StreamEvent::BeanTool {
                                 id: bean_id.clone(),
                                 tool_name: name.clone(),
@@ -439,7 +449,10 @@ pub(super) fn run_single_direct(
                         cost,
                     } => {
                         cumulative_tokens += input_tokens + output_tokens;
+                        cumulative_input_tokens += input_tokens;
+                        cumulative_output_tokens += output_tokens;
                         cumulative_cost += cost;
+                        turns += 1;
                         if json_stream {
                             stream::emit(&StreamEvent::BeanTokens {
                                 id: bean_id.clone(),
@@ -508,6 +521,39 @@ pub(super) fn run_single_direct(
             timestamp: chrono::Utc::now().to_rfc3339(),
         },
     );
+
+    // On failure, generate and append a structured failure summary as a bean note.
+    // This gives the next retry agent context about what was tried and why it failed.
+    if !success {
+        if let Ok(bean_path) = crate::discovery::find_bean_file(beans_dir, &sb.id) {
+            if let Ok(mut fresh_bean) = Bean::from_file(&bean_path) {
+                let ctx = failure::FailureContext {
+                    bean_id: sb.id.clone(),
+                    bean_title: sb.title.clone(),
+                    attempt: fresh_bean.attempts.max(1),
+                    duration_secs: duration.as_secs(),
+                    tool_count,
+                    turns,
+                    input_tokens: cumulative_input_tokens,
+                    output_tokens: cumulative_output_tokens,
+                    cost: cumulative_cost,
+                    error: error.clone(),
+                    tool_log,
+                    verify_command: fresh_bean.verify.clone(),
+                };
+                let summary = failure::build_failure_summary(&ctx);
+
+                match &mut fresh_bean.notes {
+                    Some(notes) => {
+                        notes.push('\n');
+                        notes.push_str(&summary);
+                    }
+                    None => fresh_bean.notes = Some(summary),
+                }
+                let _ = fresh_bean.to_file(&bean_path);
+            }
+        }
+    }
 
     AgentResult {
         id: sb.id.clone(),
