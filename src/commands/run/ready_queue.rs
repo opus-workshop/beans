@@ -562,7 +562,6 @@ mod tests {
         SizedBean {
             id: id.to_string(),
             title: format!("Bean {}", id),
-            tokens: 100,
             action: BeanAction::Implement,
             priority: 2,
             dependencies: deps.into_iter().map(|s| s.to_string()).collect(),
