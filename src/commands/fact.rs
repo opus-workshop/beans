@@ -287,7 +287,6 @@ mod tests {
             project: "test".to_string(),
             next_id: 1,
             auto_close_parent: true,
-            max_tokens: 30000,
             run: None,
             plan: None,
             max_loops: 10,

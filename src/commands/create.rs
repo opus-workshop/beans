@@ -4,15 +4,12 @@ use std::process::Command as ShellCommand;
 
 use anyhow::{anyhow, Context, Result};
 
-use chrono::Utc;
-
 use crate::bean::{validate_priority, Bean, OnFailAction};
 use crate::commands::claim::cmd_claim;
 use crate::config::Config;
 use crate::hooks::{execute_hook, HookEvent};
 use crate::index::Index;
 use crate::project::suggest_verify_command;
-use crate::tokens::calculate_tokens;
 use crate::util::title_to_slug;
 
 /// Create arguments structure for organizing all the parameters passed to create.
@@ -311,11 +308,6 @@ pub fn cmd_create(beans_dir: &Path, args: CreateArgs) -> Result<String> {
         return Err(anyhow!("Pre-create hook rejected bean creation"));
     }
 
-    // Calculate and store token count
-    let tokens = calculate_tokens(&bean, project_dir);
-    bean.tokens = Some(tokens);
-    bean.tokens_updated = Some(Utc::now());
-
     // Write the bean file with new naming convention: {id}-{slug}.md
     let bean_path = beans_dir.join(format!("{}-{}.md", bean_id, slug));
     bean.to_file(&bean_path)?;
@@ -324,28 +316,7 @@ pub fn cmd_create(beans_dir: &Path, args: CreateArgs) -> Result<String> {
     let index = Index::build(beans_dir)?;
     index.save(beans_dir)?;
 
-    // Show token size feedback with assessment (stderr — keeps stdout clean for --json)
-    let max_tokens = config.max_tokens;
-    if tokens <= max_tokens as u64 {
-        eprintln!(
-            "Created bean {}: {} ({}k tokens ✓)",
-            bean_id,
-            args.title,
-            tokens / 1000
-        );
-    } else {
-        eprintln!(
-            "Created bean {}: {} ({}k tokens ⚠️ exceeds {}k limit)",
-            bean_id,
-            args.title,
-            tokens / 1000,
-            max_tokens / 1000
-        );
-        eprintln!(
-            "  This appears to be a GOAL. Create child SPECS with --parent {}",
-            bean_id
-        );
-    }
+    eprintln!("Created bean {}: {}", bean_id, args.title);
 
     // Suggest verify command if none was provided
     if !has_verify {
@@ -427,7 +398,6 @@ mod tests {
             project: "test".to_string(),
             next_id: 1,
             auto_close_parent: true,
-            max_tokens: 30000,
             run: None,
             plan: None,
             max_loops: 10,

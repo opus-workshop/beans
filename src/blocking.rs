@@ -65,9 +65,11 @@ pub fn check_blocked(entry: &IndexEntry, index: &Index) -> Option<BlockReason> {
 
     // Smart dependencies: requires → sibling produces
     for required in &entry.requires {
-        if let Some(producer) = index.beans.iter().find(|e| {
-            e.id != entry.id && e.parent == entry.parent && e.produces.contains(required)
-        }) {
+        if let Some(producer) = index
+            .beans
+            .iter()
+            .find(|e| e.id != entry.id && e.parent == entry.parent && e.produces.contains(required))
+        {
             if producer.status != Status::Closed && !waiting_on.contains(&producer.id) {
                 waiting_on.push(producer.id.clone());
             }

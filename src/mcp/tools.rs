@@ -394,14 +394,6 @@ fn handle_create_bean(args: &Value, beans_dir: &Path) -> Result<String> {
         bean.dependencies = d.split(',').map(|s| s.trim().to_string()).collect();
     }
 
-    // Calculate tokens
-    let project_dir = beans_dir
-        .parent()
-        .ok_or_else(|| anyhow::anyhow!("Cannot determine project root"))?;
-    let tokens = crate::tokens::calculate_tokens(&bean, project_dir);
-    bean.tokens = Some(tokens);
-    bean.tokens_updated = Some(Utc::now());
-
     // Write bean file
     let bean_path = beans_dir.join(format!("{}-{}.md", bean_id, slug));
     bean.to_file(&bean_path)?;
@@ -410,12 +402,7 @@ fn handle_create_bean(args: &Value, beans_dir: &Path) -> Result<String> {
     let index = Index::build(beans_dir)?;
     index.save(beans_dir)?;
 
-    Ok(format!(
-        "Created bean {}: {} ({}k tokens)",
-        bean_id,
-        title,
-        tokens / 1000
-    ))
+    Ok(format!("Created bean {}: {}", bean_id, title))
 }
 
 fn handle_claim_bean(args: &Value, beans_dir: &Path) -> Result<String> {

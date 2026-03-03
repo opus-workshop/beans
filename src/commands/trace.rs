@@ -37,7 +37,6 @@ pub struct AttemptSummary {
     pub successful: usize,
     pub failed: usize,
     pub abandoned: usize,
-    pub tokens: Option<u64>,
 }
 
 // ---------------------------------------------------------------------------
@@ -203,7 +202,6 @@ fn build_attempt_summary(bean: &Bean) -> AttemptSummary {
         successful,
         failed,
         abandoned,
-        tokens: bean.tokens,
     }
 }
 
@@ -302,14 +300,9 @@ fn print_trace(output: &TraceOutput) {
     if a.total == 0 {
         println!("  Attempts: (none)");
     } else {
-        let tokens_str = match a.tokens {
-            Some(t) if t >= 1000 => format!(", {}K tokens", t / 1000),
-            Some(t) => format!(", {} tokens", t),
-            None => String::new(),
-        };
         println!(
-            "  Attempts: {} total ({} success, {} failed, {} abandoned{})",
-            a.total, a.successful, a.failed, a.abandoned, tokens_str
+            "  Attempts: {} total ({} success, {} failed, {} abandoned)",
+            a.total, a.successful, a.failed, a.abandoned
         );
     }
 }
@@ -337,7 +330,6 @@ mod tests {
 
         let mut bean = Bean::new("42", "test bean");
         bean.produces = vec!["artifact-a".to_string()];
-        bean.tokens = Some(5000);
         bean.attempt_log = vec![AttemptRecord {
             num: 1,
             outcome: AttemptOutcome::Abandoned,
@@ -385,7 +377,6 @@ mod tests {
         main_bean.dependencies = vec!["11".to_string()];
         main_bean.produces = vec!["api.rs".to_string()];
         main_bean.requires = vec!["Config".to_string()];
-        main_bean.tokens = Some(12000);
         main_bean.attempt_log = vec![
             AttemptRecord {
                 num: 1,

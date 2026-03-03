@@ -12,7 +12,6 @@ pub fn cmd_config_get(beans_dir: &Path, key: &str) -> Result<()> {
         "project" => config.project,
         "next_id" => config.next_id.to_string(),
         "auto_close_parent" => config.auto_close_parent.to_string(),
-        "max_tokens" => config.max_tokens.to_string(),
         "run" => config.run.unwrap_or_default(),
         "plan" => config.plan.unwrap_or_default(),
         "max_concurrent" => config.max_concurrent.to_string(),
@@ -45,14 +44,6 @@ pub fn cmd_config_set(beans_dir: &Path, key: &str, value: &str) -> Result<()> {
             config.auto_close_parent = value.parse().map_err(|_| {
                 anyhow!(
                     "Invalid value for auto_close_parent: {} (expected true/false)",
-                    value
-                )
-            })?;
-        }
-        "max_tokens" => {
-            config.max_tokens = value.parse().map_err(|_| {
-                anyhow!(
-                    "Invalid value for max_tokens: {} (expected positive integer)",
                     value
                 )
             })?;
@@ -132,18 +123,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         fs::write(
             dir.path().join("config.yaml"),
-            "project: test\nnext_id: 1\nauto_close_parent: true\nmax_tokens: 30000\n",
+            "project: test\nnext_id: 1\nauto_close_parent: true\n",
         )
         .unwrap();
         dir
-    }
-
-    #[test]
-    fn get_max_tokens_returns_value() {
-        let dir = setup_test_dir();
-        // Just verify it doesn't error - output goes to stdout
-        let result = cmd_config_get(dir.path(), "max_tokens");
-        assert!(result.is_ok());
     }
 
     #[test]
@@ -155,23 +138,6 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("Unknown config key"));
-    }
-
-    #[test]
-    fn set_max_tokens_updates_config() {
-        let dir = setup_test_dir();
-        cmd_config_set(dir.path(), "max_tokens", "50000").unwrap();
-
-        let config = Config::load(dir.path()).unwrap();
-        assert_eq!(config.max_tokens, 50000);
-    }
-
-    #[test]
-    fn set_max_tokens_with_invalid_value_returns_error() {
-        let dir = setup_test_dir();
-        let result = cmd_config_set(dir.path(), "max_tokens", "not_a_number");
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Invalid value"));
     }
 
     #[test]

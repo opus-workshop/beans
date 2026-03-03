@@ -21,7 +21,6 @@ fn setup_test_env() -> (TempDir, std::path::PathBuf) {
         project: "test-adopt".to_string(),
         next_id: 100,
         auto_close_parent: true,
-        max_tokens: 30000,
         run: None,
         plan: None,
         max_loops: 10,

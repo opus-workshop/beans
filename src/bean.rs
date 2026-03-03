@@ -224,15 +224,6 @@ pub struct Bean {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub requires: Vec<String>,
 
-    /// Estimated token count for this bean's context.
-    /// Used for sizing decisions (decomposition vs implementation).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tokens: Option<u64>,
-
-    /// When the token count was last calculated.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tokens_updated: Option<DateTime<Utc>>,
-
     /// Declarative action to execute when verify fails.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub on_fail: Option<OnFailAction>,
@@ -349,8 +340,6 @@ impl Bean {
             is_archived: false,
             produces: Vec::new(),
             requires: Vec::new(),
-            tokens: None,
-            tokens_updated: None,
             on_fail: None,
             on_close: Vec::new(),
             history: Vec::new(),
@@ -543,8 +532,6 @@ impl Bean {
             "claimed_by" => self.claimed_by = serde_json::from_str(json_value)?,
             "close_reason" => self.close_reason = serde_json::from_str(json_value)?,
             "on_fail" => self.on_fail = serde_json::from_str(json_value)?,
-            "tokens" => self.tokens = serde_json::from_str(json_value)?,
-            "tokens_updated" => self.tokens_updated = serde_json::from_str(json_value)?,
             "outputs" => self.outputs = serde_json::from_str(json_value)?,
             "max_loops" => self.max_loops = serde_json::from_str(json_value)?,
             "bean_type" => self.bean_type = serde_json::from_str(json_value)?,
@@ -611,8 +598,6 @@ mod tests {
             is_archived: false,
             produces: vec!["Parser".to_string()],
             requires: vec!["Lexer".to_string()],
-            tokens: Some(15000),
-            tokens_updated: Some(now),
             on_fail: Some(OnFailAction::Retry {
                 max: Some(5),
                 delay_secs: None,
@@ -674,8 +659,6 @@ mod tests {
         assert!(!yaml.contains("claimed_by:"));
         assert!(!yaml.contains("claimed_at:"));
         assert!(!yaml.contains("is_archived:"));
-        assert!(!yaml.contains("tokens:"));
-        assert!(!yaml.contains("tokens_updated:"));
         assert!(!yaml.contains("on_fail:"));
         assert!(!yaml.contains("on_close:"));
         assert!(!yaml.contains("history:"));

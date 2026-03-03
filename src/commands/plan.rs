@@ -1,6 +1,6 @@
 //! `bn plan` — interactively plan a large bean into children.
 //!
-//! Without an ID, picks the highest-priority ready bean that exceeds max_tokens.
+//! Without an ID, picks the highest-priority ready bean that is oversized or unscoped.
 //! When `config.plan` is set, spawns that template command.
 //! Otherwise, builds a rich decomposition prompt and spawns `pi` directly.
 
@@ -12,7 +12,6 @@ use crate::bean::{Bean, Status};
 use crate::config::Config;
 use crate::discovery::find_bean_file;
 use crate::index::Index;
-use crate::tokens::calculate_tokens;
 use crate::util::natural_cmp;
 
 /// Arguments for the plan command.
@@ -42,38 +41,36 @@ fn plan_specific(
     beans_dir: &Path,
     config: &Config,
     _index: &Index,
-    workspace: &Path,
+    _workspace: &Path,
     id: &str,
     args: &PlanArgs,
 ) -> Result<()> {
     let bean_path = find_bean_file(beans_dir, id)?;
     let bean = Bean::from_file(&bean_path)?;
-    let tokens = calculate_tokens(&bean, workspace);
 
-    if tokens < config.max_tokens as u64 && !args.force {
-        let tokens_k = format_tokens_k(tokens);
-        eprintln!(
-            "Bean {} is {} tokens — small enough to run directly.",
-            id, tokens_k
-        );
+    let is_oversized = bean.produces.len() > crate::blocking::MAX_PRODUCES
+        || bean.paths.len() > crate::blocking::MAX_PATHS;
+
+    if !is_oversized && !args.force {
+        eprintln!("Bean {} is small enough to run directly.", id,);
         eprintln!("  Use bn run {} to dispatch it.", id);
         eprintln!("  Use bn plan {} --force to plan anyway.", id);
         return Ok(());
     }
 
-    spawn_plan(beans_dir, config, id, &bean, tokens, args)
+    spawn_plan(beans_dir, config, id, &bean, args)
 }
 
-/// Auto-pick the highest-priority ready bean that exceeds max_tokens.
+/// Auto-pick the highest-priority ready bean that is oversized.
 fn plan_auto_pick(
     beans_dir: &Path,
     config: &Config,
     index: &Index,
-    workspace: &Path,
+    _workspace: &Path,
     args: &PlanArgs,
 ) -> Result<()> {
-    // Find all open beans (GOALs without verify, or any open bean above max_tokens)
-    let mut candidates: Vec<(String, String, u8, u64)> = Vec::new();
+    // Find all open beans that are oversized (too many produces or paths)
+    let mut candidates: Vec<(String, String, u8)> = Vec::new();
 
     for entry in &index.beans {
         if entry.status != Status::Open {
@@ -93,14 +90,11 @@ fn plan_auto_pick(
             Err(_) => continue,
         };
 
-        let tokens = calculate_tokens(&bean, workspace);
-        if tokens >= config.max_tokens as u64 {
-            candidates.push((
-                entry.id.clone(),
-                entry.title.clone(),
-                entry.priority,
-                tokens,
-            ));
+        let is_oversized = bean.produces.len() > crate::blocking::MAX_PRODUCES
+            || bean.paths.len() > crate::blocking::MAX_PATHS;
+
+        if is_oversized {
+            candidates.push((entry.id.clone(), entry.title.clone(), entry.priority));
         }
     }
 
@@ -115,22 +109,20 @@ fn plan_auto_pick(
 
     // Show all candidates
     eprintln!("{} beans need planning:", candidates.len());
-    for (id, title, priority, tokens) in &candidates {
-        let tokens_k = format_tokens_k(*tokens);
-        eprintln!("  P{}  {:6}  {:30}  {}", priority, id, title, tokens_k);
+    for (id, title, priority) in &candidates {
+        eprintln!("  P{}  {:6}  {}", priority, id, title);
     }
     eprintln!();
 
     // Pick first (highest priority, lowest ID)
-    let (id, title, _, tokens) = &candidates[0];
-    let tokens_k = format_tokens_k(*tokens);
-    eprintln!("Planning: {} — {} ({})", id, title, tokens_k);
+    let (id, title, _) = &candidates[0];
+    eprintln!("Planning: {} — {}", id, title);
 
     // Load the full bean for prompt building
     let bean_path = find_bean_file(beans_dir, id)?;
     let bean = Bean::from_file(&bean_path)?;
 
-    spawn_plan(beans_dir, config, id, &bean, *tokens, args)
+    spawn_plan(beans_dir, config, id, &bean, args)
 }
 
 /// Spawn the plan command for a bean.
@@ -142,7 +134,6 @@ fn spawn_plan(
     config: &Config,
     id: &str,
     bean: &Bean,
-    tokens: u64,
     args: &PlanArgs,
 ) -> Result<()> {
     // If a custom plan template is configured, use it (backward compat)
@@ -151,7 +142,7 @@ fn spawn_plan(
     }
 
     // Built-in decomposition: build prompt and spawn pi
-    spawn_builtin(beans_dir, config, id, bean, tokens, args)
+    spawn_builtin(beans_dir, id, bean, args)
 }
 
 /// Spawn the plan using a user-configured template command.
@@ -172,15 +163,8 @@ fn spawn_template(template: &str, id: &str, args: &PlanArgs) -> Result<()> {
 }
 
 /// Build a decomposition prompt and spawn `pi` with it directly.
-fn spawn_builtin(
-    beans_dir: &Path,
-    config: &Config,
-    id: &str,
-    bean: &Bean,
-    tokens: u64,
-    args: &PlanArgs,
-) -> Result<()> {
-    let prompt = build_decomposition_prompt(config, id, bean, tokens, args.strategy.as_deref());
+fn spawn_builtin(beans_dir: &Path, id: &str, bean: &Bean, args: &PlanArgs) -> Result<()> {
+    let prompt = build_decomposition_prompt(id, bean, args.strategy.as_deref());
 
     // Find the bean file to pass as context
     let bean_path = find_bean_file(beans_dir, id)?;
@@ -242,17 +226,7 @@ fn run_shell_command(cmd: &str, id: &str, auto: bool) -> Result<()> {
 }
 
 /// Build a rich decomposition prompt that embeds the core planning wisdom.
-fn build_decomposition_prompt(
-    config: &Config,
-    id: &str,
-    bean: &Bean,
-    tokens: u64,
-    strategy: Option<&str>,
-) -> String {
-    let max_tokens = config.max_tokens;
-    let tokens_k = format_tokens_k(tokens);
-    let max_k = format_tokens_k(max_tokens as u64);
-
+fn build_decomposition_prompt(id: &str, bean: &Bean, strategy: Option<&str>) -> String {
     let strategy_guidance = match strategy {
         Some("feature") | Some("by-feature") => {
             "Split by feature — each child is a vertical slice (types + impl + tests for one feature)."
@@ -268,23 +242,16 @@ fn build_decomposition_prompt(
         }
         Some(other) => {
             // Custom strategy, include as-is
-            return build_prompt_text(id, bean, &tokens_k, &max_k, max_tokens, other);
+            return build_prompt_text(id, bean, other);
         }
         None => "Choose the best strategy: by-feature (vertical slices), by-layer, or by-file.",
     };
 
-    build_prompt_text(id, bean, &tokens_k, &max_k, max_tokens, strategy_guidance)
+    build_prompt_text(id, bean, strategy_guidance)
 }
 
 /// Assemble the full prompt text with decomposition rules.
-fn build_prompt_text(
-    id: &str,
-    bean: &Bean,
-    tokens_k: &str,
-    max_k: &str,
-    max_tokens: u32,
-    strategy_guidance: &str,
-) -> String {
+fn build_prompt_text(id: &str, bean: &Bean, strategy_guidance: &str) -> String {
     let title = &bean.title;
     let priority = bean.priority;
     let description = bean.description.as_deref().unwrap_or("(no description)");
@@ -305,15 +272,13 @@ fn build_prompt_text(
 - **ID:** {id}
 - **Title:** {title}
 - **Priority:** P{priority}
-- **Size:** {tokens_k} (max per agent: {max_k})
 {dep_context}
 ## Strategy
 {strategy_guidance}
 
 ## Sizing Rules
 - A bean is **atomic** if it requires ≤5 functions to write and ≤10 to read
-- An atomic bean fits in ~{max_tokens} tokens of context
-- This bean is {tokens_k} — it needs to be split into children that are each ≤{max_k}
+- Each child should have at most 3 `produces` artifacts and 5 `paths`
 - Count functions concretely by examining the code — don't estimate
 
 ## Splitting Rules
@@ -375,15 +340,6 @@ fn shell_escape(s: &str) -> String {
     format!("'{}'", escaped)
 }
 
-/// Format token count as "Nk tokens" string.
-fn format_tokens_k(tokens: u64) -> String {
-    if tokens >= 1000 {
-        format!("{}k tokens", tokens / 1000)
-    } else {
-        format!("{} tokens", tokens)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -396,7 +352,7 @@ mod tests {
         fs::create_dir(&beans_dir).unwrap();
         fs::write(
             beans_dir.join("config.yaml"),
-            "project: test\nnext_id: 10\nmax_tokens: 100\n",
+            "project: test\nnext_id: 10\n",
         )
         .unwrap();
         (dir, beans_dir)
@@ -412,9 +368,9 @@ mod tests {
     fn plan_no_template_without_auto_errors() {
         let (dir, beans_dir) = setup_beans_dir();
 
-        // Create a bean big enough to trigger planning
+        // Create an oversized bean (>3 produces) to trigger planning
         let mut bean = Bean::new("1", "Big bean");
-        bean.description = Some("x".repeat(2000)); // > 100 tokens threshold
+        bean.produces = vec!["a".into(), "b".into(), "c".into(), "d".into()];
         bean.to_file(beans_dir.join("1-big-bean.md")).unwrap();
 
         let _ = Index::build(&beans_dir);
@@ -471,7 +427,7 @@ mod tests {
         // Config with plan template that just exits 0
         fs::write(
             beans_dir.join("config.yaml"),
-            "project: test\nnext_id: 10\nmax_tokens: 100000\nplan: \"true\"\n",
+            "project: test\nnext_id: 10\nplan: \"true\"\n",
         )
         .unwrap();
 
@@ -503,12 +459,12 @@ mod tests {
 
         fs::write(
             beans_dir.join("config.yaml"),
-            "project: test\nnext_id: 10\nmax_tokens: 100\nplan: \"echo planning {id}\"\n",
+            "project: test\nnext_id: 10\nplan: \"echo planning {id}\"\n",
         )
         .unwrap();
 
         let mut bean = Bean::new("1", "Big bean");
-        bean.description = Some("x".repeat(2000));
+        bean.produces = vec!["a".into(), "b".into(), "c".into(), "d".into()];
         bean.to_file(beans_dir.join("1-big-bean.md")).unwrap();
 
         let _ = Index::build(&beans_dir);
@@ -530,21 +486,21 @@ mod tests {
     }
 
     #[test]
-    fn plan_auto_pick_finds_largest() {
+    fn plan_auto_pick_finds_oversized() {
         let (dir, beans_dir) = setup_beans_dir();
 
         fs::write(
             beans_dir.join("config.yaml"),
-            "project: test\nnext_id: 10\nmax_tokens: 100\nplan: \"true\"\n",
+            "project: test\nnext_id: 10\nplan: \"true\"\n",
         )
         .unwrap();
 
-        // Bean above threshold
+        // Bean above scope threshold (oversized)
         let mut big = Bean::new("1", "Big bean");
-        big.description = Some("x".repeat(2000));
+        big.produces = vec!["a".into(), "b".into(), "c".into(), "d".into()];
         big.to_file(beans_dir.join("1-big-bean.md")).unwrap();
 
-        // Bean below threshold
+        // Bean below scope threshold
         let small = Bean::new("2", "Small bean");
         small.to_file(beans_dir.join("2-small-bean.md")).unwrap();
 
@@ -593,48 +549,9 @@ mod tests {
     }
 
     #[test]
-    fn format_tokens_k_small() {
-        assert_eq!(format_tokens_k(500), "500 tokens");
-    }
-
-    #[test]
-    fn format_tokens_k_large() {
-        assert_eq!(format_tokens_k(52000), "52k tokens");
-    }
-
-    #[test]
-    fn format_tokens_k_exact_boundary() {
-        assert_eq!(format_tokens_k(1000), "1k tokens");
-    }
-
-    #[test]
     fn build_prompt_includes_decomposition_rules() {
         let bean = Bean::new("42", "Implement auth system");
-        let prompt = build_decomposition_prompt(
-            &Config {
-                project: "test".to_string(),
-                next_id: 100,
-                auto_close_parent: true,
-                max_tokens: 30000,
-                run: None,
-                plan: None,
-                max_loops: 10,
-                max_concurrent: 4,
-                poll_interval: 30,
-                extends: vec![],
-                rules_file: None,
-                file_locking: false,
-                on_close: None,
-                on_fail: None,
-                post_plan: None,
-                verify_timeout: None,
-                review: None,
-            },
-            "42",
-            &bean,
-            65000,
-            None,
-        );
+        let prompt = build_decomposition_prompt("42", &bean, None);
 
         // Core decomposition rules are present
         assert!(prompt.contains("Decompose bean 42"), "missing header");
@@ -656,37 +573,12 @@ mod tests {
         assert!(prompt.contains("--parent 42"), "missing parent flag");
         assert!(prompt.contains("--produces"), "missing produces flag");
         assert!(prompt.contains("--requires"), "missing requires flag");
-        assert!(prompt.contains("65k tokens"), "missing token count");
     }
 
     #[test]
     fn build_prompt_with_strategy() {
         let bean = Bean::new("1", "Big task");
-        let prompt = build_decomposition_prompt(
-            &Config {
-                project: "test".to_string(),
-                next_id: 10,
-                auto_close_parent: true,
-                max_tokens: 30000,
-                run: None,
-                plan: None,
-                max_loops: 10,
-                max_concurrent: 4,
-                poll_interval: 30,
-                extends: vec![],
-                rules_file: None,
-                file_locking: false,
-                on_close: None,
-                on_fail: None,
-                post_plan: None,
-                verify_timeout: None,
-                review: None,
-            },
-            "1",
-            &bean,
-            50000,
-            Some("by-feature"),
-        );
+        let prompt = build_decomposition_prompt("1", &bean, Some("by-feature"));
 
         assert!(
             prompt.contains("vertical slice"),
@@ -700,31 +592,7 @@ mod tests {
         bean.produces = vec!["auth_types".to_string(), "auth_middleware".to_string()];
         bean.requires = vec!["db_connection".to_string()];
 
-        let prompt = build_decomposition_prompt(
-            &Config {
-                project: "test".to_string(),
-                next_id: 10,
-                auto_close_parent: true,
-                max_tokens: 30000,
-                run: None,
-                plan: None,
-                max_loops: 10,
-                max_concurrent: 4,
-                poll_interval: 30,
-                extends: vec![],
-                rules_file: None,
-                file_locking: false,
-                on_close: None,
-                on_fail: None,
-                post_plan: None,
-                verify_timeout: None,
-                review: None,
-            },
-            "5",
-            &bean,
-            40000,
-            None,
-        );
+        let prompt = build_decomposition_prompt("5", &bean, None);
 
         assert!(prompt.contains("auth_types"), "missing produces");
         assert!(prompt.contains("db_connection"), "missing requires");

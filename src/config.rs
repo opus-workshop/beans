@@ -37,9 +37,6 @@ pub struct Config {
     /// Auto-close parent beans when all children are closed/archived (default: true)
     #[serde(default = "default_auto_close_parent")]
     pub auto_close_parent: bool,
-    /// Maximum tokens for bean context (default: 30000)
-    #[serde(default = "default_max_tokens")]
-    pub max_tokens: u32,
     /// Shell command template for `--run`. Use `{id}` as placeholder for bean ID.
     /// Example: `claude -p "implement bean {id} and run bn close {id}"`.
     /// If unset, `--run` will print an error asking the user to configure it.
@@ -101,10 +98,6 @@ fn default_auto_close_parent() -> bool {
     true
 }
 
-fn default_max_tokens() -> u32 {
-    30000
-}
-
 fn default_max_loops() -> u32 {
     10
 }
@@ -127,7 +120,6 @@ impl Default for Config {
             project: String::new(),
             next_id: 1,
             auto_close_parent: true,
-            max_tokens: 30000,
             run: None,
             plan: None,
             max_loops: 10,
@@ -200,9 +192,6 @@ impl Config {
         // Merge: closest parent first (highest priority among parents).
         // Only override local values that are still at their defaults.
         for parent in &parents {
-            if config.max_tokens == default_max_tokens() {
-                config.max_tokens = parent.max_tokens;
-            }
             if config.run.is_none() {
                 config.run = parent.run.clone();
             }
@@ -307,7 +296,6 @@ mod tests {
             project: "test-project".to_string(),
             next_id: 42,
             auto_close_parent: true,
-            max_tokens: 30000,
             run: None,
             plan: None,
             max_loops: 10,
@@ -335,7 +323,6 @@ mod tests {
             project: "test".to_string(),
             next_id: 1,
             auto_close_parent: true,
-            max_tokens: 30000,
             run: None,
             plan: None,
             max_loops: 10,
@@ -379,7 +366,6 @@ mod tests {
             project: "my-project".to_string(),
             next_id: 100,
             auto_close_parent: true,
-            max_tokens: 30000,
             run: None,
             plan: None,
             max_loops: 10,
@@ -422,7 +408,6 @@ mod tests {
             project: "test".to_string(),
             next_id: 1,
             auto_close_parent: false,
-            max_tokens: 30000,
             run: None,
             plan: None,
             max_loops: 10,
@@ -444,45 +429,17 @@ mod tests {
     }
 
     #[test]
-    fn max_tokens_defaults_to_30000() {
+    fn max_tokens_in_yaml_silently_ignored() {
         let dir = tempfile::tempdir().unwrap();
-        // Write a config WITHOUT max_tokens field
+        // Existing configs in the wild may have max_tokens — must not error
         fs::write(
             dir.path().join("config.yaml"),
-            "project: test\nnext_id: 1\n",
+            "project: test\nnext_id: 1\nmax_tokens: 50000\n",
         )
         .unwrap();
 
         let loaded = Config::load(dir.path()).unwrap();
-        assert_eq!(loaded.max_tokens, 30000);
-    }
-
-    #[test]
-    fn max_tokens_can_be_customized() {
-        let dir = tempfile::tempdir().unwrap();
-        let config = Config {
-            project: "test".to_string(),
-            next_id: 1,
-            auto_close_parent: true,
-            max_tokens: 50000,
-            run: None,
-            plan: None,
-            max_loops: 10,
-            max_concurrent: 4,
-            poll_interval: 30,
-            extends: vec![],
-            rules_file: None,
-            file_locking: false,
-            on_close: None,
-            on_fail: None,
-            post_plan: None,
-            verify_timeout: None,
-            review: None,
-        };
-        config.save(dir.path()).unwrap();
-
-        let loaded = Config::load(dir.path()).unwrap();
-        assert_eq!(loaded.max_tokens, 50000);
+        assert_eq!(loaded.project, "test");
     }
 
     #[test]
@@ -505,7 +462,6 @@ mod tests {
             project: "test".to_string(),
             next_id: 1,
             auto_close_parent: true,
-            max_tokens: 30000,
             run: Some("claude -p 'implement bean {id}'".to_string()),
             plan: None,
             max_loops: 10,
@@ -536,7 +492,6 @@ mod tests {
             project: "test".to_string(),
             next_id: 1,
             auto_close_parent: true,
-            max_tokens: 30000,
             run: None,
             plan: None,
             max_loops: 10,
@@ -577,7 +532,6 @@ mod tests {
             project: "test".to_string(),
             next_id: 1,
             auto_close_parent: true,
-            max_tokens: 30000,
             run: None,
             plan: None,
             max_loops: 25,
@@ -629,7 +583,6 @@ mod tests {
 
         let config = Config::load_with_extends(&beans_dir).unwrap();
         assert_eq!(config.project, "test");
-        assert_eq!(config.max_tokens, 30000); // default
         assert!(config.run.is_none());
     }
 
@@ -643,14 +596,13 @@ mod tests {
         let parent_path = dir.path().join("shared.yaml");
         write_yaml(
             &parent_path,
-            "project: shared\nnext_id: 999\nmax_tokens: 50000\nrun: \"deli spawn {id}\"\nmax_loops: 20\n",
+            "project: shared\nnext_id: 999\nrun: \"deli spawn {id}\"\nmax_loops: 20\n",
         );
 
         write_local_config(&beans_dir, &["shared.yaml"], "");
 
         let config = Config::load_with_extends(&beans_dir).unwrap();
         // Inherited
-        assert_eq!(config.max_tokens, 50000);
         assert_eq!(config.run, Some("deli spawn {id}".to_string()));
         assert_eq!(config.max_loops, 20);
         // Never inherited
@@ -667,19 +619,18 @@ mod tests {
         let parent_path = dir.path().join("shared.yaml");
         write_yaml(
             &parent_path,
-            "project: shared\nnext_id: 999\nmax_tokens: 50000\nrun: \"parent-run\"\nmax_loops: 20\n",
+            "project: shared\nnext_id: 999\nrun: \"parent-run\"\nmax_loops: 20\n",
         );
 
-        // Local config sets its own max_tokens and run
+        // Local config sets its own run
         write_local_config(
             &beans_dir,
             &["shared.yaml"],
-            "max_tokens: 60000\nrun: \"local-run\"\nmax_loops: 5\n",
+            "run: \"local-run\"\nmax_loops: 5\n",
         );
 
         let config = Config::load_with_extends(&beans_dir).unwrap();
         // Local values win
-        assert_eq!(config.max_tokens, 60000);
         assert_eq!(config.run, Some("local-run".to_string()));
         assert_eq!(config.max_loops, 5);
     }
@@ -695,11 +646,11 @@ mod tests {
         let b_path = dir.path().join("b.yaml");
         write_yaml(
             &a_path,
-            "project: a\nnext_id: 1\nextends:\n  - \"b.yaml\"\nmax_tokens: 40000\n",
+            "project: a\nnext_id: 1\nextends:\n  - \"b.yaml\"\nmax_loops: 40\n",
         );
         write_yaml(
             &b_path,
-            "project: b\nnext_id: 1\nextends:\n  - \"a.yaml\"\nmax_tokens: 50000\n",
+            "project: b\nnext_id: 1\nextends:\n  - \"a.yaml\"\nmax_loops: 50\n",
         );
 
         write_local_config(&beans_dir, &["a.yaml"], "");
@@ -708,7 +659,7 @@ mod tests {
         let config = Config::load_with_extends(&beans_dir).unwrap();
         assert_eq!(config.project, "test");
         // Gets value from one of the parents
-        assert!(config.max_tokens == 40000 || config.max_tokens == 50000);
+        assert!(config.max_loops == 40 || config.max_loops == 50);
     }
 
     #[test]
@@ -739,22 +690,22 @@ mod tests {
         let c_path = dir.path().join("c.yaml");
         write_yaml(
             &c_path,
-            "project: c\nnext_id: 1\nmax_tokens: 40000\nrun: \"from-c\"\n",
+            "project: c\nnext_id: 1\nrun: \"from-c\"\nmax_loops: 40\n",
         );
 
-        // B extends C, overrides max_tokens
+        // B extends C, overrides max_loops
         let b_path = dir.path().join("b.yaml");
         write_yaml(
             &b_path,
-            "project: b\nnext_id: 1\nextends:\n  - \"c.yaml\"\nmax_tokens: 50000\n",
+            "project: b\nnext_id: 1\nextends:\n  - \"c.yaml\"\nmax_loops: 50\n",
         );
 
         // Local extends B
         write_local_config(&beans_dir, &["b.yaml"], "");
 
         let config = Config::load_with_extends(&beans_dir).unwrap();
-        // B's max_tokens (50000) should apply since it's the direct parent
-        assert_eq!(config.max_tokens, 50000);
+        // B's max_loops (50) should apply since it's the direct parent
+        assert_eq!(config.max_loops, 50);
         // run comes from C (B doesn't set it, but C does)
         assert_eq!(config.run, Some("from-c".to_string()));
     }
@@ -768,7 +719,7 @@ mod tests {
         let parent_path = dir.path().join("shared.yaml");
         write_yaml(
             &parent_path,
-            "project: parent-project\nnext_id: 999\nmax_tokens: 50000\n",
+            "project: parent-project\nnext_id: 999\nmax_loops: 50\n",
         );
 
         write_local_config(&beans_dir, &["shared.yaml"], "");
@@ -795,7 +746,6 @@ mod tests {
             project: "test".to_string(),
             next_id: 1,
             auto_close_parent: true,
-            max_tokens: 30000,
             run: None,
             plan: None,
             max_loops: 10,
@@ -851,7 +801,6 @@ mod tests {
             project: "test".to_string(),
             next_id: 1,
             auto_close_parent: true,
-            max_tokens: 30000,
             run: None,
             plan: Some("claude -p 'plan bean {id}'".to_string()),
             max_loops: 10,
@@ -879,7 +828,6 @@ mod tests {
             project: "test".to_string(),
             next_id: 1,
             auto_close_parent: true,
-            max_tokens: 30000,
             run: None,
             plan: None,
             max_loops: 10,
@@ -920,7 +868,6 @@ mod tests {
             project: "test".to_string(),
             next_id: 1,
             auto_close_parent: true,
-            max_tokens: 30000,
             run: None,
             plan: None,
             max_loops: 10,
@@ -961,7 +908,6 @@ mod tests {
             project: "test".to_string(),
             next_id: 1,
             auto_close_parent: true,
-            max_tokens: 30000,
             run: None,
             plan: None,
             max_loops: 10,
@@ -1067,7 +1013,6 @@ mod tests {
             project: "test".to_string(),
             next_id: 1,
             auto_close_parent: true,
-            max_tokens: 30000,
             run: None,
             plan: Some("plan {id}".to_string()),
             max_loops: 10,

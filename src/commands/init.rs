@@ -278,7 +278,6 @@ pub fn cmd_init(path: Option<&Path>, args: InitArgs) -> Result<()> {
         project: project.clone(),
         next_id,
         auto_close_parent: true,
-        max_tokens: 30000,
         run,
         plan,
         max_loops: 10,
