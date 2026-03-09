@@ -1,5 +1,20 @@
 use clap::{Parser, Subcommand};
 
+/// Parse priority from "P0"-"P4", "p0"-"p4", or "0"-"4".
+fn parse_priority(s: &str) -> Result<u8, String> {
+    let num_str = s
+        .strip_prefix('P')
+        .or_else(|| s.strip_prefix('p'))
+        .unwrap_or(s);
+    let n: u8 = num_str
+        .parse()
+        .map_err(|_| format!("invalid priority '{s}': expected P0-P4 or 0-4"))?;
+    if n > 4 {
+        return Err(format!("priority {n} out of range: expected 0-4"));
+    }
+    Ok(n)
+}
+
 #[derive(Parser)]
 #[command(
     name = "bn",
@@ -23,6 +38,7 @@ Commands:
     verify       Run a bean's verify command without closing
     reopen       Reopen a closed bean
     delete       Delete a bean and clean up references
+    move         Move beans from another .beans/ directory into this project
 
   QUERY
     status       Show project status: claimed, ready, and blocked beans
@@ -201,8 +217,8 @@ Examples:
         #[arg(long)]
         status: Option<String>,
 
-        /// Filter by priority
-        #[arg(long)]
+        /// Filter by priority (P0-P4 or 0-4)
+        #[arg(long, value_parser = parse_priority)]
         priority: Option<u8>,
 
         /// Show children of a parent
@@ -287,8 +303,8 @@ Examples:
         #[arg(long)]
         status: Option<String>,
 
-        /// New priority
-        #[arg(long)]
+        /// New priority (P0-P4 or 0-4)
+        #[arg(long, value_parser = parse_priority)]
         priority: Option<u8>,
 
         /// New assignee
@@ -556,8 +572,8 @@ Examples:
         #[arg(long)]
         verify: Option<String>,
 
-        /// Priority P0-P4 (default: P2)
-        #[arg(long)]
+        /// Priority P0-P4 or 0-4 (default: P2)
+        #[arg(long, value_parser = parse_priority)]
         priority: Option<u8>,
 
         /// Who is claiming (agent name or user)
@@ -587,6 +603,35 @@ Examples:
         /// Timeout in seconds for the verify command (kills process on expiry)
         #[arg(long)]
         verify_timeout: Option<u64>,
+    },
+
+    /// Move beans between .beans/ directories
+    ///
+    /// Use when beans were accidentally created in the wrong directory (e.g. ~ instead
+    /// of the project). Beans get new sequential IDs in the destination. Parent/dependency
+    /// references are cleared since they refer to the source project's ID space.
+    ///
+    /// Use --from to pull beans into this project, or --to to push beans out.
+    #[command(
+        display_order = 13,
+        after_help = "\
+Examples:
+  bn move --from ~/.beans 42 43 44         Pull beans from ~/.beans/ into this project
+  bn move --from ~/other-project 1 2       Pull from another project
+  bn move --to ~/other-project 5 6         Push beans from this project elsewhere"
+    )]
+    Move {
+        /// Pull beans FROM this .beans/ or project directory into the current project
+        #[arg(long, conflicts_with = "to", required_unless_present = "to")]
+        from: Option<String>,
+
+        /// Push beans from the current project TO this .beans/ or project directory
+        #[arg(long, conflicts_with = "from", required_unless_present = "from")]
+        to: Option<String>,
+
+        /// Bean IDs to move
+        #[arg(required = true)]
+        ids: Vec<String>,
     },
 
     /// Adopt existing beans as children of a parent
@@ -987,8 +1032,8 @@ pub enum CreateSubcommand {
         #[arg(long)]
         parent: Option<String>,
 
-        /// Priority P0-P4 (default: P2)
-        #[arg(long)]
+        /// Priority P0-P4 or 0-4 (default: P2)
+        #[arg(long, value_parser = parse_priority)]
         priority: Option<u8>,
 
         /// Comma-separated labels
@@ -1081,8 +1126,8 @@ pub struct CreateOpts {
     #[arg(long)]
     pub parent: Option<String>,
 
-    /// Priority P0-P4 (default: P2)
-    #[arg(long)]
+    /// Priority P0-P4 or 0-4 (default: P2)
+    #[arg(long, value_parser = parse_priority)]
     pub priority: Option<u8>,
 
     /// Comma-separated labels

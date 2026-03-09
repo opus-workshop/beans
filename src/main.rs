@@ -14,8 +14,9 @@ use bn::commands::{
     cmd_adopt, cmd_agents, cmd_claim, cmd_close, cmd_config_get, cmd_config_set, cmd_context,
     cmd_create, cmd_delete, cmd_dep_add, cmd_dep_list, cmd_dep_remove, cmd_doctor, cmd_edit,
     cmd_fact, cmd_graph, cmd_init, cmd_list, cmd_locks, cmd_locks_clear, cmd_logs, cmd_mcp_serve,
-    cmd_memory_context, cmd_plan, cmd_quick, cmd_recall, cmd_release, cmd_reopen, cmd_run,
-    cmd_show, cmd_stats, cmd_status, cmd_sync, cmd_tidy, cmd_trace, cmd_tree, cmd_trust,
+    cmd_memory_context, cmd_move_from, cmd_move_to, cmd_plan, cmd_quick, cmd_recall,
+    cmd_release, cmd_reopen,
+    cmd_run, cmd_show, cmd_stats, cmd_status, cmd_sync, cmd_tidy, cmd_trace, cmd_tree, cmd_trust,
     cmd_unarchive, cmd_update, cmd_verify, cmd_verify_facts,
     review::{cmd_review, ReviewArgs},
 };
@@ -629,6 +630,17 @@ fn main() -> Result<()> {
                     verify_timeout,
                 },
             )
+        }
+
+        Command::Move { from, to, ids } => {
+            for id in &ids {
+                validate_bean_id(id)?;
+            }
+            match (from, to) {
+                (Some(src), None) => cmd_move_from(&beans_dir, &src, &ids).map(|_| ()),
+                (None, Some(dst)) => cmd_move_to(&beans_dir, &dst, &ids).map(|_| ()),
+                _ => unreachable!("clap enforces --from or --to"),
+            }
         }
 
         Command::Adopt { parent, children } => {
