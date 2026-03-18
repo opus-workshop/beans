@@ -1852,6 +1852,171 @@ mod tests {
     }
 
     // =====================================================================
+    // Feature Bean Close Tests
+    // =====================================================================
+
+    #[test]
+    fn test_feature_bean_not_closed_in_non_tty() {
+        // In test/CI context, stdin is not a TTY.
+        // Feature beans should stay open and cmd_close should succeed (exit 0).
+        let (_dir, beans_dir) = setup_test_beans_dir();
+
+        let mut bean = Bean::new("1", "Task management");
+        bean.feature = true;
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
+
+        // Close should succeed (no error) but the bean stays open
+        cmd_close(&beans_dir, vec!["1".to_string()], None, false).unwrap();
+
+        // Bean should still be open in the beans dir (not archived)
+        let still_open = crate::discovery::find_bean_file(&beans_dir, "1").unwrap();
+        let updated = Bean::from_file(&still_open).unwrap();
+        assert_eq!(updated.status, Status::Open);
+    }
+
+    #[test]
+    fn test_feature_bean_force_still_blocked_in_non_tty() {
+        // Even with --force, feature beans should not close in non-TTY
+        let (_dir, beans_dir) = setup_test_beans_dir();
+
+        let mut bean = Bean::new("1", "Release v2");
+        bean.feature = true;
+        let slug = title_to_slug(&bean.title);
+        bean.to_file(beans_dir.join(format!("1-{}.md", slug)))
+            .unwrap();
+
+        cmd_close(&beans_dir, vec!["1".to_string()], None, true).unwrap();
+
+        let still_open = crate::discovery::find_bean_file(&beans_dir, "1").unwrap();
+        let updated = Bean::from_file(&still_open).unwrap();
+        assert_eq!(updated.status, Status::Open);
+    }
+
+    #[test]
+    fn test_feature_parent_not_auto_closed() {
+        let (_dir, beans_dir) = setup_test_beans_dir_with_config();
+
+        // Create a feature parent bean
+        let mut parent = Bean::new("1", "Feature parent");
+        parent.feature = true;
+        let parent_slug = title_to_slug(&parent.title);
+        parent
+            .to_file(beans_dir.join(format!("1-{}.md", parent_slug)))
+            .unwrap();
+
+        // Create child beans
+        let mut child1 = Bean::new("1.1", "Child 1");
+        child1.parent = Some("1".to_string());
+        let child1_slug = title_to_slug(&child1.title);
+        child1
+            .to_file(beans_dir.join(format!("1.1-{}.md", child1_slug)))
+            .unwrap();
+
+        let mut child2 = Bean::new("1.2", "Child 2");
+        child2.parent = Some("1".to_string());
+        let child2_slug = title_to_slug(&child2.title);
+        child2
+            .to_file(beans_dir.join(format!("1.2-{}.md", child2_slug)))
+            .unwrap();
+
+        // Close both children
+        cmd_close(&beans_dir, vec!["1.1".to_string()], None, false).unwrap();
+        cmd_close(&beans_dir, vec!["1.2".to_string()], None, false).unwrap();
+
+        // Feature parent should still be open (not auto-closed)
+        let parent_still_open = crate::discovery::find_bean_file(&beans_dir, "1");
+        assert!(
+            parent_still_open.is_ok(),
+            "Feature parent should NOT be auto-closed"
+        );
+        let parent_bean = Bean::from_file(parent_still_open.unwrap()).unwrap();
+        assert_eq!(parent_bean.status, Status::Open);
+    }
+
+    #[test]
+    fn test_non_feature_parent_still_auto_closes() {
+        // Ensure normal (non-feature) parents still auto-close as before
+        let (_dir, beans_dir) = setup_test_beans_dir_with_config();
+
+        let parent = Bean::new("1", "Regular parent");
+        let parent_slug = title_to_slug(&parent.title);
+        parent
+            .to_file(beans_dir.join(format!("1-{}.md", parent_slug)))
+            .unwrap();
+
+        let mut child = Bean::new("1.1", "Only child");
+        child.parent = Some("1".to_string());
+        let child_slug = title_to_slug(&child.title);
+        child
+            .to_file(beans_dir.join(format!("1.1-{}.md", child_slug)))
+            .unwrap();
+
+        cmd_close(&beans_dir, vec!["1.1".to_string()], None, false).unwrap();
+
+        // Regular parent should be auto-closed
+        let parent_archived = crate::discovery::find_archived_bean(&beans_dir, "1");
+        assert!(
+            parent_archived.is_ok(),
+            "Regular parent should be auto-archived"
+        );
+        let parent_bean = Bean::from_file(parent_archived.unwrap()).unwrap();
+        assert_eq!(parent_bean.status, Status::Closed);
+    }
+
+    #[test]
+    fn test_feature_grandparent_blocks_recursive_auto_close() {
+        // When a feature bean is in the middle of the chain, auto-close stops there
+        let (_dir, beans_dir) = setup_test_beans_dir_with_config();
+
+        // Feature grandparent
+        let mut grandparent = Bean::new("1", "Feature goal");
+        grandparent.feature = true;
+        let gp_slug = title_to_slug(&grandparent.title);
+        grandparent
+            .to_file(beans_dir.join(format!("1-{}.md", gp_slug)))
+            .unwrap();
+
+        // Regular parent (child of feature grandparent)
+        let mut parent = Bean::new("1.1", "Regular parent");
+        parent.parent = Some("1".to_string());
+        let p_slug = title_to_slug(&parent.title);
+        parent
+            .to_file(beans_dir.join(format!("1.1-{}.md", p_slug)))
+            .unwrap();
+
+        // Leaf child
+        let mut child = Bean::new("1.1.1", "Leaf child");
+        child.parent = Some("1.1".to_string());
+        let c_slug = title_to_slug(&child.title);
+        child
+            .to_file(beans_dir.join(format!("1.1.1-{}.md", c_slug)))
+            .unwrap();
+
+        // Close the leaf — parent should auto-close, but grandparent (feature) should NOT
+        cmd_close(&beans_dir, vec!["1.1.1".to_string()], None, false).unwrap();
+
+        // Leaf should be archived
+        assert!(crate::discovery::find_archived_bean(&beans_dir, "1.1.1").is_ok());
+
+        // Regular parent should be auto-archived
+        assert!(
+            crate::discovery::find_archived_bean(&beans_dir, "1.1").is_ok(),
+            "Regular parent should be auto-archived"
+        );
+
+        // Feature grandparent should still be open
+        let gp_still_open = crate::discovery::find_bean_file(&beans_dir, "1");
+        assert!(
+            gp_still_open.is_ok(),
+            "Feature grandparent should NOT be auto-closed"
+        );
+        let gp_bean = Bean::from_file(gp_still_open.unwrap()).unwrap();
+        assert_eq!(gp_bean.status, Status::Open);
+    }
+
+    // =====================================================================
     // Truncation Helper Tests
     // =====================================================================
 

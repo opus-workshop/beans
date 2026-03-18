@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-03-18
+
+### Added
+- Accept `P0`–`P4` format for `--priority` flag (in addition to numeric)
+
+### Fixed
+- Verify-on-claim ignoring `--pass-ok` when `fail_first=false`
+
+### Changed
+- Improved `bn run` progress output and updated docs terminology
+- Tightened `chrono` and `regex` version floors above known CVEs
+- README examples diversified beyond auth domain
+- Replaced comparison chart with Spec Kit, GSD, and Ralph loop sections
+
 ## [0.2.0] - 2026-03-01
 
 ### Added
@@ -86,5 +100,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - File extension preservation during archiving
 - `.md` format support in dep and verify commands
 
-[Unreleased]: https://github.com/kfcafe/beans/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/kfcafe/beans/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/kfcafe/beans/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/kfcafe/beans/releases/tag/v0.2.0

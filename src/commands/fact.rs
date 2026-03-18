@@ -54,6 +54,7 @@ pub fn cmd_fact(
             claim: false,
             by: None,
             verify_timeout: None,
+            feature: false,
         },
     )?;
 

@@ -160,6 +160,10 @@ pub struct Bean {
     /// Identity of who created this bean (resolved from config/git/env).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_by: Option<String>,
+
+    /// Whether this bean is a feature (product-level goal, human-only close).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub feature: bool,
 }
 
 fn default_priority() -> u8 {
@@ -224,6 +228,7 @@ impl Bean {
             claimed_by: None,
             claimed_at: None,
             is_archived: false,
+            feature: false,
             produces: Vec::new(),
             requires: Vec::new(),
             on_fail: None,
@@ -483,6 +488,7 @@ mod tests {
             claimed_by: Some("agent-7".to_string()),
             claimed_at: Some(now),
             is_archived: false,
+            feature: false,
             produces: vec!["Parser".to_string()],
             requires: vec!["Lexer".to_string()],
             on_fail: Some(OnFailAction::Retry {

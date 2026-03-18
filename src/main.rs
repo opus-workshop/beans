@@ -112,6 +112,7 @@ fn main() -> Result<()> {
                 verify_timeout,
                 claim,
                 by,
+                feature,
                 run,
                 interactive,
                 json,
@@ -198,6 +199,7 @@ fn main() -> Result<()> {
                         claim,
                         by,
                         verify_timeout,
+                        feature: false,
                     },
                 )?;
 
@@ -317,6 +319,7 @@ fn main() -> Result<()> {
                         verify_timeout,
                         claim,
                         by,
+                        feature,
                     },
                 )?;
                 (id, run)

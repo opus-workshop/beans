@@ -1178,6 +1178,10 @@ pub struct CreateOpts {
     #[arg(long)]
     pub run: bool,
 
+    /// Mark as a product feature (human-only close, no verify gate required)
+    #[arg(long)]
+    pub feature: bool,
+
     /// Launch interactive wizard (prompts for all fields step-by-step)
     #[arg(long, short = 'i')]
     pub interactive: bool,
