@@ -238,6 +238,8 @@ fn run_once(
     let total_done;
     let total_failed;
     let any_failed;
+    let mut total_tokens: u64 = 0;
+    let mut total_cost: f64 = 0.0;
     // Collect IDs of successfully closed beans for --review post-processing
     let mut successful_ids: Vec<String> = Vec::new();
 
@@ -260,6 +262,8 @@ fn run_once(
             let mut done = 0u32;
             let mut failed = 0u32;
             for result in &results {
+                total_tokens += result.total_tokens.unwrap_or(0);
+                total_cost += result.total_cost.unwrap_or(0.0);
                 if result.success {
                     if args.json_stream {
                         stream::emit(&StreamEvent::BeanDone {
@@ -337,8 +341,8 @@ fn run_once(
                             });
                         } else {
                             eprintln!(
-                                "  ✓ {}  {}  {}  {}",
-                                result.id, result.title, result.action, duration
+                                "  ✓ {}  {}  {}",
+                                result.id, result.title, duration
                             );
                         }
                         done += 1;
@@ -358,9 +362,10 @@ fn run_once(
                                 failure_summary: result.failure_summary.clone(),
                             });
                         } else {
+                            let err = result.error.as_deref().unwrap_or("failed");
                             eprintln!(
-                                "  ✗ {}  {}  {}  {} (failed)",
-                                result.id, result.title, result.action, duration
+                                "  ✗ {}  {}  {} ({})",
+                                result.id, result.title, duration, err
                             );
                         }
                         failed += 1;
@@ -415,13 +420,25 @@ fn run_once(
             duration_secs: run_start.elapsed().as_secs(),
         });
     } else {
-        eprintln!();
-        eprintln!(
-            "Summary: {} done, {} failed, {} skipped",
+        let elapsed = format_duration(run_start.elapsed());
+        let mut summary = format!(
+            "\nDone: {} succeeded, {} failed, {} skipped  ({})",
             total_done,
             total_failed,
-            plan.skipped.len()
+            plan.skipped.len(),
+            elapsed,
         );
+        if total_tokens > 0 || total_cost > 0.0 {
+            let token_str = if total_tokens >= 1_000_000 {
+                format!("{:.1}M tokens", total_tokens as f64 / 1_000_000.0)
+            } else if total_tokens >= 1_000 {
+                format!("{}k tokens", total_tokens / 1_000)
+            } else {
+                format!("{} tokens", total_tokens)
+            };
+            summary.push_str(&format!("  [{}, ${:.2}]", token_str, total_cost));
+        }
+        eprintln!("{}", summary);
     }
 
     if any_failed && !args.keep_going {

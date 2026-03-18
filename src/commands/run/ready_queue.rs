@@ -85,6 +85,47 @@ fn is_bean_ready(
     explicit_ok && requires_ok
 }
 
+/// Format a human-friendly token count (e.g. 15000 → "15k").
+fn format_tokens(tokens: u64) -> String {
+    if tokens >= 1_000_000 {
+        format!("{:.1}M", tokens as f64 / 1_000_000.0)
+    } else if tokens >= 1_000 {
+        format!("{}k", tokens / 1_000)
+    } else {
+        tokens.to_string()
+    }
+}
+
+/// Print a single-line completion result for a bean (success or failure).
+fn print_result_line(result: &AgentResult) {
+    let duration = format_duration(result.duration);
+
+    // Build optional stats suffix: "42 tools, 15k tokens, $0.03"
+    let mut stats = Vec::new();
+    if result.tool_count > 0 {
+        stats.push(format!("{} tools", result.tool_count));
+    }
+    if let Some(tokens) = result.total_tokens {
+        stats.push(format!("{} tokens", format_tokens(tokens)));
+    }
+    if let Some(cost) = result.total_cost {
+        stats.push(format!("${:.2}", cost));
+    }
+
+    let stats_str = if stats.is_empty() {
+        String::new()
+    } else {
+        format!("  ({})", stats.join(", "))
+    };
+
+    if result.success {
+        eprintln!("  ✓ {}  {}  {}{}", result.id, result.title, duration, stats_str);
+    } else {
+        let err = result.error.as_deref().unwrap_or("failed");
+        eprintln!("  ✗ {}  {}  {} ({}){}", result.id, result.title, duration, err, stats_str);
+    }
+}
+
 /// Run beans using a ready-queue: start each bean as soon as its specific deps
 /// complete, rather than waiting for an entire wave to finish.
 pub(super) fn run_ready_queue_direct(
@@ -229,18 +270,7 @@ pub(super) fn run_ready_queue_direct(
 
             // Print real-time completion for CLI users
             if !json_stream {
-                let duration = format_duration(result.duration);
-                if success {
-                    eprintln!(
-                        "  ✓ {}  {}  {}  {}",
-                        result.id, result.title, result.action, duration
-                    );
-                } else {
-                    eprintln!(
-                        "  ✗ {}  {}  {}  {} (failed)",
-                        result.id, result.title, result.action, duration
-                    );
-                }
+                print_result_line(&result);
             }
 
             if success {
@@ -255,18 +285,7 @@ pub(super) fn run_ready_queue_direct(
                         if let Ok(r) = rx.recv() {
                             running_count -= 1;
                             if !json_stream {
-                                let duration = format_duration(r.duration);
-                                if r.success {
-                                    eprintln!(
-                                        "  ✓ {}  {}  {}  {}",
-                                        r.id, r.title, r.action, duration
-                                    );
-                                } else {
-                                    eprintln!(
-                                        "  ✗ {}  {}  {}  {} (failed)",
-                                        r.id, r.title, r.action, duration
-                                    );
-                                }
+                                print_result_line(&r);
                             }
                             results.push(r);
                         }
@@ -460,6 +479,7 @@ pub(super) fn run_single_direct(
     let mut tool_log: Vec<String> = Vec::new();
     let mut turns: usize = 0;
     let bean_id = sb.id.clone();
+    let mut shown_thinking = false;
 
     // Monitor the process, parsing JSON events
     let monitor_result = timeout::monitor_process(&mut child, stdout, &timeout_config, |line| {
@@ -473,6 +493,9 @@ pub(super) fn run_single_direct(
                                 id: bean_id.clone(),
                                 text: text.clone(),
                             });
+                        } else if !shown_thinking {
+                            eprintln!("  {}  thinking...", bean_id);
+                            shown_thinking = true;
                         }
                     }
                     AgentEvent::ToolStart { ref name, .. } => {
@@ -503,6 +526,11 @@ pub(super) fn run_single_direct(
                                 tool_count,
                                 file_path,
                             });
+                        } else {
+                            match file_path {
+                                Some(ref p) => eprintln!("  {}  ⚙ {} {}", bean_id, name, p),
+                                None => eprintln!("  {}  ⚙ {}", bean_id, name),
+                            }
                         }
                     }
                     AgentEvent::TokenUpdate {
