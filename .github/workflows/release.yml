@@ -20,14 +20,41 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Publish to crates.io
         run: |
-          # Exchange GitHub OIDC token for crates.io publish token
+          set -euo pipefail
+
+          # Get GitHub OIDC token
           OIDC_TOKEN=$(curl -sS \
             -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
             "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=crates.io" | jq -r '.value')
 
-          CRATES_TOKEN=$(curl -sS \
+          if [ -z "$OIDC_TOKEN" ] || [ "$OIDC_TOKEN" = "null" ]; then
+            echo "::error::Failed to get OIDC token"
+            exit 1
+          fi
+          echo "Got OIDC token (${#OIDC_TOKEN} chars)"
+
+          # Exchange for crates.io publish token
+          EXCHANGE_RESPONSE=$(curl -sS -w "\n%{http_code}" \
             -X PUT \
             -H "Authorization: Bearer $OIDC_TOKEN" \
-            "https://crates.io/api/v1/tokens/trusted-publishing" | jq -r '.token')
+            "https://crates.io/api/v1/tokens/trusted-publishing")
+
+          HTTP_CODE=$(echo "$EXCHANGE_RESPONSE" | tail -1)
+          BODY=$(echo "$EXCHANGE_RESPONSE" | sed '$d')
+
+          echo "crates.io token exchange HTTP status: $HTTP_CODE"
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Token exchange failed ($HTTP_CODE): $BODY"
+            exit 1
+          fi
+
+          CRATES_TOKEN=$(echo "$BODY" | jq -r '.token')
+
+          if [ -z "$CRATES_TOKEN" ] || [ "$CRATES_TOKEN" = "null" ]; then
+            echo "::error::No token in response: $BODY"
+            exit 1
+          fi
+          echo "Got crates.io token (${#CRATES_TOKEN} chars)"
 
           CARGO_REGISTRY_TOKEN="$CRATES_TOKEN" cargo publish
