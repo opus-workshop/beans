@@ -68,7 +68,8 @@ pub fn cmd_claim(beans_dir: &Path, id: &str, by: Option<String>, force: bool) ->
     }
 
     // Verify-on-claim: run verify before granting claim (TDD enforcement)
-    if has_verify && !force {
+    // Skip when fail_first is false (bean created with -p / pass-ok)
+    if has_verify && !force && bean.fail_first {
         let project_root = beans_dir
             .parent()
             .ok_or_else(|| anyhow!("Cannot determine project root from beans dir"))?;
@@ -352,6 +353,7 @@ mod tests {
         // Bean with verify that passes immediately ("true" exits 0)
         let mut bean = Bean::new("1", "Already done");
         bean.verify = Some("true".to_string());
+        bean.fail_first = true; // created without -p, enforces fail-first
         bean.to_file(beans_dir.join("1.yaml")).unwrap();
 
         // Claim without force — should be rejected because verify passes
@@ -373,6 +375,7 @@ mod tests {
         // Bean with verify that fails ("false" exits 1)
         let mut bean = Bean::new("1", "Real work needed");
         bean.verify = Some("false".to_string());
+        bean.fail_first = true; // created without -p, enforces fail-first
         bean.to_file(beans_dir.join("1.yaml")).unwrap();
 
         // Claim without force — should succeed because verify fails
@@ -413,6 +416,7 @@ mod tests {
         // Bean with verify that fails
         let mut bean = Bean::new("1", "Checkpoint test");
         bean.verify = Some("false".to_string());
+        bean.fail_first = true; // created without -p, enforces fail-first
         bean.to_file(beans_dir.join("1.yaml")).unwrap();
 
         // Initialize a git repo in the temp dir so we get a real SHA
